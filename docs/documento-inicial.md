@@ -1187,6 +1187,21 @@ flowchart LR
 - **En casa**, cada quien levanta el sistema completo en su propia máquina con Docker Compose: los cinco servicios en contenedores, hablándose por la red interna de Docker. Eso ya es un sistema distribuido de verdad, y es donde se hace casi todo el trabajo.
 - **En el laboratorio**, cada máquina descarga su imagen y levanta su servicio, apuntando a las direcciones de las demás. Hace falta un archivo con esas direcciones y un script por máquina, nada más.
 
+### De una máquina a cinco sin tocar el código
+
+Mientras se desarrolla, cada quien trabaja con la topología del plan B: su máquina y un contenedor por servicio con Docker Compose. El plan A usa **las mismas imágenes y el mismo código**; solo cambia la configuración: cómo se encuentran los servicios (por nombre en la red de Compose o por IP del laboratorio), qué puertos publica cada máquina y un archivo de Compose por máquina, porque Compose no abarca varias. Eso solo se cumple si se respetan seis reglas desde la primera línea:
+
+| Regla | Por qué |
+| --- | --- |
+| Ninguna dirección en el código: variables de entorno (`WORLD_ADDR`, `PERSISTENCE_ADDR`, `CHAT_ADDR`…) | En el plan B valen `world:50051`; en el plan A, `10.68.17.x:50051` |
+| Nunca `localhost` entre servicios | Funciona fuera de Docker y se rompe en cuanto las piezas se separan |
+| Sin carpetas compartidas entre contenedores | En el plan A no hay disco común; lo compartido va por gRPC o por la base de datos |
+| Toda llamada gRPC con tiempo límite y reintentos acotados | En una máquina casi nunca falla; en la red del laboratorio sí |
+| Cada servicio arranca aunque los demás no estén (RNF-09, CP-08) | `depends_on` de Compose no sirve entre máquinas |
+| Un archivo base y variaciones: `deploy/compose.yml` (plan B) y `deploy/nodes/<nodo>.yml` (plan A) | Las mismas imágenes; solo cambian direcciones y puertos |
+
+Lo que el plan B no enseña: la latencia real, los fallos parciales (una máquina cae y las demás siguen) y el cortafuegos del dominio. Por eso el primer ensayo repartido se hace en cuanto el encargado cree la regla, con lo que exista en ese momento, y no se deja para la semana 6. Docker Swarm queda descartado: pediría más puertos en el cortafuegos (2377, 7946, 4789) y es frágil con Docker Desktop sobre WSL.
+
 ### ¿Se puede estar tranquilo una vez configurado?
 
 **No del todo, y es mejor asumirlo.** Una máquina compartida puede cambiar entre visitas. El objetivo no es «configurarlo una vez y olvidarse», sino que **volver a montarlo cueste cinco minutos**. Si el despliegue es un script y las imágenes están en GitHub, da igual lo que le haya pasado a la máquina.
