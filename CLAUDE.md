@@ -75,16 +75,30 @@ hydrovalley/
 
 ## Entorno de despliegue (laboratorio)
 
-- PC con Windows 10 Pro, x86_64, 16 núcleos y 32 GB de RAM. Docker Desktop con WSL 2. La cuenta del laboratorio **no es administradora**.
+- Máquinas LABBD-01 (`10.68.17.1`) y LABBD-02 (`10.68.17.2`), misma subred. Windows 10 Pro, x86_64, i7-13700F (16 núcleos, 24 hilos) y 31,7 GB de RAM.
+- Docker Desktop 29.5.3 con WSL 2. Cuenta genérica del dominio, **no administradora**: ejecuta contenedores y descarga imágenes amd64, pero no instala nada ni abre puertos.
 - Las imágenes las construye el pipeline para `linux/amd64`; no se construyen en un Mac con chip Apple para desplegarlas.
-- Puertos publicados en el host: proxy **8080** (el 80 lo ocupa Windows), gRPC **50051**, PostgreSQL en contenedor **5433** (el 5432 lo ocupa un PostgreSQL nativo del laboratorio).
-- El cortafuegos bloquea las conexiones entrantes entre máquinas hasta que el encargado cree la regla. Mientras tanto, plan B: todo en una sola máquina con Docker Compose.
+- Puertos publicados en el host: proxy **8080** (el 80 lo ocupa Windows), gRPC **50051**, PostgreSQL en contenedor **5433** (el 5432 lo ocupa un PostgreSQL 16 nativo del laboratorio).
+- El cortafuegos bloquea las conexiones entrantes entre máquinas hasta que el encargado cree la regla. Nunca se da por hecha la conectividad entre máquinas. Mientras tanto, plan B: todo en una sola máquina con Docker Compose.
+- El objetivo sigue siendo el despliegue repartido en las máquinas del laboratorio (RES-07). Una sola máquina es el plan B, no el destino.
 
 ## Alcance
 
 - **Nivel 1 (sí o sí):** valle con gotas, humedad, crecimiento, evaporación y marchitamiento; depósito; las tres instalaciones; dos mejoras (gota más grande y depósito mayor); incendios que aparecen y se apagan; límite de gotas; ranking; valle isométrico con salida de emergencia a vista cenital; instantáneas cada 5 s y recuperación tras reiniciar Rust; gRPC; proxy; bots; panel del sistema mínimo; Docker Compose; pipeline; diagramas UML.
 - **Nivel 2 (si da tiempo, en orden):** despliegue repartido en el laboratorio, chat, propagación del fuego, obras comunitarias, comparativa Go vs. Rust, resumen al volver, Prometheus y Grafana, más contenido.
 - Toda idea nueva dice en qué nivel entra y qué desplaza.
+
+## Calendario
+
+La entrega es en la semana 7 del curso. La semana 3 empieza el lunes 28 de septiembre de 2026.
+
+| Semana | Fechas | Objetivo |
+| --- | --- | --- |
+| 3 | 28 sep – 2 oct | Cerrar y esqueletar |
+| 4 | 5 – 9 oct | Que cada pieza haga lo suyo |
+| 5 | 12 – 16 oct | Integrar de verdad y endurecer. Se cierra el nivel 1 |
+| 6 | 19 – 23 oct | Nivel 2 y ensayo en el laboratorio |
+| 7 | 26 – 30 oct | Informe y defensa. Entrega: `[DATO: día exacto de la entrega]` |
 
 ## Diagramas
 

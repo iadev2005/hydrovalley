@@ -105,7 +105,7 @@ Ese reparto dice algo importante: **el profesor le asignó una máquina propia a
 
 Antes de repartir el trabajo hace falta saber quién tiene experiencia con qué: Go, Rust, gRPC, Docker, bases de datos, frontend. **El reparto de lenguajes debería seguir a esa conversación, no precederla.** Con solo cuatro personas y cuatro lenguajes, colocar a alguien en el lenguaje equivocado cuesta semanas.
 
-## Decisiones que hay que cerrar esta semana
+## Decisiones
 
 ### D-01 · Las reglas del juego
 
@@ -1058,7 +1058,7 @@ A eso se suma algo más sutil: el trabajo real de un sistema distribuido **no es
 | R-08 | Kubernetes se lleva una semana entera | Medio | Docker Compose primero |
 | R-09 | La demo falla en vivo | Medio | Ensayo completo con dos días de margen y un video de respaldo |
 | R-10 | Las imágenes hechas en un Mac con chip Apple no arrancan en los PC del laboratorio | Alto | El pipeline de GitHub construye las imágenes para x86 |
-| R-11 | El laboratorio no permite Docker, o sus máquinas no se ven entre sí | Alto | Reconocimiento en la próxima visita; plan B con todo en una laptop |
+| R-11 | El laboratorio no permite Docker, o sus máquinas no se ven entre sí | Alto | Reconocimiento hecho en parte: Docker funciona, pero el cortafuegos bloquea las conexiones entre máquinas hasta que el encargado cree la regla; plan B con todo en una sola máquina |
 | R-12 | El valle isométrico se come el tiempo del frontend | Alto | Rombos de colores desde el primer día; decidir entre isométrico y cenital al final de la semana 4 |
 
 R-01 y R-02 son los que hunden proyectos como este. Los demás cuestan puntos; esos dos cuestan el proyecto.
@@ -1095,40 +1095,37 @@ La pieza que lo hace posible es Docker. Cada servicio viaja en un contenedor que
 
 | Trampa | Qué pasa | Cómo se evita |
 | --- | --- | --- |
-| **Procesador distinto** | Un Mac con chip Apple (M1 a M4) construye imágenes para ARM; los Ryzen del laboratorio son x86. Una imagen hecha en el Mac puede no arrancar allí | Que las imágenes las construya el pipeline de GitHub, que corre en x86, o construirlas para las dos arquitecturas con `docker buildx` |
+| **Procesador distinto** | Un Mac con chip Apple (M1 a M4) construye imágenes para ARM; los PC del laboratorio (Intel i7) son x86. Una imagen hecha en el Mac puede no arrancar allí | Que las imágenes las construya el pipeline de GitHub, que corre en x86, o construirlas para las dos arquitecturas con `docker buildx` |
 | **Máquinas compartidas** | Otros estudiantes las usan: pueden reiniciarse, restaurarse o actualizarse entre una visita y otra | No dejar nada instalado a mano. Todo el despliegue en un script que se ejecuta en minutos |
-| **La red del laboratorio** | Las máquinas pueden no verse entre sí, o un cortafuegos puede bloquear los puertos de gRPC | Probarlo en la primera visita, con dos máquinas y un servicio mínimo |
+| **La red del laboratorio** | Las máquinas pueden no verse entre sí, o un cortafuegos puede bloquear los puertos de gRPC | Probado en la primera visita: el cortafuegos bloquea las conexiones entrantes entre máquinas. Hace falta una regla del encargado; mientras tanto, plan B en una sola máquina |
 | **Saltos de línea de Windows** | Windows guarda los archivos de texto con otro final de línea. Un script de arranque editado allí puede romper un contenedor de Linux con errores muy confusos | Un archivo .gitattributes en el repositorio que fuerce el formato de Linux desde el primer commit |
 
 ### Qué hacer en la próxima visita
 
-No hace falta configurar el sistema. Hace falta **reconocer el terreno**, y son quince minutos:
+El primer reconocimiento ya está hecho en parte (resultados en la sección siguiente). Lo que queda abierto:
 
-- [ ] Son Windows 10 Pro, así que se usa el script diagnostico-lab.ps1 o los comandos sueltos del reconocimiento
-- [ ] ¿Está Docker instalado? Si no, ¿se puede instalar? ¿Hay permisos de administrador?
-- [ ] ¿Lo que se instala sobrevive a un reinicio, o las máquinas se restauran solas?
-- [ ] ¿Dos máquinas se ven entre sí? Un `ping` de una a otra, y probar un puerto
-- [ ] ¿Hay salida a internet para descargar imágenes desde GitHub?
-- [ ] Anotar qué máquinas son y cómo se identifican
+- [ ] **Cortafuegos:** que el encargado cree en cada máquina que usemos una regla de entrada para los puertos 50051, 8080 y 5433, limitada a `10.68.17.0/24`, y repetir la prueba entre máquinas. Una directiva de grupo del dominio podría anular las reglas locales: si la prueba sigue fallando con la regla creada, preguntarlo
+- [ ] **Con el encargado:** confirmar que las IP son fijas y qué política hay sobre el PostgreSQL nativo del laboratorio
+- [ ] **En la próxima visita:** comprobar que el archivo de prueba y las imágenes de Docker siguen ahí
 
 Si alguna respuesta es «no», mejor saberlo en la semana 3 que el día de la defensa. Y casi todas tienen salida: sin internet, las imágenes se llevan en un USB con `docker save` y se cargan allí con `docker load`; sin permisos, se le pide al encargado del laboratorio con tiempo.
 
 ### Lo que encontró el primer reconocimiento
 
-Primera visita al laboratorio de Base de Datos, máquina LABBD-02. Las máquinas sirven de sobra; Docker funciona con la cuenta del laboratorio, y lo único por resolver es el cortafuegos entre máquinas.
+**Estado: hecho en parte.** Primera visita al laboratorio de Base de Datos, máquinas LABBD-01 y LABBD-02. Las máquinas sirven de sobra y Docker funciona con la cuenta del laboratorio. **Queda abierta la red entre máquinas:** el cortafuegos la bloquea.
 
 | Aspecto | Resultado | Qué implica |
 | --- | --- | --- |
-| Sistema | Windows 10 Pro, 64 bits | No es Windows 11 como suponíamos; no cambia nada del plan |
+| Sistema | Windows 10 Pro, 64 bits, x86_64 | No es Windows 11 como suponíamos; no cambia nada del plan |
 | Hardware | i7-13700F (16 núcleos, 24 hilos), 31,7 GB de RAM, 75,7 GB libres | Sobra para los cinco servicios en una sola máquina: el plan B es viable aquí mismo |
-| Usuario | `guayanalabs\labbd-2`, cuenta genérica del dominio, **sin permisos de administrador** | No se puede instalar nada ni abrir puertos en el cortafuegos: eso lo hace el encargado |
-| Persistencia | No se detectó ningún congelador | Buena señal, pero la marca que apareció era de una ejecución anterior del mismo día. Se confirma en la próxima visita |
-| Docker | Docker Desktop instalado, con WSL 2 y el hipervisor activos, pero el motor estaba apagado | Comprobado: tras abrir Docker Desktop (motor 29.5.3), la cuenta del laboratorio ejecuta contenedores y descarga imágenes amd64 de Docker Hub sin permisos de administrador. En cada visita hay que abrirlo primero |
+| Usuario | Cuenta genérica del dominio (`guayanalabs\labbd-N`), **sin permisos de administrador** | No se puede instalar nada ni abrir puertos en el cortafuegos: eso lo hace el encargado |
+| Persistencia | No se vio ningún congelador | Buena señal, pero no está probado que los datos sobrevivan entre sesiones: el archivo de prueba se creó el mismo día. Se confirma en la próxima visita |
+| Docker | Docker Desktop 29.5.3 con WSL 2. El motor estaba apagado | Funciona tras abrir Docker Desktop: la cuenta sin permisos de administrador ejecuta contenedores y descarga imágenes amd64. En cada visita hay que abrirlo primero |
 | Herramientas | Git, Go, Node y Python 3.12 instalados; Rust y el cliente `psql` no | Da igual: todo se ejecuta en contenedores |
-| PostgreSQL | **Un PostgreSQL 16 nativo ya ocupa el puerto 5432** | Nuestro PostgreSQL en contenedor debe publicarse en otro puerto, por ejemplo 5433 |
-| Puerto 80 | Ocupado por el propio Windows (proceso 4, el servicio HTTP del sistema) | El proxy de entrada se publica en el 8080, no en el 80 |
-| Red | IP del laboratorio `10.68.17.2`. Hay otra, `192.168.56.1`, que es un adaptador virtual local | LABBD-01 tiene la `10.68.17.1` y LABBD-02 la `10.68.17.2`: misma red, y parece que la IP sigue el número de máquina (a confirmar con el encargado). Las direcciones `192.168.56.x` y `172.17.x` son adaptadores virtuales locales y no sirven entre máquinas |
-| Cortafuegos | Activo en los tres perfiles | Confirmado que bloquea: desde LABBD-01 no se llega a LABBD-02 por los puertos 50051, 8080 ni 5433, aunque el contenedor responde en local. Hace falta una regla de entrada creada por el encargado |
+| PostgreSQL | **Un PostgreSQL 16 nativo del laboratorio ya ocupa el puerto 5432** | Nuestro PostgreSQL en contenedor se publica en el puerto 5433 del host |
+| Puerto 80 | Ocupado por el propio Windows (proceso 4, el servicio HTTP del sistema) | El proxy de entrada se publica en el 8080, no en el 80. gRPC, en el 50051 |
+| Red | LABBD-01 tiene la `10.68.17.1` y LABBD-02 la `10.68.17.2`: misma subred | Parece que la IP sigue el número de máquina, sin confirmar. Las redes `192.168.56.x` (VirtualBox) y `172.17.x` (WSL) no son nuestras y no sirven entre máquinas |
+| Cortafuegos | Activo en los tres perfiles. Bloquea las conexiones **entrantes** entre máquinas | `Test-NetConnection` desde LABBD-01 hacia LABBD-02 por los puertos 50051, 8080 y 5433 da `False` en los tres, aunque el contenedor responde en local. Hace falta una regla de entrada creada por el encargado |
 | Internet | GitHub, `ghcr.io` y Docker Hub responden | Se pueden descargar las imágenes que construya el pipeline |
 
 **Pendiente con el encargado:** crear en cada máquina que usemos una regla de entrada acotada a esos tres puertos y a la red del laboratorio, y volver a hacer la prueba de red. La regla, para que la ejecute como administrador:
@@ -1137,7 +1134,14 @@ Primera visita al laboratorio de Base de Datos, máquina LABBD-02. Las máquinas
 New-NetFirewallRule -DisplayName "hydrovalley (proyecto Sistemas Distribuidos)" -Direction Inbound -Protocol TCP -LocalPort 50051,8080,5433 -RemoteAddress 10.68.17.0/24 -Action Allow -Profile Domain,Private
 ```
 
-Mientras no exista, se trabaja con el plan B: todo en una sola máquina, que en estos equipos va sobrada.
+**Lo que implica para el código:**
+
+- `docker-compose.yml` publica en el host el **8080** (proxy), el **50051** (gRPC) y el **5433** (PostgreSQL).
+- Nunca se da por hecho que las máquinas se ven entre sí. Las direcciones de los demás servicios se configuran, no se fijan en el código.
+- Mientras no exista la regla del cortafuegos, el plan B es todo en una sola máquina con Docker Compose, que en estos equipos va sobrada.
+- Las imágenes las construye el pipeline para `linux/amd64`.
+
+El objetivo sigue siendo el despliegue repartido en las máquinas del laboratorio que exige el enunciado (RES-07). Una sola máquina es el plan B, no el destino.
 
 ### El flujo de trabajo
 
@@ -1243,7 +1247,8 @@ El proyecto se entrega en la semana 7 del curso. Las semanas 1 y 2 ya pasaron; e
 ### Semana 3 (28 sep – 2 oct) · Cerrar y esqueletar
 
 - [ ] Preguntarle al profesor las dudas de más abajo
-- [ ] **Reconocimiento del laboratorio** en la próxima visita: quince minutos, con la lista de la sección anterior
+- [ ] **Reconocimiento del laboratorio**: hecho en parte en la primera visita (LABBD-01 y LABBD-02). Queda abierta la red entre máquinas
+- [ ] Pedir al encargado la regla de entrada del cortafuegos (50051, 8080, 5433 en 10.68.17.0/24) y repetir la prueba entre máquinas
 - [ ] Conversación de equipo: quién conoce Go, Rust, gRPC, Docker, frontend
 - [ ] Cerrar D-01: las reglas del juego en una página, y congelarlas
 - [ ] Cerrar D-02: elegir los dos lenguajes
