@@ -1,0 +1,85 @@
+@startuml 02-componentes
+title Componentes de hydrovalley (notación lollipop)
+left to right direction
+skinparam componentStyle uml2
+
+component "Navegador\n(React + Phaser)" as Browser <<TypeScript>>
+component "Proxy de entrada\n(nginx)" as Proxy
+component "API" as Api <<TypeScript>>
+component "Hub en tiempo real" as Hub <<Go>>
+component "Chat" as Chat <<Go>>
+component "Simulador del valle" as World <<Rust>>
+component "Persistencia" as Persistence <<Python>>
+database "PostgreSQL" as Db
+
+' --- Borde: HTTP y WebSocket ---
+() "Entrada única\n(HTTP / WebSocket)" as I_Entry
+() "HTTP /api" as I_Api
+() "WebSocket /play" as I_Play
+() "WebSocket /chat" as I_Chat
+
+Proxy -up- I_Entry
+Browser --( I_Entry
+
+Api - I_Api
+Hub - I_Play
+Chat - I_Chat
+Proxy --( I_Api
+Proxy --( I_Play
+Proxy --( I_Chat
+
+' --- Interior: gRPC (pregunta y respuesta, sin streams) ---
+() "WorldService\nStep, GetRanking" as I_World
+() "PersistenceService\nSaveSnapshot, LoadSnapshot" as I_Persistence
+() "AccountService\nRegister, Login" as I_Account
+() "CatalogService\nGetCatalog" as I_Catalog
+() "ReportService\nGetReport" as I_Report
+() "ChatService\nSendMessage, ListMessages" as I_ChatSvc
+
+World - I_World
+Hub --( I_World : Step\n(cada 100 ms)
+Api --( I_World : GetRanking
+
+Persistence - I_Persistence
+Persistence - I_Account
+Persistence - I_Catalog
+Persistence - I_Report
+World --( I_Persistence : SaveSnapshot (cada 5 s)\nLoadSnapshot (al arrancar)
+Api --( I_Account
+Api --( I_Catalog
+Api --( I_Report
+
+Chat - I_ChatSvc
+
+Persistence --> Db : SQL\n(único con credenciales)
+
+' --- Patrones de la nube ---
+note top of Proxy
+  <b>Gateway Routing</b>
+  /api → API, /play → hub, /chat → chat
+end note
+
+note bottom of Hub
+  <b>Gatekeeper</b>: sesión, action_id y
+  límite de 15 gotas/s antes del simulador
+  <b>Queue-Based Load Leveling</b>: cola del
+  tick, entregada a Step cada 100 ms
+  <b>Publisher-Subscriber</b>: difunde el
+  estado a todos los jugadores 1 vez/s
+  <b>Circuit Breaker</b>: si Step falla, deja
+  de reenviar, encola y avisa
+end note
+
+note bottom of Chat
+  <b>Publisher-Subscriber</b>: publica cada
+  mensaje, con su número de secuencia,
+  a todos los conectados a /chat.
+  Nivel 2.
+end note
+
+note right of I_ChatSvc
+  El documento no dice qué
+  componente consume ChatService.
+end note
+
+@enduml

@@ -1,0 +1,81 @@
+@startuml 04-secuencia-reinicio-rust
+title Rust se reinicia y recupera el mundo desde la instantánea
+
+actor "Jugadores" as Players
+participant "Hub (Go)" as Hub
+participant "Simulador\n(Rust)" as World
+participant "Persistencia\n(Python)" as Persistence
+database "PostgreSQL" as Db
+
+== Funcionamiento normal ==
+
+loop cada 100 ms
+  Hub -> World : WorldService.Step(comandos)
+  World --> Hub : estado + resultado por comando
+end
+
+loop cada 5 s
+  World -> Persistence : PersistenceService.SaveSnapshot(instantánea)
+  note right of World
+    La instantánea incluye:
+    - estado del mundo (valle y jugadores)
+    - estado del generador de azar
+    - action_id aplicados recientemente,
+      por jugador (últimos 600 ticks)
+  end note
+  Persistence -> Db : guardar en una sola transacción
+  Db --> Persistence : ok
+  Persistence --> World : ok
+end
+
+== Rust se cae ==
+
+hnote over World #FFCCCC : el proceso muere
+Hub -> World : WorldService.Step(comandos)
+Hub <--x World : falla (sin respuesta)
+
+group Circuit Breaker: abierto
+  Hub -> Hub : abrir el circuito:\ndejar de llamar a Step
+  Hub -> Players : aviso: «valle en pausa»\n(nadie se desconecta, las sesiones siguen abiertas)
+  loop mientras el circuito está abierto
+    Players -> Hub : acciones
+    Hub -> Hub : filtrar (sesión, action_id, 15 gotas/s)\ny guardar en la cola
+  end
+end
+
+== Rust vuelve ==
+
+World -> World : arranca
+World -> Persistence : PersistenceService.LoadSnapshot()
+Persistence -> Db : leer la última instantánea
+Db --> Persistence : instantánea
+Persistence --> World : instantánea
+World -> World : recuperar el mundo, el estado del azar\ny los action_id recientes
+
+group Circuit Breaker: semiabierto y cerrado
+  Hub -> World : WorldService.Step (llamada de prueba)
+  World --> Hub : responde
+  Hub -> Hub : cerrar el circuito
+  note right of Hub
+    El estado semiabierto es la forma estándar
+    del patrón; el documento solo dice que el
+    hub «deja de reenviar, encola y avisa».
+  end note
+end
+
+Hub -> World : WorldService.Step(comandos en cola)
+World -> World : aplicar en orden
+World --> Hub : resultado por comando
+note right of World
+  Los action_id aplicados antes de la instantánea
+  se rechazan como <b>duplicados</b>.
+end note
+Hub -> Players : el valle sigue
+
+note over Hub, Db
+  <b>Ventana de pérdida: como máximo 5 s.</b> Lo aplicado después de la última
+  instantánea se pierde. Su action_id no está en el conjunto recuperado, así que
+  si el cliente reintenta esa acción, Rust la acepta como nueva (Capa 3). Es lo correcto.
+end note
+
+@enduml
