@@ -1089,9 +1089,9 @@ Todo el mundo sube lo que hizo antes de irse, aunque esté a medias y no funcion
 
 Tenemos acceso a las máquinas del laboratorio una o dos horas por semana, y las comparten otros estudiantes. Eso define cómo trabajamos: **se programa en casa, y el laboratorio se usa solo para probar el despliegue, nunca para desarrollar.**
 
-La pieza que lo hace posible es Docker. Cada servicio viaja en un contenedor que lleva dentro todo lo que necesita, así que lo que funciona en una laptop funciona igual en el laboratorio. **Casi.** Hay tres cosas que no se arreglan solas.
+La pieza que lo hace posible es Docker. Cada servicio viaja en un contenedor que lleva dentro todo lo que necesita, así que lo que funciona en una laptop funciona igual en el laboratorio. **Casi.** Hay cuatro cosas que no se arreglan solas.
 
-### Tres trampas conocidas
+### Cuatro trampas conocidas
 
 | Trampa | Qué pasa | Cómo se evita |
 | --- | --- | --- |
@@ -1354,7 +1354,7 @@ Dos cosas son decisión nuestra, sin referente directo. La primera, la carpeta `
 
 **El nombre: hydrovalley.** Va en inglés, como pide la convención de nombres del contrato, y sirve de prefijo a los paquetes gRPC: `hydrovalley.world.v1`, `hydrovalley.chat.v1`. Así cada paquete tiene las tres partes que pide Buf: sistema, propósito y versión.
 
-**Contexto para programar con IA.** En la raíz va un `CLAUDE.md` que resume en dos páginas la arquitectura, las reglas que no se rompen, las convenciones y el plan de diagramas: es lo primero que lee una sesión de programación con IA. Junto a él, `docs/documento-inicial.md` es la copia exportada de este documento, y se actualiza al cierre de cada semana para que el repositorio nunca programe contra una versión vieja de los requerimientos.
+**Contexto para programar con IA.** En la raíz va un `CLAUDE.md` que resume en dos páginas la arquitectura, las reglas que no se rompen, las convenciones y el plan de diagramas: es lo primero que lee una sesión de programación con IA. Junto a él, `docs/documento-inicial.md` es este documento y la fuente de verdad del proyecto: los cambios se hacen ahí, por pull request, para que el código y los requerimientos nunca se separen.
 
 ### Ramas y reglas
 
@@ -1442,6 +1442,7 @@ Por orden de urgencia. La primera ya está respondida; el resto son confirmacion
 - [ ] ¿Los cinco patrones de la nube van en el informe del proyecto o en el trabajo escrito de UML? ¿Hay una lista de referencia que prefiera?
 - [ ] ¿Qué profundidad espera en Rust y en Go? ¿Basta un servicio real en cada uno?
 - [ ] ¿El despliegue tiene que quedar corriendo en el laboratorio o basta con demostrarlo en contenedores?
+- [ ] ¿Se puede desplegar todo en una sola máquina (con contenedores o máquinas virtuales), o el reparto en varias máquinas de RES-07 es obligatorio? De esto depende si el despliegue repartido es nivel 1 o nivel 2
 - [ ] ¿Hay un número de usuarios concurrentes que debamos alcanzar?
 - [ ] ¿El proyecto se entrega y defiende junto con el trabajo escrito de UML, o por separado?
 - [ ] ¿El informe sigue la estructura de capítulos de un trabajo de grado dentro de las 20 páginas? ¿Portada, índices y anexos cuentan en ese límite?

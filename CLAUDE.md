@@ -4,7 +4,7 @@ Juego incremental cooperativo y distribuido sobre las 3R del agua (reducir, reut
 
 ## Fuente de verdad
 
-- `docs/documento-inicial.md` contiene los requerimientos, las decisiones y el plan completo. Es una copia exportada del documento vivo del equipo y se actualiza al cierre de cada semana.
+- `docs/documento-inicial.md` contiene los requerimientos, las decisiones y el plan completo. Es la fuente de verdad: se edita en el repositorio, por pull request, y ningún otro documento la sustituye.
 - Si el código o un diagrama contradice ese documento, no decidas por tu cuenta: señálalo en la descripción del pull request.
 - Nunca inventes cifras, citas ni resultados de pruebas. Si falta un dato, deja `[DATO: …]`; si falta una fuente, `[FUENTE: …]`.
 
