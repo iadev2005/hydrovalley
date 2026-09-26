@@ -15,17 +15,20 @@ Proxy -> Goroutine : reenvía el mensaje
 
 group Filtro del hub (Gatekeeper, Rate Limiting)
   Goroutine -> Goroutine : comprobar la sesión (token firmado)
-  Goroutine -> Goroutine : ¿action_id nuevo en la ventana de la sesión (60 s)?
+  Goroutine -> Goroutine : ¿action_id nuevo? (pending: en cola o en curso;\nconfirmed: aplicado en los últimos 60 s)
   Goroutine -> Goroutine : ¿≤ 15 gotas por segundo?
 end
 
-alt rechazada por el hub (duplicada, límite, valle en pausa o sin rol de administrador)
+alt ya pendiente (reenvío de una acción en cola o en curso)
+  Goroutine -> Goroutine : ignorar: sin entrada nueva en la cola\nni resultado (el resultado final llegará)
+else rechazada por el hub (confirmada, límite, valle en pausa o sin rol de administrador)
   Goroutine -> Browser : al instante: {"type": "result", "action_id": "…",\n"status": "duplicate | rate_limited | paused | forbidden"}
   note right
     limite: más de 15 gotas por segundo (RF-05, CP-03).
     pausa: circuito abierto y cola llena (5.000).
   end note
 else admitida
+  Goroutine -> Goroutine : añadir el action_id a pending
   Goroutine -> Queue : encolar el comando
 end
 
@@ -34,14 +37,23 @@ end
 loop cada 100 ms (aunque nadie juegue)
   Ticker -> Queue : tomar los comandos admitidos
   Queue --> Ticker : comandos del tick
+  opt comandos con más de 30 s en la cola (desde que el hub los admitió)
+    Ticker -> Goroutine : descartarlos: resultado final expired
+  end
   Ticker -> World : WorldService.Step(comandos admitidos)
   activate World
   World -> World : aplicar los comandos en orden\n(cobrar el litro, sumar humedad, hacer crecer, repartir hojas)
   World -> World : avanzar el valle un paso\n(aspersores, evaporación, incendios)
   World --> Ticker : estado nuevo +\nresultado por comando: applied | duplicate | rejected
   deactivate World
-  Ticker -> Goroutine : resultado de cada comando del tick\n(solo a los jugadores con comandos en ese tick)
-  Goroutine -> Browser : {"type": "result", "action_id": "…",\n"status": "applied | duplicate | rejected"}
+  Ticker -> Goroutine : resultado de cada comando del tick\n(solo a los jugadores con comandos en ese tick;\napplied pasa de pending a confirmed y suma a las gotas aceptadas)
+  Goroutine -> Browser : {"type": "result", "action_id": "…",\n"status": "applied | duplicate | rejected | expired"}
+  note right
+    Un solo resultado final por acción admitida.
+    Hasta que llega, el navegador la muestra pendiente.
+    duplicate = éxito (ya estaba aplicada): igual que applied.
+    rejected y expired: fallo que ve el jugador.
+  end note
 end
 
 note over Ticker, World

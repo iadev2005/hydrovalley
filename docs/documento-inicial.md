@@ -208,7 +208,7 @@ Cifras de arranque, para empezar a probar. Todas son valores iniciales: viven en
 | Planta de tratamiento (Reciclar) | 40 hojas | +1 L extra de recarga cada 2 s |
 | Gota más grande (mejora) | 30 hojas | La gota humedece 3 × 3 casillas |
 | Depósito mayor (mejora) | 20 hojas | +10 L de capacidad del depósito |
-| Incendio | — | Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 5 hojas. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
+| Incendio | — | Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 5 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
 
 #### Los estados de una casilla
 
@@ -220,14 +220,14 @@ stateDiagram-v2
         state "Tierra seca" as Seca
         state "Árbol" as Arbol
         [*] --> Seca
-        Seca --> Pasto: humedad llega a 100 (se gastan 100)
-        Pasto --> Arbusto: humedad llega a 100 (se gastan 100)
-        Arbusto --> Flores: humedad llega a 100 (se gastan 100)
-        Flores --> Arbol: humedad llega a 100 (se gastan 100)
-        Arbol --> Flores: humedad 0 durante 100 ticks
-        Flores --> Arbusto: humedad 0 durante 100 ticks
-        Arbusto --> Pasto: humedad 0 durante 100 ticks
-        Pasto --> Seca: humedad 0 durante 100 ticks
+        Seca --> Pasto: humedad llega a 100 (se gastan 100) [sin fuego]
+        Pasto --> Arbusto: humedad llega a 100 (se gastan 100) [sin fuego]
+        Arbusto --> Flores: humedad llega a 100 (se gastan 100) [sin fuego]
+        Flores --> Arbol: humedad llega a 100 (se gastan 100) [sin fuego]
+        Arbol --> Flores: humedad 0 durante 100 ticks [sin fuego]
+        Flores --> Arbusto: humedad 0 durante 100 ticks [sin fuego]
+        Arbusto --> Pasto: humedad 0 durante 100 ticks [sin fuego]
+        Pasto --> Seca: humedad 0 durante 100 ticks [sin fuego]
         --
         state "Sin fuego" as SinFuego
         [*] --> SinFuego
@@ -238,7 +238,7 @@ stateDiagram-v2
     }
 ```
 
-Es la idea de las regiones ortogonales de los statecharts de Harel: las dos partes cambian por su cuenta, pero se tocan en un punto. Si el fuego se consume antes de que lo apaguen, la región de crecimiento vuelve a tierra seca, esté en la etapa que esté. En árbol la humedad no pasa de 100.
+Es la idea de las regiones ortogonales de los statecharts de Harel: las dos partes cambian por su cuenta, pero se tocan en dos puntos. Mientras la casilla arde, la región de crecimiento queda congelada: no sube ni baja de etapa, y el contador de ticks con humedad 0 (`dry_ticks`) no avanza. La evaporación sigue bajando la humedad; solo la etapa queda fija. Las gotas que caen sobre ella siguen sumando a la humedad aportada y cuentan para apagarla. Y el fuego siempre se resuelve: con la tercera gota, con un aspersor o consumiéndose a los 300 ticks; en este último caso la región de crecimiento vuelve a tierra seca, esté en la etapa que esté. En árbol la humedad no pasa de 100.
 
 #### Una partida de ejemplo
 
@@ -258,12 +258,12 @@ Nadie pierde una hoja, y el estanque aparece en las tres pantallas en la misma a
 #### Lo que pasa por dentro con una gota de Ana
 
 1. El navegador envía `{"type": "drop", "x": 14, "y": 9, "action_id": "…"}` por la conexión en vivo.
-2. El proxy lo pasa al hub. La goroutine de Ana comprueba la sesión, que el `action_id` es nuevo y que no pasa de 15 gotas por segundo. Si la rechaza, le responde al instante: `{"type": "result", "action_id": "…", "status": "duplicate"}` (o `rate_limited`, `paused`, `forbidden`).
+2. El proxy lo pasa al hub. La goroutine de Ana comprueba la sesión, que el `action_id` es nuevo y que no pasa de 15 gotas por segundo. Si la rechaza, le responde al instante: `{"type": "result", "action_id": "…", "status": "duplicate"}` (o `rate_limited`, `paused`, `forbidden`). Si el `action_id` ya está pendiente (en la cola o en curso), el reenvío se ignora: el resultado final llegará.
 3. La gota espera en la cola del tick. Cada 100 ms, el hub llama a `Step` en Rust con todos los comandos admitidos.
 4. Rust aplica los comandos en orden y después avanza el valle un paso: cobra el litro, suma humedad, hace crecer lo que toque y reparte hojas, riega con los aspersores, evapora y enciende incendios.
-5. Justo después de cada `Step`, el hub envía el resultado de cada comando (`applied`, `duplicate` o `rejected`) solo a los jugadores que tenían comandos en ese tick. Y una vez por segundo envía a cada navegador el estado del valle y el de su jugador. El navegador anima la barra del depósito hasta el siguiente mensaje.
+5. Justo después de cada `Step`, el hub envía el resultado final de cada comando (`applied`, `duplicate` o `rejected`) solo a los jugadores que tenían comandos en ese tick; si un comando pasa más de 30 s en la cola, el hub lo descarta y responde `expired`. El navegador muestra la gota como pendiente hasta ese resultado: trata `duplicate` como `applied` (la acción ya estaba aplicada), y muestra `rejected` y `expired` como fallos. Y una vez por segundo envía a cada navegador el estado del valle y el de su jugador. El navegador anima la barra del depósito hasta el siguiente mensaje.
 
-En modo demo esto regala una comprobación de consistencia. Rust lleva un contador de la **humedad aportada** por las gotas en todo el valle (`humidity_contributed` en el código): solo crece, y ni el crecimiento, ni la evaporación, ni los incendios lo tocan. Como en modo demo cada gota suma 1, **la humedad aportada tiene que ser igual al número de gotas aceptadas que cuenta el hub.** Son dos contadores que viven en sitios distintos y tienen que coincidir.
+En modo demo esto regala una comprobación de consistencia. Rust lleva un contador de la **humedad aportada** por las gotas en todo el valle (`humidity_contributed` en el código): solo crece, y ni el crecimiento, ni la evaporación, ni los incendios lo tocan. Como en modo demo cada gota suma 1, **la humedad aportada tiene que ser igual al número de gotas aceptadas que cuenta el hub.** El hub las cuenta solo a partir de los resultados `applied` de `Step`, no al admitirlas, así que un comando descartado o caducado nunca entra en la cuenta. Son dos contadores que viven en sitios distintos y tienen que coincidir.
 
 #### Lo que cambia por dentro
 
@@ -431,7 +431,7 @@ El panel de administración envía estos comandos por el mismo WebSocket `/play`
 | ID | Requisito | Cómo se comprueba |
 | --- | --- | --- |
 | RF-19 | El sistema debe seguir respondiendo con lo que pueda cuando un servicio secundario no responde | Se apaga el de reportes y el juego sigue |
-| RF-23 | El sistema debe recuperar el mundo desde la última instantánea cuando el simulador se reinicia | Se detiene Rust a propósito; al volver, el mundo está donde estaba, con como mucho 5 s de pérdida |
+| RF-23 | El sistema debe recuperar el mundo desde la última instantánea cuando el simulador se reinicia | Se detiene Rust a propósito; al volver, el mundo está donde estaba, con como mucho 5 s de pérdida mientras la persistencia responda (si una instantánea falla, la pérdida llega hasta la última guardada) |
 | RF-24 | El sistema debe conservar el mundo y dejar que los jugadores se reconecten cuando el hub se reinicia | Se detiene Go; al reiniciarlo, el mundo está intacto en Rust y los jugadores retoman su sesión |
 
 RF-16, RF-17 y RF-18 pasaron a ser restricciones (RES-01, RES-04 y RES-05), porque los impone el enunciado.
@@ -492,7 +492,7 @@ Cada requerimiento sale de una necesidad concreta, se resuelve en un componente 
 | Muchos jugadores escriben a la vez sobre el mismo valle | RF-08, RF-30, RNF-01, RNF-02 | Hub (Go) y simulador (Rust), escritor único | CP-01, CP-04, CP-11 |
 | Reintentos de red y doble clic | RF-09 | Hub y simulador, con `action_id` | CP-02 |
 | Autoclickers y trampas | RF-05, RF-06 | Hub: *Gatekeeper* y *Rate Limiting* | CP-03 |
-| Que el mundo sobreviva a un reinicio | RF-23, RF-24 | Simulador y persistencia, con instantáneas | CP-05, CP-06 |
+| Que el mundo sobreviva a un reinicio | RF-23, RF-24 | Simulador y persistencia, con instantáneas | CP-05, CP-06, CP-12 |
 | Que un servicio caído no tumbe el juego | RF-15, RF-19, RNF-04 | Hub: *Circuit Breaker* | CP-07 |
 | Arranque en cualquier orden | RNF-09 | Todos los servicios: *Retry* | CP-08 |
 | Orden sin reloj compartido | RF-14, RNF-05 | Chat y tick como reloj lógico | CP-09 |
@@ -566,14 +566,14 @@ Cada acción lleva un **identificador único**, el `action_id` (un UUID que gene
 
 | Quién | Qué hace | Qué pasa si se reinicia |
 | --- | --- | --- |
-| Go, primera línea | Descarta los `action_id` repetidos en los últimos 60 s de la sesión, el mismo plazo que los 600 ticks de Rust. Es barato | Esa memoria vive solo en el hub y se pierde. El hub también la vacía cuando Rust vuelve de un reinicio |
+| Go, primera línea | Lleva dos conjuntos por sesión. **`pending`**: los `action_id` en cola o en curso; un reenvío de uno de ellos se ignora, sin entrada nueva en la cola ni resultado, porque el resultado final llegará. **`confirmed`**: los que `Step` devolvió como aplicados, cada uno con el tick en que se aplicó, durante 60 s (600 ticks, el mismo plazo que Rust); un reenvío recibe `duplicate`. Es barato | Esa memoria vive solo en el hub y se pierde. Cuando Rust vuelve de un reinicio, el hub poda `confirmed` (ver abajo) |
 | Rust, la autoridad | Recuerda, por jugador, los `action_id` aplicados en los últimos 600 ticks (60 s; valor configurable). **Ese conjunto viaja dentro de la instantánea de 5 s**, junto con el mundo y el estado del generador de azar | Lo recupera de la instantánea |
 
-`WorldService.Step` devuelve el resultado de cada comando (aplicado, duplicado o rechazado), así el hub puede confirmarle a cada jugador lo que pasó con su acción.
+`WorldService.Step` devuelve el resultado de cada comando (aplicado, duplicado o rechazado), así el hub puede confirmarle a cada jugador lo que pasó con su acción. **Hay un solo reloj para los plazos, el del hub:** contesta cada acción admitida con exactamente un resultado final, `applied`, `duplicate`, `rejected` o `expired` (la descartó porque pasó más de 30 s en la cola, contados desde que la admitió). Los rechazos inmediatos del hub son `duplicate`, `rate_limited`, `paused` o `forbidden`. Para el cliente, `duplicate` es un éxito (la acción ya estaba aplicada) y lo trata como `applied`; `rejected` y `expired` son fallos que ve el jugador.
 
 - **Si se reinicia el hub** (RF-24, CP-06): los jugadores se reconectan y pueden reenviar las acciones sin confirmar. Rust sigue en marcha y rechaza las duplicadas.
-- **Si se reinicia Rust** (RF-23, CP-05): los comandos del `Step` que falló vuelven al frente de la cola del hub, y el hub deja de llamar a `Step`: el valle queda en pausa y el tick no avanza. La cola admite hasta 5.000 comandos; los que pasen de ahí se rechazan con «valle en pausa». Rust carga la última instantánea (mundo, azar y `action_id` recientes). El hub vacía entonces su propia ventana de duplicados, porque la autoridad es el conjunto recuperado, y drena la cola en lotes de como mucho 500 comandos por tick, descartando los de más de 30 s. Los que ya se aplicaron antes de la instantánea se rechazan como duplicados. Los que se aplicaron después se pierden con la ventana de 5 s como máximo; como su `action_id` no está en el conjunto recuperado y el hub ya vació su ventana, si el cliente los reintenta se aceptan como nuevos. Es lo correcto.
-- **Reintentos del cliente:** una acción sin confirmar se reintenta durante 30 s como máximo, por debajo de la ventana de 60 s; después se abandona y el jugador ve un error.
+- **Si se reinicia Rust** (RF-23, CP-05): los comandos del `Step` que falló vuelven al frente de la cola del hub y siguen en `pending`, y el hub deja de llamar a `Step`: el valle queda en pausa y el tick no avanza. La cola admite hasta 5.000 comandos; los nuevos que pasen de ahí se rechazan al instante con `paused`. Rust carga la última instantánea (mundo, azar y `action_id` recientes), y su primera respuesta a `Step` informa del tick recuperado (`restored_tick`). El hub quita de `confirmed` toda entrada con tick mayor que `restored_tick`: esas acciones se perdieron con la ventana de 5 s como máximo, así que si el cliente las reenvía se admiten de nuevo y Rust, que no las tiene en su conjunto recuperado, las aplica como nuevas. Es lo correcto. El hub drena la cola en lotes de como mucho 500 comandos por tick y responde `expired` a los que llevan más de 30 s en ella. Los que ya se aplicaron antes de la instantánea se rechazan como duplicados: la autoridad final sigue siendo Rust.
+- **El cliente no abandona por su cuenta:** muestra la acción como pendiente hasta que llega su resultado final. Solo reenvía las pendientes cuando se le corta la conexión y se reconecta.
 - **Si un `Step` tarda más de 100 ms:** el hub nunca solapa llamadas. El siguiente tick espera, los comandos se acumulan en la cola y el panel del sistema muestra cuánto tarda cada `Step`.
 
 Es RF-09, el requisito que más se olvida y más caro sale: los reintentos automáticos son justamente lo que hace que un sistema distribuido duplique cosas.
@@ -586,9 +586,9 @@ Y aquí el diseño regala la solución: **el número de tick del simulador es el
 
 ### Capa 5 · Instantáneas para sobrevivir a un reinicio
 
-El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada 50 ticks (5 s), cuando `tick % 50 == 0`, Rust envía una instantánea completa a Python con `SaveSnapshot`, que la guarda en una sola transacción. Se cuenta en ticks porque el tick es el reloj (Capa 4). Si Rust se reinicia, arranca desde la última. La instantánea incluye los `action_id` recientes, así que un reinicio no abre la puerta a duplicados (Capa 3).
+El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada 50 ticks (5 s), cuando `tick % 50 == 0`, Rust copia el estado del mundo y envía la instantánea a Python con `SaveSnapshot` desde una tarea en segundo plano; Python la guarda en una sola transacción. `Step` nunca espera a la persistencia. Hay como mucho un guardado en curso: si el anterior no ha terminado, esa instantánea se salta. Si `SaveSnapshot` falla, Rust lo registra y lo vuelve a intentar en el siguiente tick de instantánea, y el juego sigue (RNF-04). Un fallo de la persistencia nunca abre el *Circuit Breaker* del hub, que solo vigila `Step`. Se cuenta en ticks porque el tick es el reloj (Capa 4). Si Rust se reinicia, arranca desde la última. La instantánea incluye los `action_id` recientes, así que un reinicio no abre la puerta a duplicados (Capa 3).
 
-Lo que se pierde en el peor caso son esos cinco segundos. Es un compromiso consciente, y conviene explicarlo así en la defensa: **velocidad a cambio de una ventana de pérdida pequeña y conocida.**
+Lo que se pierde en el peor caso son esos cinco segundos, mientras la persistencia responda. Es un compromiso consciente, y conviene explicarlo así en la defensa: **velocidad a cambio de una ventana de pérdida pequeña y conocida.**
 
 ### Qué puede salir mal y cómo se prueba
 
@@ -600,13 +600,14 @@ Cada cosa que puede salir mal es un caso de prueba que hay que provocar a propó
 | CP-02 | Acción repetida (RF-09) | Un jugador conectado | Se envía dos veces la misma gota con el mismo `action_id` | Se aplica una sola vez |
 | CP-03 | Autoclicker (RF-05) | Un jugador conectado | Un bot envía 50 gotas por segundo durante 10 s | Se aceptan 15 por segundo y el resto se rechaza con un error de límite |
 | CP-04 | Varios jugadores sobre la misma casilla (RF-30) | Una casilla ardiendo | Tres bots sueltan gotas sobre ella en el mismo tick | El fuego se apaga una vez, hay un solo bono y la humedad aportada sube exactamente lo que suman las gotas aceptadas |
-| CP-05 | Reinicio del simulador (RF-23) | Instantáneas activas y jugadores conectados | Se detiene el contenedor de Rust 10 s y se vuelve a arrancar | El valle vuelve a la última instantánea, con 5 s de pérdida como máximo, y nadie pierde la sesión |
+| CP-05 | Reinicio del simulador (RF-23) | Instantáneas activas y jugadores conectados | Se detiene el contenedor de Rust 10 s y se vuelve a arrancar | El valle vuelve a la última instantánea, con 5 s de pérdida como máximo (persistencia en marcha), y nadie pierde la sesión. Mientras Rust no está, el valle queda en pausa y el tick no avanza; con 5.000 comandos en cola, los nuevos reciben `paused`. Al volver, el hub drena como mucho 500 por tick, responde `expired` a los de más de 30 s en cola y admite los reenvíos de acciones perdidas después de la instantánea. Nada se aplica dos veces |
 | CP-06 | Caída del hub (RF-24) | Jugadores conectados | Se detiene el contenedor de Go y se vuelve a arrancar | El valle sigue intacto en Rust y los jugadores se reconectan |
 | CP-07 | Caída de la persistencia (RNF-04) | Jugadores conectados | Se detiene el contenedor de Python o el de PostgreSQL | Quien juega sigue jugando en menos de 200 ms; un acceso nuevo recibe un aviso claro |
 | CP-08 | Arranque desordenado (RNF-09) | Todo apagado | Se levantan los servicios en orden inverso | Todos terminan conectados sin intervención. \[DATO: medir el tiempo\] |
 | CP-09 | Mensajes simultáneos (RF-14) | Dos jugadores con el chat abierto | Los dos envían un mensaje a la vez | Las dos pantallas muestran el mismo orden |
 | CP-10 | Azar reproducible (RF-29) | Una semilla y una lista de comandos grabada | Se ejecuta dos veces la misma simulación | Los dos valles finales son idénticos |
-| CP-11 | Carga (RNF-01, RNF-02) | Modo demo | 30 bots durante 60 s | Al menos 100 gotas por segundo, el 95 % por debajo de 200 ms, y la humedad aportada igual a las gotas aceptadas |
+| CP-11 | Carga (RNF-01, RNF-02) | Modo demo | 30 bots durante 60 s | Al menos 100 gotas por segundo, el 95 % por debajo de 200 ms, y la humedad aportada igual a las gotas aceptadas. Si algún `Step` tarda más de 100 ms, el siguiente espera: nunca hay dos llamadas solapadas |
+| CP-12 | Persistencia lenta o caída durante una instantánea (RF-23, RNF-04) | Jugadores conectados | Se ralentiza o se detiene la persistencia alrededor de un tick de instantánea | Los `Step` mantienen su ritmo de 100 ms, el valle no entra en pausa, el *Circuit Breaker* sigue cerrado y la siguiente instantánea se guarda cuando la persistencia vuelve |
 
 ## El contrato: cómo se hablan los servicios
 
@@ -622,7 +623,7 @@ Y trae un beneficio inmediato: **cada quien puede probar solo**. Se generan los 
 
 | Servicio | Método | Qué hace | Quién lo ofrece |
 | --- | --- | --- | --- |
-| `WorldService` | `Step` | Go le envía los comandos admitidos del tick y recibe el estado nuevo y el resultado de cada comando: aplicado, duplicado o rechazado | Simulador (Rust) |
+| `WorldService` | `Step` | Go le envía los comandos admitidos del tick y recibe el estado nuevo y el resultado de cada comando: aplicado, duplicado o rechazado. Tras un reinicio, su primera respuesta informa del tick recuperado (`restored_tick`) | Simulador (Rust) |
 | `WorldService` | `GetRanking` | Ranking global de quién más aportó al valle | Simulador (Rust) |
 | `PersistenceService` | `SaveSnapshot` / `LoadSnapshot` | Guarda y recupera el mundo completo | Persistencia (Python) |
 | `AccountService` | `Register` / `Login` | Alta y autenticación | Persistencia (Python) |
@@ -780,7 +781,7 @@ Con cuatro personas esto no es una preferencia estética: es lo que evita que el
 2. Cada vez que Go lo llama, aplica los comandos del tick uno detrás de otro y avanza la simulación un paso.
 3. Decide todo lo que depende del mundo: cuánto crece una casilla, qué riegan los aspersores, cuánto se evapora, dónde arde, si alcanza para una mejora.
 4. Calcula el ranking.
-5. Cada 50 ticks (5 s) envía una instantánea del mundo a Python para que quede guardada.
+5. Cada 50 ticks (5 s) envía una instantánea del mundo a Python para que quede guardada, en segundo plano y sin frenar el tick.
 6. Carga el catálogo con `CatalogService.GetCatalog` al arrancar y al reiniciar el valle.
 
 **Sin streams y sin reloj propio.** Rust no marca el tiempo: responde a una llamada gRPC simple, de pregunta y respuesta, diez veces por segundo. Hasta la instantánea se cuenta en ticks, no en segundos de su reloj. Es la variante más sencilla de escribir en Rust — un servidor gRPC mínimo son [unas 40 o 50 líneas casi de plantilla](https://github.com/hyperium/tonic/blob/master/examples/helloworld-tutorial.md) — y así la dificultad de aprender Rust se concentra en la lógica del mundo, que es donde tiene que estar, y no en la fontanería de red.
@@ -1301,7 +1302,7 @@ El proyecto se entrega en la semana 7 del curso. Las semanas 1 y 2 ya pasaron; e
 
 - [ ] Ciclo completo funcionando con datos reales, incendios y bots bomberos incluidos (RF-29)
 - [ ] Instantáneas cada 5 s de Rust a Python y recuperación del mundo tras reiniciar Rust (RF-23, CP-05)
-- [ ] Provocar a mano cada caso de prueba, de CP-01 a CP-11, sobre todo reiniciar Rust y ver que el mundo vuelve desde la instantánea
+- [ ] Provocar a mano cada caso de prueba, de CP-01 a CP-12, sobre todo reiniciar Rust y ver que el mundo vuelve desde la instantánea
 - [ ] Prueba de carga y números medidos para RNF-01 y RNF-02
 - [ ] Los patrones de la nube identificados en el código y documentados
 
@@ -1372,7 +1373,7 @@ hydrovalley/
   catalog/               Todas las cifras del juego (datos, no codigo)
   deploy/                docker-compose.yml y configuracion de nginx
   tests/
-    e2e/                 Casos de prueba CP-01 a CP-11
+    e2e/                 Casos de prueba CP-01 a CP-12
     bench/               Script y resultados de la comparativa Go vs. Rust
   scripts/               Diagnostico del laboratorio y despliegue
   docs/                  Diagramas, informe, bitacora

@@ -98,8 +98,8 @@ Obra "*" --> "1" Casilla : punto fijo
 note as N1
   En Rust esto son <b>structs y enums</b>, no clases:
   el diagrama muestra datos y relaciones, no métodos.
-  Todo esto viaja en la instantánea, que Rust envía
-  cuando tick % 50 == 0 (cada 50 ticks, 5 s), incluido
+  Todo esto viaja en la instantánea, que Rust copia y envía
+  en segundo plano cuando tick % 50 == 0 (cada 50 ticks, 5 s), incluido
   el estado del generador de azar y los action_id
   recientes por jugador (últimos 600 ticks).
   Agua, hojas y humedad: enteros de 64 bits sin signo.

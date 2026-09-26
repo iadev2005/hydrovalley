@@ -11,9 +11,9 @@ database "PostgreSQL" as Db
 
 loop cada 100 ms (un tick)
   Hub -> World : WorldService.Step(comandos)
-  World --> Hub : estado + resultado por comando
-  opt tick % 50 == 0 (cada 50 ticks, 5 s)
-    World -> Persistence : PersistenceService.SaveSnapshot(instantánea)
+  opt tick % 50 == 0 (cada 50 ticks, 5 s) y ningún guardado en curso
+    World -> World : copiar el estado del mundo
+    World ->> Persistence : PersistenceService.SaveSnapshot(instantánea)\n(tarea en segundo plano, sin bloquear)
     note right of World
       La instantánea incluye:
       - estado del mundo (valle y jugadores,
@@ -22,11 +22,20 @@ loop cada 100 ms (un tick)
       - action_id aplicados recientemente,
         por jugador (últimos 600 ticks)
     end note
+  end
+  World --> Hub : estado + resultado por comando\n(no espera a la persistencia)
+  Hub -> Hub : applied: de pending a confirmed (con su tick)
+  opt instantánea en curso
     Persistence -> Db : guardar en una sola transacción
     Db --> Persistence : ok
-    Persistence --> World : ok
+    Persistence -->> World : ok (si falla: se registra y se reintenta\nen el siguiente tick de instantánea)
   end
 end
+note over Hub, Persistence
+  Un fallo de la persistencia nunca abre el Circuit Breaker:
+  solo vigila Step. Si el guardado anterior sigue en curso,
+  esa instantánea se salta.
+end note
 
 == Rust se cae ==
 
@@ -35,16 +44,16 @@ Hub -> World : WorldService.Step(comandos)
 Hub <--x World : falla (sin respuesta)
 
 group Circuit Breaker: abierto
-  Hub -> Hub : devolver los comandos del Step fallido\nal frente de la cola
+  Hub -> Hub : devolver los comandos del Step fallido\nal frente de la cola (siguen en pending)
   Hub -> Hub : abrir el circuito: dejar de llamar a Step\n(el valle queda en pausa y el tick no avanza)
   Hub -> Players : aviso: «valle en pausa»\n(nadie se desconecta, las sesiones siguen abiertas)
   loop mientras el circuito está abierto
     Players -> Hub : acciones
-    Hub -> Hub : filtrar (sesión, action_id, 15 gotas/s)
+    Hub -> Hub : filtrar (sesión, action_id en pending/confirmed, 15 gotas/s)
     alt la cola tiene menos de 5.000 comandos
       Hub -> Hub : guardar en la cola
     else cola llena
-      Hub -> Players : {"type": "result", "status": "paused"}
+      Hub -> Players : al instante: {"type": "result", "status": "paused"}
     end
   end
 end
@@ -62,9 +71,9 @@ Persistence --> World : catálogo
 
 group Circuit Breaker: semiabierto y cerrado
   Hub -> World : WorldService.Step (llamada de prueba)
-  World --> Hub : responde
+  World --> Hub : responde, con restored_tick\n(tick recuperado de la instantánea)
   Hub -> Hub : cerrar el circuito
-  Hub -> Hub : vaciar su propia ventana de duplicados\n(la autoridad es el conjunto recuperado por Rust)
+  Hub -> Hub : quitar de confirmed las entradas\ncon tick > restored_tick (se perdieron)
   note right of Hub
     El estado semiabierto es la
     forma estándar del patrón.
@@ -72,22 +81,24 @@ group Circuit Breaker: semiabierto y cerrado
 end
 
 loop hasta vaciar la cola
-  Hub -> Hub : descartar los comandos de más de 30 s
+  Hub -> Players : expired a los comandos con más de 30 s\nen la cola (desde que el hub los admitió)
   Hub -> World : WorldService.Step(como mucho 500 comandos)
   World -> World : aplicar en orden
   World --> Hub : resultado por comando
+  Hub -> Players : resultado final: applied | duplicate | rejected
 end
 note right of World
   Los action_id aplicados antes de la instantánea
-  se rechazan como <b>duplicados</b>.
+  se rechazan como <b>duplicados</b>: Rust es la
+  autoridad final, con el conjunto recuperado.
 end note
 Hub -> Players : el valle sigue
 
 note over Hub, Db
   <b>Ventana de pérdida: como máximo 5 s (50 ticks).</b> Lo aplicado después de la última
-  instantánea se pierde. Su action_id no está en el conjunto recuperado y el hub ya vació
-  su ventana, así que si el cliente reintenta esa acción (lo hace durante 30 s como máximo),
-  Rust la acepta como nueva (Capa 3). Es lo correcto.
+  instantánea se pierde. Su action_id no está en el conjunto recuperado y el hub ya lo quitó
+  de confirmed, así que si el cliente reenvía esa acción, el hub la admite y Rust la aplica
+  como nueva (Capa 3). Es lo correcto.
 end note
 
 @enduml
