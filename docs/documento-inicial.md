@@ -1104,7 +1104,7 @@ La pieza que lo hace posible es Docker. Cada servicio viaja en un contenedor que
 
 No hace falta configurar el sistema. Hace falta **reconocer el terreno**, y son quince minutos:
 
-- [ ] Son Windows 11, así que se usa el script diagnostico-lab.ps1
+- [ ] Son Windows 10 Pro, así que se usa el script diagnostico-lab.ps1 o los comandos sueltos del reconocimiento
 - [ ] ¿Está Docker instalado? Si no, ¿se puede instalar? ¿Hay permisos de administrador?
 - [ ] ¿Lo que se instala sobrevive a un reinicio, o las máquinas se restauran solas?
 - [ ] ¿Dos máquinas se ven entre sí? Un `ping` de una a otra, y probar un puerto
@@ -1112,6 +1112,32 @@ No hace falta configurar el sistema. Hace falta **reconocer el terreno**, y son 
 - [ ] Anotar qué máquinas son y cómo se identifican
 
 Si alguna respuesta es «no», mejor saberlo en la semana 1 que el día de la defensa. Y casi todas tienen salida: sin internet, las imágenes se llevan en un USB con `docker save` y se cargan allí con `docker load`; sin permisos, se le pide al encargado del laboratorio con tiempo.
+
+### Lo que encontró el primer reconocimiento
+
+Primera visita al laboratorio de Base de Datos, máquina LABBD-02. Las máquinas sirven de sobra; Docker funciona con la cuenta del laboratorio, y lo único por resolver es el cortafuegos entre máquinas.
+
+| Aspecto | Resultado | Qué implica |
+| --- | --- | --- |
+| Sistema | Windows 10 Pro, 64 bits | No es Windows 11 como suponíamos; no cambia nada del plan |
+| Hardware | i7-13700F (16 núcleos, 24 hilos), 31,7 GB de RAM, 75,7 GB libres | Sobra para los cinco servicios en una sola máquina: el plan B es viable aquí mismo |
+| Usuario | `guayanalabs\labbd-2`, cuenta genérica del dominio, **sin permisos de administrador** | No se puede instalar nada ni abrir puertos en el cortafuegos: eso lo hace el encargado |
+| Persistencia | No se detectó ningún congelador | Buena señal, pero la marca que apareció era de una ejecución anterior del mismo día. Se confirma en la próxima visita |
+| Docker | Docker Desktop instalado, con WSL 2 y el hipervisor activos, pero el motor estaba apagado | Comprobado: tras abrir Docker Desktop (motor 29.5.3), la cuenta del laboratorio ejecuta contenedores y descarga imágenes amd64 de Docker Hub sin permisos de administrador. En cada visita hay que abrirlo primero |
+| Herramientas | Git, Go, Node y Python 3.12 instalados; Rust y el cliente `psql` no | Da igual: todo se ejecuta en contenedores |
+| PostgreSQL | **Un PostgreSQL 16 nativo ya ocupa el puerto 5432** | Nuestro PostgreSQL en contenedor debe publicarse en otro puerto, por ejemplo 5433 |
+| Puerto 80 | Ocupado por el propio Windows (proceso 4, el servicio HTTP del sistema) | El proxy de entrada se publica en el 8080, no en el 80 |
+| Red | IP del laboratorio `10.68.17.2`. Hay otra, `192.168.56.1`, que es un adaptador virtual local | LABBD-01 tiene la `10.68.17.1` y LABBD-02 la `10.68.17.2`: misma red, y parece que la IP sigue el número de máquina (a confirmar con el encargado). Las direcciones `192.168.56.x` y `172.17.x` son adaptadores virtuales locales y no sirven entre máquinas |
+| Cortafuegos | Activo en los tres perfiles | Confirmado que bloquea: desde LABBD-01 no se llega a LABBD-02 por los puertos 50051, 8080 ni 5433, aunque el contenedor responde en local. Hace falta una regla de entrada creada por el encargado |
+| Internet | GitHub, `ghcr.io` y Docker Hub responden | Se pueden descargar las imágenes que construya el pipeline |
+
+**Pendiente con el encargado:** crear en cada máquina que usemos una regla de entrada acotada a esos tres puertos y a la red del laboratorio, y volver a hacer la prueba de red. La regla, para que la ejecute como administrador:
+
+```powershell
+New-NetFirewallRule -DisplayName "hydrovalley (proyecto Sistemas Distribuidos)" -Direction Inbound -Protocol TCP -LocalPort 50051,8080,5433 -RemoteAddress 10.68.17.0/24 -Action Allow -Profile Domain,Private
+```
+
+Mientras no exista, se trabaja con el plan B: todo en una sola máquina, que en estos equipos va sobrada.
 
 ### El flujo de trabajo
 
@@ -1193,6 +1219,25 @@ Y un rol que rota semanalmente: **quien integra**. Esa persona se asegura de que
 
 **El reparto de lenguajes se decide después de saber quién conoce qué**, no antes. Poner a alguien en el lenguaje equivocado cuesta semanas.
 
+### Los diagramas, antes del código
+
+Se diseña antes de programar, con los diagramas justos para que cada persona sepa qué construir y qué esperar de los demás. Si al programar aparece un detalle que el diagrama no previó, se corrige el diagrama en el mismo pull request que el código. Con IA escribiendo buena parte del código, esto importa todavía más: un diagrama claro es la mejor instrucción que se le puede dar.
+
+| Orden | Diagrama | Para qué sirve antes de codificar | Por qué está |
+| --- | --- | --- | --- |
+| 1 | Casos de uso | Traduce las reglas del juego a lo que hace cada actor: jugador, bot y administrador. De ahí salen y se validan los RF | Es el puente entre necesidades y requerimientos en las tesis del profesor |
+| 2 | Componentes, con notación lollipop | Qué servicio expone qué interfaz, gRPC o HTTP. Es el borrador directo de los `.proto` | Exigido (RES-05) |
+| 3 | Secuencia: una gota de punta a punta | El orden de las llamadas entre navegador, proxy, hub, Rust y vuelta. Fija qué campos lleva cada mensaje | Las tesis modelo no lo tienen, así que suma |
+| 4 | Secuencia: Rust se reinicia | Qué hace cada servicio mientras el simulador no está y cómo vuelve desde la instantánea. Guía el *Circuit Breaker* y CP-05 | Tolerancia a fallos |
+| 5 | Estados de la casilla | Las reglas del autómata del valle. Es casi pseudocódigo para Rust | Exigido (estados). Ya está en D-01 |
+| 6 | Modelo de dominio del simulador | Valle, casilla, jugador, instalación, incendio y obra, con sus atributos y relaciones. Es lo que Rust guarda en memoria y lo que viaja en la instantánea | Es el único diagrama de clases que hace falta |
+| 7 | Entidad-relación | Las tablas de PostgreSQL: cuentas, catálogo, instantáneas y reportes | Lo usa una de las tesis modelo; se hace al empezar la persistencia |
+| 8 | Despliegue | Nodos, contenedores y puertos (8080, 50051, 5433), con estereotipos UML | Exigido. Hay un borrador en Mermaid en la sección de arquitectura |
+
+Lo que **no** se hace: un diagrama de clases por servicio. Go y Rust no se organizan en clases sino en estructuras y módulos, y cuatro diagramas de clases de código que todavía no existe envejecen en una semana. El modelo de dominio del simulador cumple ese papel donde de verdad importa. Tampoco hacen falta diagramas de actividades de un «proceso actual»: no hay un proceso previo que mejorar.
+
+**Herramienta: PlantUML.** Se escribe en texto dentro de `docs/diagrams/`, así que se versiona en Git, se revisa en los pull requests y la IA lo entiende y lo edita. Soporta la notación lollipop en los diagramas de componentes ([documentación](https://plantuml.com/component-diagram)), y también los de despliegue, secuencia, estados, clases y casos de uso. Los diagramas en Mermaid de este documento sirven de borrador.
+
 ### Semana 1 · Cerrar y esqueletar
 
 - [ ] Preguntarle al profesor las dudas de más abajo
@@ -1202,6 +1247,7 @@ Y un rol que rota semanalmente: **quien integra**. Esa persona se asegura de que
 - [ ] Cerrar D-02: elegir los dos lenguajes
 - [ ] Sesión conjunta de gRPC, los cuatro a la vez, con un ejemplo que funcione
 - [ ] Crear el repositorio con su estructura de carpetas
+- [ ] Diagramas 1 a 6 en PlantUML, antes de escribir los .proto
 - [ ] **Escribir los `.proto`** — los contratos antes que el código
 - [ ] **El esqueleto que camina**: los servicios levantando con Docker Compose y una petición atravesando el sistema
 - [ ] Pipeline básico compilando y construyendo imágenes x86
@@ -1258,6 +1304,7 @@ Un aviso para la defensa: el repositorio *golang-standards/project-layout* se ci
 
 ```
 hydrovalley/
+  CLAUDE.md              Contexto y reglas para programar con IA
   README.md              Que es esto y como se levanta
   .gitattributes         Fuerza saltos de linea de Linux
   .github/workflows/     Un workflow por servicio, con filtro por ruta
@@ -1290,9 +1337,11 @@ Dos cosas son decisión nuestra, sin referente directo. La primera, la carpeta `
 
 **El nombre: hydrovalley.** Va en inglés, como pide la convención de nombres del contrato, y sirve de prefijo a los paquetes gRPC: `hydrovalley.world.v1`, `hydrovalley.chat.v1`. Así cada paquete tiene las tres partes que pide Buf: sistema, propósito y versión.
 
+**Contexto para programar con IA.** En la raíz va un `CLAUDE.md` que resume en dos páginas la arquitectura, las reglas que no se rompen, las convenciones y el plan de diagramas: es lo primero que lee una sesión de programación con IA. Junto a él, `docs/documento-inicial.md` es la copia exportada de este documento, y se actualiza al cierre de cada semana para que el repositorio nunca programe contra una versión vieja de los requerimientos.
+
 ### Ramas y reglas
 
-El repositorio es [iadev2005/hydrovalley](https://github.com/iadev2005/hydrovalley). Se trabaja con tres tipos de rama, y `dev` se fusiona en `main` **cada semana**, no solo al final:
+El repositorio es [iadev0721/hydrovalley](https://github.com/iadev0721/hydrovalley). Se trabaja con tres tipos de rama, y `dev` se fusiona en `main` **cada semana**, no solo al final:
 
 | Rama | Para qué | Cómo entra el código |
 | --- | --- | --- |
