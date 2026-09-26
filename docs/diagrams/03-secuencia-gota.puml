@@ -1,0 +1,61 @@
+@startuml 03-secuencia-gota
+title Una gota de punta a punta
+
+actor "Jugador (Ana)" as Ana
+participant "Navegador" as Browser
+participant "Proxy de entrada\n(nginx)" as Proxy
+participant "Hub (Go)\ngoroutine de Ana" as Goroutine
+queue "Cola del tick\n(hub)" as Queue
+participant "Hub (Go)\nmarcador del tick" as Ticker
+participant "Simulador\n(Rust)" as World
+
+Ana -> Browser : clic sobre la casilla (14, 9)
+Browser -> Proxy : WS /play\n{"tipo": "gota", "x": 14, "y": 9, "action_id": "…"}
+Proxy -> Goroutine : reenvía el mensaje
+
+group Filtro del hub (Gatekeeper, Rate Limiting)
+  Goroutine -> Goroutine : comprobar la sesión (token firmado)
+  Goroutine -> Goroutine : ¿action_id nuevo en la ventana reciente?
+  Goroutine -> Goroutine : ¿≤ 15 gotas por segundo?
+end
+
+alt action_id repetido
+  Goroutine -> Browser : descartada como duplicada
+  note right
+    El documento no fija qué mensaje
+    recibe el jugador en este caso.
+  end note
+else más de 15 gotas por segundo
+  Goroutine -> Browser : rechazada con un error de límite (RF-05, CP-03)
+else admitida
+  Goroutine -> Queue : encolar el comando
+end
+
+... espera hasta el siguiente tick ...
+
+loop cada 100 ms (aunque nadie juegue)
+  Ticker -> Queue : tomar los comandos admitidos
+  Queue --> Ticker : comandos del tick
+  Ticker -> World : WorldService.Step(comandos admitidos)
+  activate World
+  World -> World : aplicar los comandos en orden\n(cobrar el litro, sumar humedad, hacer crecer, repartir hojas)
+  World -> World : avanzar el valle un paso\n(aspersores, evaporación, incendios)
+  World --> Ticker : estado nuevo +\nresultado por comando: aplicado | duplicado | rechazado
+  deactivate World
+end
+
+note over Ticker, World
+  Si Rust rechaza la gota (p. ej., no le alcanza el agua)
+  o la marca como duplicada, el resultado vuelve en Step.
+  El documento no fija si se le confirma al jugador de
+  inmediato o en la siguiente difusión.
+end note
+
+loop una vez por segundo (Publisher-Subscriber)
+  Ticker -> Goroutine : estado del valle + estado de Ana
+  Goroutine -> Proxy : WS /play
+  Proxy -> Browser : estado
+  Browser -> Ana : anima la barra del depósito\nhasta el siguiente mensaje
+end
+
+@enduml

@@ -1,0 +1,41 @@
+@startuml 05-estados-casilla
+title Estados de una casilla
+
+state Casilla {
+  state "Crecimiento" as Crecimiento {
+    state "Tierra seca" as Seca
+    state "Pasto" as Pasto
+    state "Arbusto" as Arbusto
+    state "Flores" as Flores
+    state "Árbol" as Arbol
+
+    [*] --> Seca
+    Seca --> Pasto : humedad llega a 100
+    Pasto --> Arbusto : humedad llega a 100
+    Arbusto --> Flores : humedad llega a 100
+    Flores --> Arbol : humedad llega a 100
+    Arbol --> Flores : seca demasiado tiempo
+    Flores --> Arbusto : seca demasiado tiempo
+    Arbusto --> Pasto : seca demasiado tiempo
+    Pasto --> Seca : seca demasiado tiempo
+  }
+  --
+  state "Fuego" as Fuego {
+    state "Sin fuego" as SinFuego
+    state "Ardiendo" as Ardiendo
+
+    [*] --> SinFuego
+    SinFuego --> Ardiendo : azar, si está seca y tiene planta
+    Ardiendo --> SinFuego : tercera gota
+    Ardiendo --> SinFuego : se consume
+  }
+}
+
+note right of Casilla
+  Regiones ortogonales (Harel): avanzan a la vez.
+  Punto de contacto: si el fuego <b>se consume</b> antes
+  de que lo apaguen, la región de crecimiento
+  vuelve a <b>Tierra seca</b>.
+end note
+
+@enduml
