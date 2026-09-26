@@ -10,23 +10,21 @@ participant "Hub (Go)\nmarcador del tick" as Ticker
 participant "Simulador\n(Rust)" as World
 
 Ana -> Browser : clic sobre la casilla (14, 9)
-Browser -> Proxy : WS /play\n{"tipo": "gota", "x": 14, "y": 9, "action_id": "…"}
+Browser -> Proxy : WS /play\n{"type": "drop", "x": 14, "y": 9, "action_id": "…"}
 Proxy -> Goroutine : reenvía el mensaje
 
 group Filtro del hub (Gatekeeper, Rate Limiting)
   Goroutine -> Goroutine : comprobar la sesión (token firmado)
-  Goroutine -> Goroutine : ¿action_id nuevo en la ventana reciente?
+  Goroutine -> Goroutine : ¿action_id nuevo en la ventana de la sesión (60 s)?
   Goroutine -> Goroutine : ¿≤ 15 gotas por segundo?
 end
 
-alt action_id repetido
-  Goroutine -> Browser : descartada como duplicada
+alt rechazada por el hub (duplicada, límite, valle en pausa o sin rol de administrador)
+  Goroutine -> Browser : al instante: {"type": "result", "action_id": "…",\n"status": "duplicate | rate_limited | paused | forbidden"}
   note right
-    El documento no fija qué mensaje
-    recibe el jugador en este caso.
+    limite: más de 15 gotas por segundo (RF-05, CP-03).
+    pausa: circuito abierto y cola llena (5.000).
   end note
-else más de 15 gotas por segundo
-  Goroutine -> Browser : rechazada con un error de límite (RF-05, CP-03)
 else admitida
   Goroutine -> Queue : encolar el comando
 end
@@ -40,15 +38,15 @@ loop cada 100 ms (aunque nadie juegue)
   activate World
   World -> World : aplicar los comandos en orden\n(cobrar el litro, sumar humedad, hacer crecer, repartir hojas)
   World -> World : avanzar el valle un paso\n(aspersores, evaporación, incendios)
-  World --> Ticker : estado nuevo +\nresultado por comando: aplicado | duplicado | rechazado
+  World --> Ticker : estado nuevo +\nresultado por comando: applied | duplicate | rejected
   deactivate World
+  Ticker -> Goroutine : resultado de cada comando del tick\n(solo a los jugadores con comandos en ese tick)
+  Goroutine -> Browser : {"type": "result", "action_id": "…",\n"status": "applied | duplicate | rejected"}
 end
 
 note over Ticker, World
-  Si Rust rechaza la gota (p. ej., no le alcanza el agua)
-  o la marca como duplicada, el resultado vuelve en Step.
-  El documento no fija si se le confirma al jugador de
-  inmediato o en la siguiente difusión.
+  El hub nunca solapa llamadas: si un Step tarda más de 100 ms,
+  el siguiente tick espera y los comandos se acumulan en la cola.
 end note
 
 loop una vez por segundo (Publisher-Subscriber)

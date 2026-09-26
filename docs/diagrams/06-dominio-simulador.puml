@@ -16,6 +16,7 @@ class Casilla {
   y: u32
   humidity: u64
   stage: Etapa
+  dry_ticks: u32
 }
 
 enum Etapa {
@@ -31,12 +32,20 @@ class Jugador {
   water: u64
   tank_capacity: u64
   leaves: u64
+  water_refilled: u64
+  water_spent: u64
   leaves_earned: u64
+  leaves_spent: u64
+  purchases_by_kind: map<TipoInstalacion, u32>
+  water_reduced: u64
+  water_reused: u64
+  water_recycled: u64
   last_action_tick: u64
   recent_action_ids
 }
 
 class Instalacion {
+  owner_id: Uuid
   kind: TipoInstalacion
   x: u32
   y: u32
@@ -62,6 +71,7 @@ class Comando {
 
 class Incendio {
   drops_received: u8
+  burning_ticks: u32
 }
 
 class Obra <<nivel 2>> {
@@ -78,7 +88,7 @@ Casilla --> "1" Etapa
 Casilla "1" *-- "0..1" Incendio : está ardiendo
 Jugador "1" *-- "*" Instalacion : compra y coloca
 Instalacion --> "1" TipoInstalacion
-Instalacion "*" --> "1" Casilla : colocada en
+Instalacion "0..1" --> "1" Casilla : colocada en\n(como mucho una por casilla)
 Jugador "1" *-- "0..2" Mejora
 Comando "*" --> "1" Jugador : emitido por
 Comando "*" ..> "0..1" Casilla : apunta a
@@ -88,10 +98,22 @@ Obra "*" --> "1" Casilla : punto fijo
 note as N1
   En Rust esto son <b>structs y enums</b>, no clases:
   el diagrama muestra datos y relaciones, no métodos.
-  Todo esto viaja en la instantánea de 5 s, incluido
+  Todo esto viaja en la instantánea, que Rust envía
+  cuando tick % 50 == 0 (cada 50 ticks, 5 s), incluido
   el estado del generador de azar y los action_id
   recientes por jugador (últimos 600 ticks).
   Agua, hojas y humedad: enteros de 64 bits sin signo.
+end note
+
+note right of Jugador
+  RF-27: water = water_refilled − water_spent
+  y leaves = leaves_earned − leaves_spent.
+  Ranking (RF-10): leaves_earned.
+  purchases_by_kind fija el precio (+15 % por compra).
+  3R acumuladas (reportes): water_reduced (goteo),
+  water_reused (aspersores), water_recycled (planta).
+  Si una instalación hace crecer una casilla,
+  las hojas son para su dueño (owner_id).
 end note
 
 note right of Comando

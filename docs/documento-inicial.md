@@ -18,7 +18,7 @@ Lo usamos así:
 
 Un juego en línea sobre el cuidado del agua, del género clicker incremental e inspirado en Drop and Grow. Los jugadores sueltan gotas sobre un valle seco para que crezcan plantas; con las hojas que dan compran instalaciones de las 3R — reducir, reutilizar y reciclar — que riegan solas. El valle es uno y compartido: se seca, arde y reverdece mientras todos juegan a la vez. Hay un ranking global de quién más aportó.
 
-Por dentro no es una aplicación, son **cinco programas independientes corriendo en máquinas distintas**, escritos en lenguajes distintos, que se coordinan para que el jugador vea una sola cosa coherente.
+Por dentro no es una aplicación, son **cinco servicios propios independientes (API, hub, chat, simulador y persistencia), más la base de datos, corriendo en máquinas distintas**, escritos en lenguajes distintos, que se coordinan para que el jugador vea una sola cosa coherente.
 
 ### Vocabulario que usamos todos igual
 
@@ -35,7 +35,7 @@ Por dentro no es una aplicación, son **cinco programas independientes corriendo
 | **Casilla** | Cada cuadro del valle. Tiene humedad, una etapa de crecimiento (tierra seca, pasto, arbusto, flores, árbol) y puede estar ardiendo |
 | **Incendio** | Un fuego que aparece al azar en una casilla seca con planta y la va quemando. Se apaga con gotas. Que salte a las casillas vecinas queda para el nivel 2 |
 | **Tick** | Cada paso de la simulación del mundo. Diez por segundo |
-| **Instantánea** | Copia completa del mundo, guardada cada pocos segundos para poder recuperarlo |
+| **Instantánea** | Copia completa del mundo, guardada cada 50 ticks (5 s) para poder recuperarlo |
 | **Servicio** | Uno de los programas independientes del sistema |
 | **gRPC** | La forma en que los servicios se hablan entre ellos. Rápida y binaria |
 | **Contrato** | La definición exacta de qué le puede pedir un servicio a otro. Vive en los archivos `.proto` |
@@ -77,7 +77,7 @@ Resumen honesto: **tenemos el enunciado y nada más.** Cero líneas de código, 
 | Aspecto | Estado |
 | --- | --- |
 | Tema y mecánica del juego | 3R del agua: un clicker incremental cooperativo inspirado en *Drop and Grow* (D-01) |
-| Restricciones técnicas | Las impone el enunciado: lenguajes, gRPC, Swagger, contenedores, CI/CD, UML con notación lollipop y despliegue en el laboratorio. Están en «Restricciones» (RES-01 a RES-07) |
+| Restricciones técnicas | Las impone el enunciado: lenguajes, gRPC, Swagger, contenedores, CI/CD, UML (con notación lollipop en el de componentes) y despliegue en el laboratorio. Están en «Restricciones» (RES-01 a RES-07) |
 | Requisito del informe | Al menos 5 patrones de diseño de la nube, en un máximo de 20 páginas |
 | Valor | +5 puntos directos sobre la nota de la materia |
 | Equipo | 4 personas |
@@ -161,12 +161,12 @@ Propuesta mínima, suficiente para cumplir todo lo exigido:
 | El valle | Un mapa isométrico de 32 × 32 casillas, el mismo para todos. Cada casilla tiene humedad, una etapa de crecimiento y puede estar ardiendo |
 | La gota | Clic sobre una casilla: gasta 1 litro de tu depósito y humedece esa casilla (con la mejora, también las de alrededor) |
 | El depósito | Tu agua. Tiene capacidad limitada y se recarga sola con el tiempo. Es lo que marca el ritmo del juego |
-| Crecer | Cuando una casilla acumula suficiente humedad, sube de etapa. Quien soltó la gota que la hizo crecer gana hojas: más cuanto más alta la etapa |
+| Crecer | Cuando una casilla acumula suficiente humedad, sube de etapa y gasta esa humedad. Quien soltó la gota que la hizo crecer gana hojas: más cuanto más alta la etapa. Si la hizo crecer una instalación, las hojas son para su dueño |
 | Hojas | La moneda: se gastan en instalaciones y mejoras |
-| Evaporación | Cada tick las casillas pierden un poco de humedad. Si una se queda seca demasiado tiempo, su planta se marchita y baja una etapa |
-| Instalaciones (las 3R) | **Reutilizar**: aspersor de agua gris, que riega solo las casillas de alrededor sin gastar tu depósito. **Reducir**: riego por goteo, que hace que las casillas de su zona se evaporen a la mitad. **Reciclar**: planta de tratamiento, que recarga tu depósito más rápido. Cada una cuesta un 15 % más que la anterior del mismo tipo |
+| Evaporación | Cada tick las casillas pierden un poco de humedad. Si una se queda seca (humedad 0) demasiado tiempo, su planta se marchita y baja una etapa |
+| Instalaciones (las 3R) | **Reutilizar**: aspersor de agua gris, que riega solo las casillas de alrededor sin gastar tu depósito. **Reducir**: riego por goteo, que hace que las casillas de su zona se evaporen a la mitad. **Reciclar**: planta de tratamiento, que recarga tu depósito más rápido. Cada una cuesta un 15 % más que la anterior del mismo tipo. Como mucho una instalación por casilla |
 | Mejoras | Dos para empezar: gota más grande y depósito mayor |
-| Incendios | Aparecen al azar en casillas secas con planta y la queman poco a poco. Se apagan con tres gotas; quien suelta la última gana un bono. Un aspersor apaga los que caen en su zona |
+| Incendios | Aparecen al azar en casillas secas con planta y la queman poco a poco. Se apagan con tres gotas, de uno o de varios jugadores; quien suelta la tercera gana un bono. Un aspersor apaga los que caen en su zona. Si nadie lo apaga a tiempo, el fuego se consume y la casilla vuelve a tierra seca |
 | Límite de gotas | 15 gotas por segundo por jugador. Lo que pase de ahí se rechaza |
 | Competencia | Ranking de quién más ha hecho crecer el valle, medido en hojas ganadas |
 | Modo demo | Sin evaporación ni incendios; la gota es gratis, de una sola casilla y suma 1 de humedad, para que el total se pueda verificar a ojo |
@@ -195,19 +195,20 @@ Una sola pantalla, sin menús que recorrer:
 3. **La producción manda.** Goteo para que no se seque, plantas de tratamiento para tener más agua, más aspersores. Hacer clic importa menos que decidir qué comprar y dónde ponerlo.
 4. **Defender.** Los incendios obligan a volver a mirar el mapa. En el nivel 2, las obras comunitarias proponen además gastar en lo común.
 
-Cifras de arranque, para empezar a probar y ajustar en el catálogo:
+Cifras de arranque, para empezar a probar. Todas son valores iniciales: viven en `catalog/` y se ajustan jugando, sin tocar código:
 
 | Qué | Precio inicial | Efecto |
 | --- | --- | --- |
 | Gota | 1 L del depósito | +25 de humedad en su casilla |
 | Depósito | — | 20 L; se recarga 1 L cada 2 s |
-| Crecer | — | Cada etapa pide 100 de humedad y da 1, 2, 4 u 8 hojas (pasto, arbusto, flores, árbol) |
-| Evaporación | — | −2 de humedad por segundo en cada casilla |
+| Crecer | — | Cada etapa pide 100 de humedad, que se gastan al subir, y da 1, 2, 4 u 8 hojas (pasto, arbusto, flores, árbol). En árbol, la humedad no pasa de 100 |
+| Evaporación | — | −2 de humedad por segundo en cada casilla. Con humedad 0 durante 100 ticks (10 s), la casilla se marchita y baja una etapa |
 | Aspersor de agua gris (Reutilizar) | 10 hojas | +25 de humedad a 3 × 3 casillas cada 2 s |
 | Riego por goteo (Reducir) | 25 hojas | Evaporación a la mitad en 5 × 5 casillas |
 | Planta de tratamiento (Reciclar) | 40 hojas | +1 L extra de recarga cada 2 s |
 | Gota más grande (mejora) | 30 hojas | La gota humedece 3 × 3 casillas |
-| Incendio | — | Se apaga con 3 gotas; quien lo apaga gana 5 hojas |
+| Depósito mayor (mejora) | 20 hojas | +10 L de capacidad del depósito |
+| Incendio | — | Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 5 hojas. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
 
 #### Los estados de una casilla
 
@@ -219,24 +220,25 @@ stateDiagram-v2
         state "Tierra seca" as Seca
         state "Árbol" as Arbol
         [*] --> Seca
-        Seca --> Pasto: humedad llega a 100
-        Pasto --> Arbusto: humedad llega a 100
-        Arbusto --> Flores: humedad llega a 100
-        Flores --> Arbol: humedad llega a 100
-        Arbol --> Flores: seca demasiado tiempo
-        Flores --> Arbusto: seca demasiado tiempo
-        Arbusto --> Pasto: seca demasiado tiempo
-        Pasto --> Seca: seca demasiado tiempo
+        Seca --> Pasto: humedad llega a 100 (se gastan 100)
+        Pasto --> Arbusto: humedad llega a 100 (se gastan 100)
+        Arbusto --> Flores: humedad llega a 100 (se gastan 100)
+        Flores --> Arbol: humedad llega a 100 (se gastan 100)
+        Arbol --> Flores: humedad 0 durante 100 ticks
+        Flores --> Arbusto: humedad 0 durante 100 ticks
+        Arbusto --> Pasto: humedad 0 durante 100 ticks
+        Pasto --> Seca: humedad 0 durante 100 ticks
         --
         state "Sin fuego" as SinFuego
         [*] --> SinFuego
         SinFuego --> Ardiendo: azar, si está seca y tiene planta
         Ardiendo --> SinFuego: tercera gota
-        Ardiendo --> SinFuego: se consume
+        Ardiendo --> SinFuego: aspersor en su zona
+        Ardiendo --> SinFuego: se consume (300 ticks) / crecimiento pasa a Tierra seca
     }
 ```
 
-Es la idea de las regiones ortogonales de los statecharts de Harel: las dos partes cambian por su cuenta, pero se tocan en un punto. Si el fuego se consume antes de que lo apaguen, la región de crecimiento vuelve a tierra seca.
+Es la idea de las regiones ortogonales de los statecharts de Harel: las dos partes cambian por su cuenta, pero se tocan en un punto. Si el fuego se consume antes de que lo apaguen, la región de crecimiento vuelve a tierra seca, esté en la etapa que esté. En árbol la humedad no pasa de 100.
 
 #### Una partida de ejemplo
 
@@ -255,11 +257,11 @@ Nadie pierde una hoja, y el estanque aparece en las tres pantallas en la misma a
 
 #### Lo que pasa por dentro con una gota de Ana
 
-1. El navegador envía `{"tipo": "gota", "x": 14, "y": 9, "action_id": "…"}` por la conexión en vivo.
-2. El proxy lo pasa al hub. La goroutine de Ana comprueba la sesión, que el `action_id` es nuevo y que no pasa de 15 gotas por segundo.
+1. El navegador envía `{"type": "drop", "x": 14, "y": 9, "action_id": "…"}` por la conexión en vivo.
+2. El proxy lo pasa al hub. La goroutine de Ana comprueba la sesión, que el `action_id` es nuevo y que no pasa de 15 gotas por segundo. Si la rechaza, le responde al instante: `{"type": "result", "action_id": "…", "status": "duplicate"}` (o `rate_limited`, `paused`, `forbidden`).
 3. La gota espera en la cola del tick. Cada 100 ms, el hub llama a `Step` en Rust con todos los comandos admitidos.
 4. Rust aplica los comandos en orden y después avanza el valle un paso: cobra el litro, suma humedad, hace crecer lo que toque y reparte hojas, riega con los aspersores, evapora y enciende incendios.
-5. Una vez por segundo, el hub envía a cada navegador el estado del valle y el de su jugador. El navegador anima la barra del depósito hasta el siguiente mensaje.
+5. Justo después de cada `Step`, el hub envía el resultado de cada comando (`applied`, `duplicate` o `rejected`) solo a los jugadores que tenían comandos en ese tick. Y una vez por segundo envía a cada navegador el estado del valle y el de su jugador. El navegador anima la barra del depósito hasta el siguiente mensaje.
 
 En modo demo esto regala una comprobación de consistencia. Rust lleva un contador de la **humedad aportada** por las gotas en todo el valle (`humidity_contributed` en el código): solo crece, y ni el crecimiento, ni la evaporación, ni los incendios lo tocan. Como en modo demo cada gota suma 1, **la humedad aportada tiene que ser igual al número de gotas aceptadas que cuenta el hub.** Son dos contadores que viven en sitios distintos y tienen que coincidir.
 
@@ -347,7 +349,7 @@ Lo que no hay que hacer es dejar a Rust ordenando una lista.
 
 Un chat obliga a resolver el problema central de la materia en su forma más pura: **si dos personas escriben a la vez desde máquinas distintas, ¿en qué orden se muestran los mensajes?** Ordenar por la hora de cada servidor no funciona, porque los relojes se desvían. La solución es un contador lógico, y poder explicar eso en la defensa vale mucho.
 
-El servicio de chat es el único punto que asigna a cada mensaje un **número de secuencia creciente** (un contador lógico), y eso fija el mismo orden para todos (RF-14, CP-09). Los navegadores reciben los mensajes en vivo por el WebSocket `/chat` del propio servicio, que es donde vive el Publisher-Subscriber; por eso no hay un `Subscribe` en gRPC. `ListMessages` sirve para ponerse al día tras una reconexión.
+El servicio de chat es el único punto que asigna a cada mensaje un **número de secuencia creciente** (un contador lógico), y eso fija el mismo orden para todos (RF-14, CP-09). Los navegadores reciben los mensajes en vivo por el WebSocket `/chat` del propio servicio, que es donde vive el Publisher-Subscriber; por eso no hay un `Subscribe` en gRPC. `ListMessages` sirve para ponerse al día tras una reconexión. Por gRPC solo lo usa el hub, que publica con `SendMessage` avisos del sistema como las alertas de fuego. Los bots de CP-09 entran como cualquier jugador, por el WebSocket `/chat`. Guarda en memoria los últimos 200 mensajes, sin base de datos: es nivel 2 y el juego tiene que sobrevivir sin él (RF-15).
 
 Además encaja sin estorbar:
 
@@ -387,7 +389,7 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 
 | ID | Requisito | Cómo se comprueba |
 | --- | --- | --- |
-| RF-04 | El jugador debe poder soltar gotas sobre cualquier casilla del valle, y comprar y colocar instalaciones de las tres familias de las 3R, siempre que le alcance el agua o las hojas | Una gota gasta 1 L del depósito y suma humedad; al pasar el umbral, la casilla crece y el jugador gana hojas |
+| RF-04 | El jugador debe poder soltar gotas sobre cualquier casilla del valle, y comprar y colocar instalaciones de las tres familias de las 3R, siempre que le alcance el agua o las hojas | Fuera del modo demo, una gota gasta 1 L del depósito y suma humedad; al pasar el umbral, la casilla crece y el jugador gana hojas |
 | RF-05 | El sistema debe rechazar las gotas de un jugador que pasen de 15 por segundo | Un bot envía 50 gotas por segundo y solo se aceptan 15 |
 | RF-06 | El sistema debe rechazar con un error claro cualquier acción inválida, sin interrumpir el servicio | Se envía una acción inventada y responde con un error claro |
 | RF-07 | El jugador debe poder gastar hojas en instalaciones y mejoras, y el sistema debe subir un 15 % el precio de cada instalación tras cada compra del mismo tipo | Se compra un aspersor: bajan las hojas, y el siguiente cuesta un 15 % más |
@@ -404,7 +406,7 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 
 | ID | Requisito | Cómo se comprueba |
 | --- | --- | --- |
-| RF-10 | El sistema debe calcular un ranking global de quién más aportó al valle | El orden entre jugadores es correcto |
+| RF-10 | El sistema debe calcular un ranking global de quién más aportó al valle, medido en hojas ganadas | El orden entre jugadores es correcto |
 | RF-11 | El sistema debe recalcular el ranking sin pausar el juego | Se recalcula mientras hay jugadores actuando y nadie nota pausas |
 | RF-12 | El sistema debe entregar a pedido un reporte de las 3R por jugador y global | Los totales cuadran con las acciones ejecutadas |
 
@@ -412,9 +414,17 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 
 | ID | Requisito | Cómo se comprueba |
 | --- | --- | --- |
-| RF-13 | El jugador debe poder enviar mensajes a los demás jugadores conectados | Dos navegadores distintos se ven los mensajes |
-| RF-14 | El sistema debe mostrar los mensajes en el mismo orden a todos los jugadores | Dos personas escriben a la vez y las dos pantallas coinciden |
-| RF-15 | El sistema debe seguir atendiendo el juego aunque el chat no responda | Se apaga el servicio de chat y las acciones siguen respondiendo |
+| RF-13 | El jugador debe poder enviar mensajes a los demás jugadores conectados (nivel 2) | Dos navegadores distintos se ven los mensajes |
+| RF-14 | El sistema debe mostrar los mensajes en el mismo orden a todos los jugadores (nivel 2) | Dos personas escriben a la vez y las dos pantallas coinciden |
+| RF-15 | El sistema debe seguir atendiendo el juego aunque el chat no responda (nivel 2) | Se apaga el servicio de chat y las acciones siguen respondiendo |
+
+### Administración
+
+| ID | Requisito | Cómo se comprueba |
+| --- | --- | --- |
+| RF-31 | El administrador debe poder activar y desactivar el modo demo y reiniciar el valle; solo con rol de administrador en el token | Con un token sin ese rol, el comando se rechaza; con rol de administrador, el modo demo y el reinicio se aplican en el siguiente tick |
+
+El panel de administración envía estos comandos por el mismo WebSocket `/play`, con su token de administrador. El hub solo los admite con ese rol, y entran en la cola del tick como cualquier comando: Rust los aplica en `Step`, así que el escritor único se mantiene. La prueba de carga no se lanza desde la interfaz sino desde el contenedor de los bots (por ejemplo, `docker compose run bots load-test`); la cubren RNF-01, RNF-02 y CP-11.
 
 ### Tolerancia a fallos
 
@@ -469,7 +479,7 @@ Lo que impone el enunciado no es un atributo de calidad sino una restricción de
 | RES-02 | Go y Rust son obligatorios, más dos lenguajes entre TypeScript, Java y Python (D-02) | Cada servicio está en el lenguaje que le toca |
 | RES-03 | Cada servicio se empaqueta en su propio contenedor (antes RNF-11) | Un contenedor por servicio en el archivo de Docker Compose |
 | RES-04 | Las APIs externas se documentan con Swagger/OpenAPI (antes RF-17) | La página de Swagger abre y permite probar cada endpoint |
-| RES-05 | Los diagramas de componentes, despliegue y estados usan UML con notación lollipop (antes RF-18) | El diagrama coincide con lo que expone el código |
+| RES-05 | Los diagramas de componentes, despliegue y estados usan UML; el de componentes, con notación lollipop (antes RF-18) | El diagrama coincide con lo que expone el código |
 | RES-06 | Hay un pipeline de CI/CD | Lo cubren RF-21 y RF-22 |
 | RES-07 | El despliegue se hace en las máquinas del laboratorio: una para la base de datos, una para Rust, una para Go y dos para los otros lenguajes | El diagrama de despliegue y un ensayo en el laboratorio |
 
@@ -489,6 +499,7 @@ Cada requerimiento sale de una necesidad concreta, se resuelve en un componente 
 | Azar reproducible | RF-29 | Simulador, con semilla en la instantánea | CP-10 |
 | Un mundo que vive solo | RF-25, RF-28 | Simulador (el autómata del valle) | Prueba de RF-28 |
 | Una economía que cuadra | RF-07, RF-27 | Simulador | Comprobación de RF-27 tras CP-11 |
+| Operar la demo sin saltarse el escritor único | RF-31 | Hub (rol de administrador) y simulador (`Step`) | Prueba de RF-31 |
 | Acceso seguro | RF-01, RF-02, RNF-12, RNF-13 | API (TypeScript) y persistencia (Python) | Pruebas de RF-01 y RF-02 |
 | Despliegue repetible | RF-20, RF-21, RF-22, RNF-10 | Pipeline y Docker Compose | Prueba en máquina limpia |
 
@@ -555,13 +566,15 @@ Cada acción lleva un **identificador único**, el `action_id` (un UUID que gene
 
 | Quién | Qué hace | Qué pasa si se reinicia |
 | --- | --- | --- |
-| Go, primera línea | Descarta los `action_id` repetidos en la ventana reciente de la sesión. Es barato | Esa memoria vive solo en el hub y se pierde |
+| Go, primera línea | Descarta los `action_id` repetidos en los últimos 60 s de la sesión, el mismo plazo que los 600 ticks de Rust. Es barato | Esa memoria vive solo en el hub y se pierde. El hub también la vacía cuando Rust vuelve de un reinicio |
 | Rust, la autoridad | Recuerda, por jugador, los `action_id` aplicados en los últimos 600 ticks (60 s; valor configurable). **Ese conjunto viaja dentro de la instantánea de 5 s**, junto con el mundo y el estado del generador de azar | Lo recupera de la instantánea |
 
 `WorldService.Step` devuelve el resultado de cada comando (aplicado, duplicado o rechazado), así el hub puede confirmarle a cada jugador lo que pasó con su acción.
 
 - **Si se reinicia el hub** (RF-24, CP-06): los jugadores se reconectan y pueden reenviar las acciones sin confirmar. Rust sigue en marcha y rechaza las duplicadas.
-- **Si se reinicia Rust** (RF-23, CP-05): carga la última instantánea (mundo, azar y `action_id` recientes) y el hub vuelve a enviar sus comandos en cola. Los que ya se aplicaron antes de la instantánea se rechazan como duplicados. Los que se aplicaron después se pierden con la ventana de 5 s como máximo; como su `action_id` no está en el conjunto recuperado, si el cliente los reintenta se aceptan como nuevos. Es lo correcto.
+- **Si se reinicia Rust** (RF-23, CP-05): los comandos del `Step` que falló vuelven al frente de la cola del hub, y el hub deja de llamar a `Step`: el valle queda en pausa y el tick no avanza. La cola admite hasta 5.000 comandos; los que pasen de ahí se rechazan con «valle en pausa». Rust carga la última instantánea (mundo, azar y `action_id` recientes). El hub vacía entonces su propia ventana de duplicados, porque la autoridad es el conjunto recuperado, y drena la cola en lotes de como mucho 500 comandos por tick, descartando los de más de 30 s. Los que ya se aplicaron antes de la instantánea se rechazan como duplicados. Los que se aplicaron después se pierden con la ventana de 5 s como máximo; como su `action_id` no está en el conjunto recuperado y el hub ya vació su ventana, si el cliente los reintenta se aceptan como nuevos. Es lo correcto.
+- **Reintentos del cliente:** una acción sin confirmar se reintenta durante 30 s como máximo, por debajo de la ventana de 60 s; después se abandona y el jugador ve un error.
+- **Si un `Step` tarda más de 100 ms:** el hub nunca solapa llamadas. El siguiente tick espera, los comandos se acumulan en la cola y el panel del sistema muestra cuánto tarda cada `Step`.
 
 Es RF-09, el requisito que más se olvida y más caro sale: los reintentos automáticos son justamente lo que hace que un sistema distribuido duplique cosas.
 
@@ -573,7 +586,7 @@ Y aquí el diseño regala la solución: **el número de tick del simulador es el
 
 ### Capa 5 · Instantáneas para sobrevivir a un reinicio
 
-El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada cinco segundos Rust envía una instantánea completa a Python, que la guarda en una sola transacción. Si Rust se reinicia, arranca desde la última. La instantánea incluye los `action_id` recientes, así que un reinicio no abre la puerta a duplicados (Capa 3).
+El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada 50 ticks (5 s), cuando `tick % 50 == 0`, Rust envía una instantánea completa a Python con `SaveSnapshot`, que la guarda en una sola transacción. Se cuenta en ticks porque el tick es el reloj (Capa 4). Si Rust se reinicia, arranca desde la última. La instantánea incluye los `action_id` recientes, así que un reinicio no abre la puerta a duplicados (Capa 3).
 
 Lo que se pierde en el peor caso son esos cinco segundos. Es un compromiso consciente, y conviene explicarlo así en la defensa: **velocidad a cambio de una ventana de pérdida pequeña y conocida.**
 
@@ -613,8 +626,8 @@ Y trae un beneficio inmediato: **cada quien puede probar solo**. Se generan los 
 | `WorldService` | `GetRanking` | Ranking global de quién más aportó al valle | Simulador (Rust) |
 | `PersistenceService` | `SaveSnapshot` / `LoadSnapshot` | Guarda y recupera el mundo completo | Persistencia (Python) |
 | `AccountService` | `Register` / `Login` | Alta y autenticación | Persistencia (Python) |
-| `CatalogService` | `GetCatalog` | Todas las cifras del juego: precios, producciones y mejoras | Persistencia (Python) |
-| `ReportService` | `GetReport` | Reporte de las 3R | Persistencia (Python) |
+| `CatalogService` | `GetCatalog` | Todas las cifras del juego: precios, producciones y mejoras. La piden la API y Rust, este al arrancar y al reiniciar el valle | Persistencia (Python) |
+| `ReportService` | `GetReport` | Reporte de las 3R, calculado a partir de las instantáneas guardadas | Persistencia (Python) |
 | `ChatService` | `SendMessage` / `ListMessages` | Mensajes entre jugadores. `ListMessages` devuelve los mensajes posteriores a un número de secuencia (pregunta y respuesta, sin streams) | Chat (Go) |
 
 Todas las llamadas internas son de pregunta y respuesta. **Descartamos a propósito los streams de gRPC**: son más potentes, pero son justo la parte donde más se atasca quien empieza con Rust, y a diez llamadas por segundo dentro de una red local no nos hacen falta.
@@ -719,7 +732,7 @@ La salida no es quitarle importancia a Rust. Es **quitarle superficie**, y darle
 | --- | --- | --- |
 | Tipo de trabajo | Entrada y salida concurrente: muchas conexiones abiertas, cada una esperando | Cómputo: un bucle que recorre todas las casillas del valle en cada tick |
 | Cuántas cosas hace | Muchas: sesiones, filtrado de comandos, difusión del estado, chat, resiliencia | Pocas, pero críticas: simular, aplicar comandos, calcular recompensas y ranking |
-| Con quién habla | Con todos: jugadores, simulador, persistencia | Casi con nadie: recibe comandos de Go y envía instantáneas a Python |
+| Con quién habla | Con todos: jugadores, simulador, persistencia | Casi con nadie: recibe comandos de Go, envía instantáneas a Python y le pide el catálogo |
 | Si se cae | Los jugadores pierden la conexión, pero **el mundo queda intacto en Rust** | El mundo se detiene, pero **Go conserva las sesiones** y encola |
 | Su frase en la defensa | «Go atiende a todos los jugadores conectados a la vez, cada uno en su goroutine» | «Rust ejecuta las reglas del mundo, y medimos cuánto más rápido lo hace que Go» |
 
@@ -740,6 +753,7 @@ Con cuatro personas esto no es una preferencia estética: es lo que evita que el
 | Regla | Dónde vive | Por qué ahí |
 | --- | --- | --- |
 | ¿La sesión es válida? | Go | Es de la conexión |
+| ¿Un comando de administración trae rol de administrador? | Go | Es del token, como la sesión |
 | ¿Esta acción ya había llegado? | Go | Se descarta antes de molestar al mundo |
 | ¿Pasa de 15 gotas por segundo? | Go | Es por jugador, no depende del mundo |
 | ¿Está mandando demasiados comandos? | Go | Protección de la entrada |
@@ -766,9 +780,10 @@ Con cuatro personas esto no es una preferencia estética: es lo que evita que el
 2. Cada vez que Go lo llama, aplica los comandos del tick uno detrás de otro y avanza la simulación un paso.
 3. Decide todo lo que depende del mundo: cuánto crece una casilla, qué riegan los aspersores, cuánto se evapora, dónde arde, si alcanza para una mejora.
 4. Calcula el ranking.
-5. Cada cinco segundos envía una instantánea del mundo a Python para que quede guardada.
+5. Cada 50 ticks (5 s) envía una instantánea del mundo a Python para que quede guardada.
+6. Carga el catálogo con `CatalogService.GetCatalog` al arrancar y al reiniciar el valle.
 
-**Sin streams y sin reloj propio.** Rust no marca el tiempo: responde a una llamada gRPC simple, de pregunta y respuesta, diez veces por segundo. Es la variante más sencilla de escribir en Rust — un servidor gRPC mínimo son [unas 40 o 50 líneas casi de plantilla](https://github.com/hyperium/tonic/blob/master/examples/helloworld-tutorial.md) — y así la dificultad de aprender Rust se concentra en la lógica del mundo, que es donde tiene que estar, y no en la fontanería de red.
+**Sin streams y sin reloj propio.** Rust no marca el tiempo: responde a una llamada gRPC simple, de pregunta y respuesta, diez veces por segundo. Hasta la instantánea se cuenta en ticks, no en segundos de su reloj. Es la variante más sencilla de escribir en Rust — un servidor gRPC mínimo son [unas 40 o 50 líneas casi de plantilla](https://github.com/hyperium/tonic/blob/master/examples/helloworld-tutorial.md) — y así la dificultad de aprender Rust se concentra en la lógica del mundo, que es donde tiene que estar, y no en la fontanería de red.
 
 #### Un seguro que ya venía incluido
 
@@ -784,8 +799,8 @@ Y hay un matiz que conviene respetar, porque es como funcionan los juegos de ver
 | --- | --- | --- |
 | El catálogo: instalaciones, mejoras y todas las cifras del juego | Casi nunca | Un archivo que se carga al arrancar y se guarda en la base de datos para consultarlo |
 | Cuentas de usuario | Poco | Base de datos, fila por fila |
-| El valle y los recursos de cada jugador | Diez veces por segundo | **En memoria, en Rust**, guardado por instantáneas cada cinco segundos |
-| Historial para los reportes | Se acumula | Base de datos, escrito en lotes |
+| El valle y los recursos de cada jugador | Diez veces por segundo | **En memoria, en Rust**, guardado por instantáneas cada 50 ticks (5 s) |
+| Historial para los reportes | Se acumula | Base de datos: son esas mismas instantáneas. Rust lleva por jugador contadores acumulados de las 3R — agua ahorrada por el goteo (Reducir), reutilizada por los aspersores (Reutilizar) y reciclada por la planta de tratamiento (Reciclar) — que viajan en la instantánea, y `ReportService.GetReport` calcula los reportes a partir de ellas |
 
 La fila del mundo es la importante. **Escribir en la base de datos con cada clic** es el error típico, y ahoga el sistema en cuanto hay unas decenas de jugadores farmeando. El mundo vive en memoria y se guarda de golpe cada pocos segundos. Si Rust se reinicia, se pierden como mucho esos segundos.
 
@@ -878,6 +893,7 @@ flowchart TD
     A -->|gRPC| W
     A -->|gRPC| P[Persistencia<br/>Python]
     W -->|gRPC| P
+    H -.->|gRPC avisos| CH
     P --> DB[(PostgreSQL)]
 ```
 
@@ -903,7 +919,7 @@ Para la entrega en UML hay que añadir tres cosas que estos diagramas no llevan 
 
 - El estereotipo `<<device>>` o `<<execution environment>>` en cada nodo.
 - Los **artefactos** dentro de cada nodo: el contenedor, el ejecutable, el motor de base de datos.
-- Los **circulitos de notación *lollipop*** en cada interfaz expuesta.
+- Los **puertos** expuestos por cada nodo (8080, 50051, 5433). La notación *lollipop* va en el diagrama de componentes, no en este.
 
 Eso se dibuja en una herramienta de UML. Los diagramas de aquí sirven para que los cuatro acordemos la arquitectura, no como entregable formal.
 
@@ -947,8 +963,8 @@ Es el requisito más barato de cumplir y el más fácil de olvidar. Y tiene una 
 | **Gateway Routing** | Un solo punto de entrada que reparte hacia varios servicios | El proxy de entrada: el navegador solo conoce una dirección, y `/api`, `/play` y `/chat` van cada uno a su servicio |
 | **Gatekeeper** | Validar cada petición antes de que llegue a lo que hay que proteger | El hub en Go: ningún comando llega al simulador sin pasar su filtro |
 | **Queue-Based Load Leveling** | Absorber picos de carga con una cola intermedia | El hub acumula comandos y se los entrega al simulador tick a tick: un pico de farmeo se reparte en varios ticks en vez de saturar el mundo |
-| **Publisher-Subscriber** | Anunciar un evento a muchos destinatarios sin acoplarlos | Tras cada tick, el hub publica el estado del mundo a todos los jugadores suscritos. El chat funciona igual: publica cada mensaje, con su número de secuencia, a todos los conectados a `/chat` |
-| **Circuit Breaker** | Dejar de insistir con un servicio caído en vez de bloquearse esperando | Si el simulador no responde, el hub deja de reenviar, encola y avisa a los jugadores |
+| **Publisher-Subscriber** | Anunciar un evento a muchos destinatarios sin acoplarlos | Una vez por segundo, el hub publica el estado del mundo a todos los jugadores suscritos. El chat funciona igual: publica cada mensaje, con su número de secuencia, a todos los conectados a `/chat` |
+| **Circuit Breaker** | Dejar de insistir con un servicio caído en vez de bloquearse esperando | Si el simulador no responde, el hub deja de llamar a `Step` (el valle queda en pausa), encola y avisa a los jugadores |
 
 ### Y cuatro más que salen casi gratis
 
@@ -1034,7 +1050,7 @@ Una página aparte, pensada para el profesor y no para los jugadores, que muestr
 
 - Jugadores conectados y goroutines activas en el hub
 - Acciones por segundo y latencia de respuesta
-- El número de tick, la humedad total del valle, la humedad aportada y los incendios activos
+- El número de tick, cuánto tarda cada `Step`, la humedad total del valle, la humedad aportada y los incendios activos
 - El estado de cada servicio: verde si responde, rojo si no
 
 La versión mínima es una página del propio frontend que consulta el punto de salud de cada servicio (RNF-08). Si sobra tiempo, Prometheus y Grafana dan un panel profesional con muy poco código.
