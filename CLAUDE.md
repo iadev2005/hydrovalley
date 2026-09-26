@@ -79,6 +79,19 @@ hydrovalley/
 - El pipeline publica las imágenes en `ghcr.io` (`linux/amd64`): `dev` al fusionar en `dev`, `vX.Y` al etiquetar `main`. Los ensayos de despliegue en el laboratorio usan la imagen con la etiqueta `dev`; la defensa y la entrega final usan una versión etiquetada de `main`.
 - Reglas activas en GitHub sobre `main` y `dev`: pull request obligatorio sin aprobaciones exigidas, comprobaciones del CI obligatorias (en cuanto exista el primer workflow) y force push y borrado bloqueados.
 
+## Portabilidad del despliegue (plan A y plan B)
+
+Se desarrolla con la topología del plan B (una máquina, un contenedor por servicio) y se despliega también en el plan A (cinco máquinas). Pasar de uno a otro es solo configuración, nunca código:
+
+1. Ninguna dirección en el código: cada servicio lee de variables de entorno a quién llama (`WORLD_ADDR`, `PERSISTENCE_ADDR`, `CHAT_ADDR`…). Plan B: `world:50051`; plan A: `10.68.17.x:50051`.
+2. Nunca `localhost` entre servicios.
+3. Sin carpetas compartidas entre contenedores: lo compartido viaja por gRPC o por la base de datos.
+4. Toda llamada gRPC con tiempo límite y reintentos acotados.
+5. Cada servicio arranca aunque los demás no estén y se reconecta solo (RNF-09, CP-08); no depender de `depends_on`.
+6. Un archivo base y variaciones: `deploy/compose.yml` para el plan B y `deploy/nodes/<nodo>.yml` para cada máquina del plan A, con las mismas imágenes.
+
+Sin Docker Swarm: pide más puertos en el cortafuegos y es frágil con Docker Desktop sobre WSL.
+
 ## Entorno de despliegue (laboratorio)
 
 - Máquinas LABBD-01 (`10.68.17.1`) y LABBD-02 (`10.68.17.2`), misma subred. Windows 10 Pro, x86_64, i7-13700F (16 núcleos, 24 hilos) y 31,7 GB de RAM.
