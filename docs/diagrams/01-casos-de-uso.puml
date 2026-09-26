@@ -23,7 +23,7 @@ rectangle "hydrovalley" {
   usecase "Enviar mensaje" as UC_Mensaje <<nivel 2>>
   usecase "Aportar a obra" as UC_Obra <<nivel 2>>
 
-  usecase "Activar modo demo" as UC_Demo
+  usecase "Activar o desactivar modo demo" as UC_Demo
   usecase "Reiniciar valle" as UC_Reiniciar
   usecase "Lanzar prueba de carga" as UC_Carga
 
@@ -82,11 +82,18 @@ end note
 note right of UC_Evolucion
   RF-25, RF-27, RF-28, RF-29
 end note
-note bottom of UC_Carga
-  Activar modo demo, reiniciar valle y
-  lanzar prueba de carga no tienen RF
-  en el documento. Aparecen en
-  «Cómo se demuestra» (bots y guion).
+note right of UC_Demo
+  RF-31 (comando por WS /play,
+  solo con rol de administrador)
+end note
+note right of UC_Reiniciar
+  RF-31
+end note
+note right of UC_Carga
+  RNF-01, RNF-02, CP-11.
+  Se lanza desde el contenedor de
+  los bots (docker compose run bots
+  load-test), no desde la interfaz.
 end note
 
 @enduml

@@ -117,3 +117,9 @@ Se diseña antes de programar. Los diagramas van en PlantUML, en `docs/diagrams/
 8. `08-despliegue.puml`
 
 Los nombres de actores, casos de uso, servicios y métodos deben coincidir con los RF del documento y con los `.proto`. Si el código cambia el diseño, el diagrama se actualiza en el mismo pull request. No se hacen diagramas de clases por servicio: el único de clases es el modelo de dominio del simulador.
+
+Cada `.puml` lleva su `.svg` generado al lado. Los SVG van en un commit aparte, después del commit de los `.puml`, y no pasan por la revisión automática: lo que se revisa es el `.puml`. Se generan con:
+
+```
+docker run --rm -v "$PWD/docs/diagrams:/data" plantuml/plantuml -tsvg '/data/*.puml'
+```
