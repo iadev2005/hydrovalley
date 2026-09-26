@@ -33,13 +33,15 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 ## Reglas que no se rompen
 
 1. **Escritor único.** Solo el simulador en Rust modifica el estado del mundo. Go lo llama con `WorldService.Step` una vez por tick, nunca dos a la vez.
-2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go descarta los repetidos y Rust recuerda, por jugador, los `action_id` aplicados recientemente; ese conjunto va dentro de la instantánea. `Step` devuelve el resultado de cada comando.
+2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go descarta los repetidos (60 s por sesión) y Rust recuerda, por jugador, los aplicados en los últimos 600 ticks; ese conjunto va dentro de la instantánea. `Step` devuelve el resultado de cada comando.
+   - Si Rust cae, el hub pausa el valle (no llama a `Step`), encola hasta 5.000 comandos y, cuando Rust vuelve, vacía su propia ventana de duplicados y drena la cola en lotes de 500 por tick, descartando los de más de 30 s.
+   - El cliente reintenta una acción sin confirmar durante 30 s como máximo.
 3. **El tick es el reloj lógico.** Nunca se ordenan eventos comparando relojes de máquinas distintas.
 4. **Sin streams de gRPC.** Todas las llamadas internas son de pregunta y respuesta. El chat usa `SendMessage`/`ListMessages` con un número de secuencia; la entrega en vivo va por el WebSocket del chat.
 5. **Solo Python toca la base de datos.** Nadie más tiene credenciales de PostgreSQL.
 6. **El azar solo lo decide Rust**, con un generador con semilla cuyo estado se guarda en la instantánea. Misma semilla + mismos comandos = mismo valle.
 7. **Enteros de 64 bits sin signo**, nunca decimales, para agua, hojas y humedad. En JSON, los números grandes viajan como texto.
-8. **Instantánea del mundo cada 5 s** de Rust a Python; nada de escribir en la base de datos con cada gota.
+8. **Instantánea del mundo cada 50 ticks (5 s)** de Rust a Python (`tick % 50 == 0`); nada de escribir en la base de datos con cada gota. Rust carga el catálogo con `CatalogService.GetCatalog` al arrancar y al reiniciar el valle.
 
 ## Convenciones
 
@@ -47,6 +49,7 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 - Paquetes gRPC `hydrovalley.<servicio>.v1`, en `proto/hydrovalley/<servicio>/v1/` (guía de estilo de Buf).
 - Identificadores: UUID en texto. Fechas: ISO 8601 en UTC. Tiempos: segundos.
 - Errores: códigos estándar de gRPC.
+- Comandos de administración (modo demo, reiniciar valle; RF-31): por el WebSocket `/play`, solo con rol de administrador en el token, y entran en la cola del tick como cualquier comando.
 - Coordenadas: casilla `(x, y)` desde la esquina superior izquierda, empezando en 0. El servidor no sabe cómo se dibuja el valle.
 - Dentro de cada servicio, la estructura oficial de su lenguaje: Go con `cmd/` + `internal/`; Rust con la lógica en `src/lib.rs` y el servidor en `src/main.rs`.
 - Saltos de línea LF en todo el repositorio (`.gitattributes`). El laboratorio usa Windows.
