@@ -92,7 +92,7 @@ Resumen honesto: **tenemos el enunciado y nada más.** Cero líneas de código, 
 
 ### Lo que falta y depende del profesor
 
-- **La fecha de entrega.** Es lo único que sigue abierto y bloquea la planificación. Ya se está preguntando.
+- **La fecha de entrega.** Resuelta: el proyecto se entrega en la semana 7 del curso (26 – 30 de octubre de 2026). Falta el día exacto: [DATO: día exacto de la entrega en la semana 7].
 
 Dos cosas que ya sabemos y conviene dejar escritas:
 
@@ -105,7 +105,7 @@ Ese reparto dice algo importante: **el profesor le asignó una máquina propia a
 
 Antes de repartir el trabajo hace falta saber quién tiene experiencia con qué: Go, Rust, gRPC, Docker, bases de datos, frontend. **El reparto de lenguajes debería seguir a esa conversación, no precederla.** Con solo cuatro personas y cuatro lenguajes, colocar a alguien en el lenguaje equivocado cuesta semanas.
 
-## Decisiones que hay que cerrar esta semana
+## Decisiones
 
 ### D-01 · Las reglas del juego
 
@@ -277,7 +277,7 @@ En modo demo esto regala una comprobación de consistencia: sin evaporación ni 
 
 Es lo que le da el encanto a *Drop and Grow*. Es viable porque Phaser soporta mapas isométricos hechos con Tiled, incluida la conversión de un clic en pantalla a una casilla, y porque Kenney tiene packs isométricos con licencia CC0.
 
-Lo importante es que **el servidor no sabe cómo se dibuja el valle**: para Rust, una casilla es una coordenada. Por eso la salida de emergencia es barata. Si al final de la semana 2 el clic sobre una casilla isométrica no funciona bien, se pasa a vista cenital con Tiny Town, sin tocar nada fuera del frontend.
+Lo importante es que **el servidor no sabe cómo se dibuja el valle**: para Rust, una casilla es una coordenada. Por eso la salida de emergencia es barata. Si al final de la semana 4 el clic sobre una casilla isométrica no funciona bien, se pasa a vista cenital con Tiny Town, sin tocar nada fuera del frontend.
 
 ### D-02 · Qué dos lenguajes de los tres
 
@@ -297,7 +297,7 @@ Usar los tres nos deja con **cinco lenguajes para cuatro personas**. Cada lengua
 
 Y no resuelve ningún problema que tengamos. No nos falta un sitio donde poner código; nos falta tiempo para escribirlo.
 
-**Recomendación: quedarnos en dos y no hacer la pregunta.** El esfuerzo de pedir permiso se aprovecha mejor en preguntar por la fecha de entrega, que sí nos bloquea.
+**Recomendación: quedarnos en dos y no hacer la pregunta.** El esfuerzo de pedir permiso se aprovecha mejor en las confirmaciones que sí afectan al plan.
 
 ### D-03 · Qué hace Rust de verdad
 
@@ -337,7 +337,7 @@ Cuesta una tarde y cambia por completo la respuesta a «¿por qué Rust?». Se p
 
 Versión mínima defendible: el valle de 32 × 32 casillas con gotas, evaporación y crecimiento, y un paso cada 100 milisegundos. Aspersores, goteo e incendios se suman encima. Sigue siendo una simulación de verdad, sigue justificando Rust, y cabe en una semana de trabajo de una persona.
 
-**Punto de control, acordado desde ya:** si al terminar la semana 1 el simulador en Rust no responde a una llamada de Go, Rust pasa a calcular solo el ranking, y el mundo lo lleva Go con la versión del tick que íbamos a escribir de todos modos para la comparativa. Decidirlo ahora, con calma, evita tener que discutirlo con prisas.
+**Punto de control, acordado desde ya:** si al terminar la semana 3 el simulador en Rust no responde a una llamada de Go, Rust pasa a calcular solo el ranking, y el mundo lo lleva Go con la versión del tick que íbamos a escribir de todos modos para la comparativa. Decidirlo ahora, con calma, evita tener que discutirlo con prisas.
 
 Lo que no hay que hacer es dejar a Rust ordenando una lista.
 
@@ -645,7 +645,7 @@ Parece trivial y no lo es. La mitad de los errores de integración en proyectos 
 
 Los `.proto` viven en **una sola carpeta del repositorio común**, de la que dependen los cuatro servicios. Cambiar uno afecta a todo el mundo, así que pasa por acuerdo del equipo, no por decisión individual.
 
-Es la carpeta más pequeña del proyecto y la más importante. **Se escribe en la semana 1, antes que cualquier otra cosa.**
+Es la carpeta más pequeña del proyecto y la más importante. **Se escribe en la semana 3, antes que cualquier otra cosa.**
 
 ## Arquitectura y decisiones técnicas
 
@@ -1035,7 +1035,7 @@ Seis pasos, en unos cinco minutos, que cubren todo lo que se evalúa:
 2. **Prueba de carga.** Se pasa a modo demo y se lanzan 30 bots durante un minuto. El panel muestra las gotas por segundo, la latencia y las goroutines subiendo.
 3. **El total cuadra.** Los bots terminan y la humedad del valle marca exactamente las gotas aceptadas. Se reinicia el valle.
 4. **Fuego.** Se vuelve al modo normal, aparecen incendios y dos o tres bots bomberos compiten por apagarlos mientras la clase sigue jugando.
-5. **Se apaga Rust en vivo.** El valle queda en pausa y los jugadores no se caen. Se vuelve a encender y el valle se recupera desde la última instantánea, con el azar incluido. Sin las instantáneas del nivel 2, este paso se limita a mostrar que el hub aguanta y avisa.
+5. **Se apaga Rust en vivo.** El valle queda en pausa y los jugadores no se caen. Se vuelve a encender y el valle se recupera desde la última instantánea, con el azar incluido.
 6. **Se apaga Python.** Nadie nuevo puede entrar, pero quien ya juega sigue jugando.
 
 Cada paso deja una prueba visible. Conviene ensayarlo entero al menos dos veces antes del día.
@@ -1048,18 +1048,18 @@ A eso se suma algo más sutil: el trabajo real de un sistema distribuido **no es
 
 | # | Riesgo | Impacto | Mitigación |
 | --- | --- | --- | --- |
-| R-01 | Cada quien sabe solo lo suyo | **Muy alto** | Dos personas por servicio; revisiones cruzadas obligatorias |
-| R-02 | La integración queda para el final y no funciona nada | **Muy alto** | El esqueleto que camina, en la semana 1 |
+| R-01 | Cada quien sabe solo lo suyo | **Muy alto** | Dos personas por servicio; revisión cruzada recomendada en los pull requests que tocan contratos (`.proto`) o más de un servicio; el CI bloquea lo que rompe las pruebas |
+| R-02 | La integración queda para el final y no funciona nada | **Muy alto** | El esqueleto que camina, en la semana 3 |
 | R-03 | Rust consume el triple de tiempo de lo previsto | Alto | El profesor advirtió que su sintaxis es pesada. Alcance estrecho: solo simulación, sin conexiones con jugadores ni base de datos. La versión del tick en Go hace de plan B |
-| R-04 | Nadie sabe gRPC y el aprendizaje se come dos semanas | Alto | Una sesión conjunta en la semana 1, los cuatro a la vez |
+| R-04 | Nadie sabe gRPC y el aprendizaje se come dos semanas | Alto | Una sesión conjunta en la semana 3, los cuatro a la vez |
 | R-05 | Olvidar los cinco patrones de la nube | Alto | Elegirlos ahora y nombrarlos en el informe. Cuesta una hora |
-| R-06 | No tenemos fecha de entrega | Alto | Preguntarla en la próxima clase. Sin fecha no hay plan |
+| R-06 | Solo quedan cinco semanas de trabajo (semanas 3 a 7; la fecha de entrega ya está resuelta) | Alto | El nivel 1 se cierra en la semana 5; el nivel 2 entra en la semana 6 y en orden; la semana 7 es solo para el informe y la defensa |
 | R-07 | El juego crece y se come el tiempo de la arquitectura | Alto | Congelar las reglas de D-01 y respetar el orden de recorte del plan de trabajo |
 | R-08 | Kubernetes se lleva una semana entera | Medio | Docker Compose primero |
 | R-09 | La demo falla en vivo | Medio | Ensayo completo con dos días de margen y un video de respaldo |
 | R-10 | Las imágenes hechas en un Mac con chip Apple no arrancan en los PC del laboratorio | Alto | El pipeline de GitHub construye las imágenes para x86 |
-| R-11 | El laboratorio no permite Docker, o sus máquinas no se ven entre sí | Alto | Reconocimiento en la próxima visita; plan B con todo en una laptop |
-| R-12 | El valle isométrico se come el tiempo del frontend | Alto | Rombos de colores desde el primer día; decidir entre isométrico y cenital al final de la semana 2 |
+| R-11 | El laboratorio no permite Docker, o sus máquinas no se ven entre sí | Alto | Reconocimiento hecho en parte: Docker funciona, pero el cortafuegos bloquea las conexiones entre máquinas hasta que el encargado cree la regla; plan B con todo en una sola máquina |
+| R-12 | El valle isométrico se come el tiempo del frontend | Alto | Rombos de colores desde el primer día; decidir entre isométrico y cenital al final de la semana 4 |
 
 R-01 y R-02 son los que hunden proyectos como este. Los demás cuestan puntos; esos dos cuestan el proyecto.
 
@@ -1069,13 +1069,13 @@ Esto es lo más importante de todo el documento.
 
 La tentación natural con cuatro lenguajes es que cada quien construya su servicio completo y se junte todo al final. **Eso casi siempre termina mal**, porque los problemas de integración aparecen todos juntos en la peor semana.
 
-La alternativa: **en la primera semana, construir la versión más tonta posible del sistema completo, de punta a punta.**
+La alternativa: **en la primera semana de trabajo (la semana 3), construir la versión más tonta posible del sistema completo, de punta a punta.**
 
 Una acción del jugador que atraviesa los cuatro servicios y vuelve. Nada más. El simulador devuelve un mundo fijo, el hub lo reenvía sin filtrar nada, la persistencia no guarda nada. Pero **existe**: los contenedores levantan, gRPC conecta, la base de datos responde y el pipeline compila.
 
 ```mermaid
 flowchart LR
-    A[Semana 1<br/>Esqueleto que camina] --> B[Despues<br/>Rellenar cada servicio]
+    A[Semana 3<br/>Esqueleto que camina] --> B[Despues<br/>Rellenar cada servicio]
     B --> C[Funcionando<br/>en cada paso]
 ```
 
@@ -1089,29 +1089,59 @@ Todo el mundo sube lo que hizo antes de irse, aunque esté a medias y no funcion
 
 Tenemos acceso a las máquinas del laboratorio una o dos horas por semana, y las comparten otros estudiantes. Eso define cómo trabajamos: **se programa en casa, y el laboratorio se usa solo para probar el despliegue, nunca para desarrollar.**
 
-La pieza que lo hace posible es Docker. Cada servicio viaja en un contenedor que lleva dentro todo lo que necesita, así que lo que funciona en una laptop funciona igual en el laboratorio. **Casi.** Hay tres cosas que no se arreglan solas.
+La pieza que lo hace posible es Docker. Cada servicio viaja en un contenedor que lleva dentro todo lo que necesita, así que lo que funciona en una laptop funciona igual en el laboratorio. **Casi.** Hay cuatro cosas que no se arreglan solas.
 
-### Tres trampas conocidas
+### Cuatro trampas conocidas
 
 | Trampa | Qué pasa | Cómo se evita |
 | --- | --- | --- |
-| **Procesador distinto** | Un Mac con chip Apple (M1 a M4) construye imágenes para ARM; los Ryzen del laboratorio son x86. Una imagen hecha en el Mac puede no arrancar allí | Que las imágenes las construya el pipeline de GitHub, que corre en x86, o construirlas para las dos arquitecturas con `docker buildx` |
+| **Procesador distinto** | Un Mac con chip Apple (M1 a M4) construye imágenes para ARM; los PC del laboratorio (Intel i7) son x86. Una imagen hecha en el Mac puede no arrancar allí | Que las imágenes las construya el pipeline de GitHub, que corre en x86, o construirlas para las dos arquitecturas con `docker buildx` |
 | **Máquinas compartidas** | Otros estudiantes las usan: pueden reiniciarse, restaurarse o actualizarse entre una visita y otra | No dejar nada instalado a mano. Todo el despliegue en un script que se ejecuta en minutos |
-| **La red del laboratorio** | Las máquinas pueden no verse entre sí, o un cortafuegos puede bloquear los puertos de gRPC | Probarlo en la primera visita, con dos máquinas y un servicio mínimo |
+| **La red del laboratorio** | Las máquinas pueden no verse entre sí, o un cortafuegos puede bloquear los puertos de gRPC | Probado en la primera visita: el cortafuegos bloquea las conexiones entrantes entre máquinas. Hace falta una regla del encargado; mientras tanto, plan B en una sola máquina |
 | **Saltos de línea de Windows** | Windows guarda los archivos de texto con otro final de línea. Un script de arranque editado allí puede romper un contenedor de Linux con errores muy confusos | Un archivo .gitattributes en el repositorio que fuerce el formato de Linux desde el primer commit |
 
 ### Qué hacer en la próxima visita
 
-No hace falta configurar el sistema. Hace falta **reconocer el terreno**, y son quince minutos:
+El primer reconocimiento ya está hecho en parte (resultados en la sección siguiente). Lo que queda abierto:
 
-- [ ] Son Windows 11, así que se usa el script diagnostico-lab.ps1
-- [ ] ¿Está Docker instalado? Si no, ¿se puede instalar? ¿Hay permisos de administrador?
-- [ ] ¿Lo que se instala sobrevive a un reinicio, o las máquinas se restauran solas?
-- [ ] ¿Dos máquinas se ven entre sí? Un `ping` de una a otra, y probar un puerto
-- [ ] ¿Hay salida a internet para descargar imágenes desde GitHub?
-- [ ] Anotar qué máquinas son y cómo se identifican
+- [ ] **Cortafuegos:** que el encargado cree en cada máquina que usemos una regla de entrada para los puertos 50051, 8080 y 5433, limitada a `10.68.17.0/24`, y repetir la prueba entre máquinas. Una directiva de grupo del dominio podría anular las reglas locales: si la prueba sigue fallando con la regla creada, preguntarlo
+- [ ] **Con el encargado:** confirmar que las IP son fijas y qué política hay sobre el PostgreSQL nativo del laboratorio
+- [ ] **En la próxima visita:** comprobar que el archivo de prueba y las imágenes de Docker siguen ahí
 
-Si alguna respuesta es «no», mejor saberlo en la semana 1 que el día de la defensa. Y casi todas tienen salida: sin internet, las imágenes se llevan en un USB con `docker save` y se cargan allí con `docker load`; sin permisos, se le pide al encargado del laboratorio con tiempo.
+Si alguna respuesta es «no», mejor saberlo en la semana 3 que el día de la defensa. Y casi todas tienen salida: sin internet, las imágenes se llevan en un USB con `docker save` y se cargan allí con `docker load`; sin permisos, se le pide al encargado del laboratorio con tiempo.
+
+### Lo que encontró el primer reconocimiento
+
+**Estado: hecho en parte.** Primera visita al laboratorio de Base de Datos, máquinas LABBD-01 y LABBD-02. Las máquinas sirven de sobra y Docker funciona con la cuenta del laboratorio. **Queda abierta la red entre máquinas:** el cortafuegos la bloquea.
+
+| Aspecto | Resultado | Qué implica |
+| --- | --- | --- |
+| Sistema | Windows 10 Pro, 64 bits, x86_64 | No es Windows 11 como suponíamos; no cambia nada del plan |
+| Hardware | i7-13700F (16 núcleos, 24 hilos), 31,7 GB de RAM, 75,7 GB libres | Sobra para los cinco servicios en una sola máquina: el plan B es viable aquí mismo |
+| Usuario | Cuenta genérica del dominio (`guayanalabs\labbd-N`), **sin permisos de administrador** | No se puede instalar nada ni abrir puertos en el cortafuegos: eso lo hace el encargado |
+| Persistencia | No se vio ningún congelador | Buena señal, pero no está probado que los datos sobrevivan entre sesiones: el archivo de prueba se creó el mismo día. Se confirma en la próxima visita |
+| Docker | Docker Desktop 29.5.3 con WSL 2. El motor estaba apagado | Funciona tras abrir Docker Desktop: la cuenta sin permisos de administrador ejecuta contenedores y descarga imágenes amd64. En cada visita hay que abrirlo primero |
+| Herramientas | Git, Go, Node y Python 3.12 instalados; Rust y el cliente `psql` no | Da igual: todo se ejecuta en contenedores |
+| PostgreSQL | **Un PostgreSQL 16 nativo del laboratorio ya ocupa el puerto 5432** | Nuestro PostgreSQL en contenedor se publica en el puerto 5433 del host |
+| Puerto 80 | Ocupado por el propio Windows (proceso 4, el servicio HTTP del sistema) | El proxy de entrada se publica en el 8080, no en el 80. gRPC, en el 50051 |
+| Red | LABBD-01 tiene la `10.68.17.1` y LABBD-02 la `10.68.17.2`: misma subred | Parece que la IP sigue el número de máquina, sin confirmar. Las redes `192.168.56.x` (VirtualBox) y `172.17.x` (WSL) no son nuestras y no sirven entre máquinas |
+| Cortafuegos | Activo en los tres perfiles. Bloquea las conexiones **entrantes** entre máquinas | `Test-NetConnection` desde LABBD-01 hacia LABBD-02 por los puertos 50051, 8080 y 5433 da `False` en los tres, aunque el contenedor responde en local. Hace falta una regla de entrada creada por el encargado |
+| Internet | GitHub, `ghcr.io` y Docker Hub responden | Se pueden descargar las imágenes que construya el pipeline |
+
+**Pendiente con el encargado:** crear en cada máquina que usemos una regla de entrada acotada a esos tres puertos y a la red del laboratorio, y volver a hacer la prueba de red. La regla, para que la ejecute como administrador:
+
+```powershell
+New-NetFirewallRule -DisplayName "hydrovalley (proyecto Sistemas Distribuidos)" -Direction Inbound -Protocol TCP -LocalPort 50051,8080,5433 -RemoteAddress 10.68.17.0/24 -Action Allow -Profile Domain,Private
+```
+
+**Lo que implica para el código:**
+
+- `docker-compose.yml` publica en el host el **8080** (proxy), el **50051** (gRPC) y el **5433** (PostgreSQL).
+- Nunca se da por hecho que las máquinas se ven entre sí. Las direcciones de los demás servicios se configuran, no se fijan en el código.
+- Mientras no exista la regla del cortafuegos, el plan B es todo en una sola máquina con Docker Compose, que en estos equipos va sobrada.
+- Las imágenes las construye el pipeline para `linux/amd64`.
+
+El objetivo sigue siendo el despliegue repartido en las máquinas del laboratorio que exige el enunciado (RES-07). Una sola máquina es el plan B, no el destino.
 
 ### El flujo de trabajo
 
@@ -1131,7 +1161,7 @@ flowchart LR
 
 Dos reglas para el tramo final:
 
-1. **Un ensayo de despliegue cada una o dos semanas**, con la versión que haya. No esperar al final para descubrir que algo no arranca allí.
+1. **Un ensayo de despliegue cada una o dos semanas**, con la imagen etiquetada `dev` que haya. No esperar al final para descubrir que algo no arranca allí.
 2. **Plan B para el día de la defensa:** el sistema completo en una sola laptop con Docker Compose. Si el laboratorio falla, se muestra ahí y el diagrama de despliegue se presenta como la topología de destino.
 
 ## Plan de trabajo
@@ -1147,6 +1177,7 @@ Regla que gobierna todo: **cada semana termina con algo que se puede levantar y 
 - El depósito y las tres instalaciones de las 3R: aspersor, goteo y planta de tratamiento
 - Dos mejoras: gota más grande y depósito mayor
 - Incendios que aparecen y se apagan (sin propagarse)
+- Instantáneas cada 5 s y recuperación del mundo tras reiniciar Rust (RF-23)
 - Límite de gotas y cero duplicados
 - El ranking
 - El valle isométrico en Phaser, con la salida de emergencia a vista cenital
@@ -1161,20 +1192,19 @@ Regla que gobierna todo: **cada semana termina con algo que se puede levantar y 
 **Nivel 2 · Si hay tiempo, en este orden:**
 
 1. Despliegue real repartido en las máquinas del laboratorio
-2. Instantáneas y recuperación tras reiniciar Rust
-3. Chat
-4. Que el fuego salte a las casillas vecinas
-5. Las obras comunitarias (RF-26)
-6. Comparativa medida Go vs. Rust
-7. El resumen al volver («mientras no estabas…»)
-8. Panel profesional con Prometheus y Grafana
-9. Más contenido: el árbol de mejoras completo, nuevos biomas como un humedal, logros, un ciclo visual de día y noche y, si sobra tiempo, prestigio. Es sobre todo catálogo y arte, así que cualquiera puede sumar
+2. Chat
+3. Que el fuego salte a las casillas vecinas
+4. Las obras comunitarias (RF-26)
+5. Comparativa medida Go vs. Rust
+6. El resumen al volver («mientras no estabas…»)
+7. Panel profesional con Prometheus y Grafana
+8. Más contenido: el árbol de mejoras completo, nuevos biomas como un humedal, logros, un ciclo visual de día y noche y, si sobra tiempo, prestigio. Es sobre todo catálogo y arte, así que cualquiera puede sumar
 
 **Fuera del proyecto:** enviar a cada jugador solo su parte del mundo, streams de gRPC, Kubernetes y Wails.
 
 Y una regla para que esta lista no se infle: **toda idea nueva dice en qué nivel entra y qué desplaza.** Si no desplaza nada, va al final del nivel 2.
 
-Aplicada al juego: la base de *Drop and Grow* entra en el nivel 1 en lugar de las tres acciones con tiempo de espera. Es más grande que lo que había, pero casi todo lo nuevo cae en Rust (el autómata del valle) y en el frontend (el mapa); Go, Python y la API apenas cambian. Para cuidar el tiempo, **el recorte ya está hecho**: la propagación del fuego, las obras comunitarias, el resumen al volver y el árbol de mejoras completo pasan al nivel 2. El goteo se queda: es un solo multiplicador en Rust, y sin él faltaría una de las 3R, que es el tema del proyecto.
+Aplicada al juego: la base de *Drop and Grow* entra en el nivel 1 en lugar de las tres acciones con tiempo de espera. Es más grande que lo que había, pero casi todo lo nuevo cae en Rust (el autómata del valle) y en el frontend (el mapa); Go, Python y la API apenas cambian. Para cuidar el tiempo, **el recorte ya está hecho**: la propagación del fuego, las obras comunitarias, el resumen al volver y el árbol de mejoras completo pasan al nivel 2. Las instantáneas y la recuperación tras reiniciar Rust suben al nivel 1: RF-23, CP-05, la Capa 5 y la tabla de trazabilidad ya las tratan como núcleo, y el calendario tiene cinco semanas de trabajo. El goteo se queda: es un solo multiplicador en Rust, y sin él faltaría una de las 3R, que es el tema del proyecto.
 
 ### El reparto
 
@@ -1193,21 +1223,44 @@ Y un rol que rota semanalmente: **quien integra**. Esa persona se asegura de que
 
 **El reparto de lenguajes se decide después de saber quién conoce qué**, no antes. Poner a alguien en el lenguaje equivocado cuesta semanas.
 
-### Semana 1 · Cerrar y esqueletar
+### Los diagramas, antes del código
+
+Se diseña antes de programar, con los diagramas justos para que cada persona sepa qué construir y qué esperar de los demás. Si al programar aparece un detalle que el diagrama no previó, se corrige el diagrama en el mismo pull request que el código. Con IA escribiendo buena parte del código, esto importa todavía más: un diagrama claro es la mejor instrucción que se le puede dar.
+
+| Orden | Diagrama | Para qué sirve antes de codificar | Por qué está |
+| --- | --- | --- | --- |
+| 1 | Casos de uso | Traduce las reglas del juego a lo que hace cada actor: jugador, bot y administrador. De ahí salen y se validan los RF | Es el puente entre necesidades y requerimientos en las tesis del profesor |
+| 2 | Componentes, con notación lollipop | Qué servicio expone qué interfaz, gRPC o HTTP. Es el borrador directo de los `.proto` | Exigido (RES-05) |
+| 3 | Secuencia: una gota de punta a punta | El orden de las llamadas entre navegador, proxy, hub, Rust y vuelta. Fija qué campos lleva cada mensaje | Las tesis modelo no lo tienen, así que suma |
+| 4 | Secuencia: Rust se reinicia | Qué hace cada servicio mientras el simulador no está y cómo vuelve desde la instantánea. Guía el *Circuit Breaker* y CP-05 | Tolerancia a fallos |
+| 5 | Estados de la casilla | Las reglas del autómata del valle. Es casi pseudocódigo para Rust | Exigido (estados). Ya está en D-01 |
+| 6 | Modelo de dominio del simulador | Valle, casilla, jugador, instalación, incendio y obra, con sus atributos y relaciones. Es lo que Rust guarda en memoria y lo que viaja en la instantánea | Es el único diagrama de clases que hace falta |
+| 7 | Entidad-relación | Las tablas de PostgreSQL: cuentas, catálogo, instantáneas y reportes | Lo usa una de las tesis modelo; se hace al empezar la persistencia |
+| 8 | Despliegue | Nodos, contenedores y puertos (8080, 50051, 5433), con estereotipos UML | Exigido. Hay un borrador en Mermaid en la sección de arquitectura |
+
+Lo que **no** se hace: un diagrama de clases por servicio. Go y Rust no se organizan en clases sino en estructuras y módulos, y cuatro diagramas de clases de código que todavía no existe envejecen en una semana. El modelo de dominio del simulador cumple ese papel donde de verdad importa. Tampoco hacen falta diagramas de actividades de un «proceso actual»: no hay un proceso previo que mejorar.
+
+**Herramienta: PlantUML.** Se escribe en texto dentro de `docs/diagrams/`, así que se versiona en Git, se revisa en los pull requests y la IA lo entiende y lo edita. Soporta la notación lollipop en los diagramas de componentes ([documentación](https://plantuml.com/component-diagram)), y también los de despliegue, secuencia, estados, clases y casos de uso. Los diagramas en Mermaid de este documento sirven de borrador.
+
+El proyecto se entrega en la semana 7 del curso. Las semanas 1 y 2 ya pasaron; el trabajo en el repositorio empieza en la semana 3.
+
+### Semana 3 (28 sep – 2 oct) · Cerrar y esqueletar
 
 - [ ] Preguntarle al profesor las dudas de más abajo
-- [ ] **Reconocimiento del laboratorio** en la próxima visita: quince minutos, con la lista de la sección anterior
+- [ ] **Reconocimiento del laboratorio**: hecho en parte en la primera visita (LABBD-01 y LABBD-02). Queda abierta la red entre máquinas
+- [ ] Pedir al encargado la regla de entrada del cortafuegos (50051, 8080, 5433 en 10.68.17.0/24) y repetir la prueba entre máquinas
 - [ ] Conversación de equipo: quién conoce Go, Rust, gRPC, Docker, frontend
 - [ ] Cerrar D-01: las reglas del juego en una página, y congelarlas
 - [ ] Cerrar D-02: elegir los dos lenguajes
 - [ ] Sesión conjunta de gRPC, los cuatro a la vez, con un ejemplo que funcione
-- [ ] Crear el repositorio con su estructura de carpetas
+- [x] Crear el repositorio con su estructura de carpetas
+- [ ] Diagramas 1 a 6 en PlantUML, antes de escribir los .proto
 - [ ] **Escribir los `.proto`** — los contratos antes que el código
 - [ ] **El esqueleto que camina**: los servicios levantando con Docker Compose y una petición atravesando el sistema
 - [ ] Pipeline básico compilando y construyendo imágenes x86
 - [ ] **Punto de control de Rust**: el simulador responde a una llamada de Go (D-03)
 
-### Semana 2 · Que cada pieza haga lo suyo
+### Semana 4 (5 – 9 oct) · Que cada pieza haga lo suyo
 
 - [ ] Hub: conexiones en vivo con filtro de sesión, límite de gotas y duplicados (RF-05, RF-09)
 - [ ] Simulador: el valle, el tick, la aplicación de comandos en orden, la evaporación y el crecimiento (RF-04, RF-08, RF-28)
@@ -1216,27 +1269,37 @@ Y un rol que rota semanalmente: **quien integra**. Esa persona se asegura de que
 - [ ] Frontend: el valle isométrico en Phaser con el clic sobre casillas, el depósito y la tienda. **Al terminar la semana, decidir si se sigue en isométrico o se pasa a vista cenital**
 - [ ] Swagger publicado y navegable
 
-### Semana 3 · Integrar de verdad y endurecer
+### Semana 5 (12 – 16 oct) · Integrar de verdad y endurecer
 
 - [ ] Ciclo completo funcionando con datos reales, incendios y bots bomberos incluidos (RF-29)
+- [ ] Instantáneas cada 5 s de Rust a Python y recuperación del mundo tras reiniciar Rust (RF-23, CP-05)
 - [ ] Provocar a mano cada caso de prueba, de CP-01 a CP-11, sobre todo reiniciar Rust y ver que el mundo vuelve desde la instantánea
-- [ ] Si da tiempo: comparativa del tick en Go y en Rust, con su gráfico
 - [ ] Prueba de carga y números medidos para RNF-01 y RNF-02
 - [ ] Los patrones de la nube identificados en el código y documentados
-- [ ] Diagramas UML: componentes, despliegue y estados
 
-### Semana 4 · Informe y defensa
+### Semana 6 (19 – 23 oct) · Nivel 2 y ensayo en el laboratorio
+
+- [ ] Nivel 2, en el orden de la lista, empezando por el despliegue repartido en el laboratorio
+- [ ] Ensayo de despliegue en el laboratorio con la imagen `dev`
+- [ ] Si da tiempo: comparativa del tick en Go y en Rust, con su gráfico
+- [ ] Diagramas UML del entregable: componentes, despliegue y estados
+
+### Semana 7 (26 – 30 oct) · Informe y defensa
+
+Entrega y defensa: [DATO: día exacto de la entrega en la semana 7].
+
+- [ ] Etiquetar en `main` la versión que se entrega y se defiende
 
 - [ ] Informe escrito con los patrones y los diagramas
 - [ ] Ensayo completo de la demo, dos días antes
 - [ ] Video de respaldo por si algo falla en vivo
 
-Las semanas son tentativas hasta que sepamos la fecha de entrega.
+La entrega es en la semana 7 del curso; el calendario queda fijo.
 
 ### Cadencia
 
 - **Lunes, 30 minutos:** qué hace cada quien esta semana y qué necesita de los demás.
-- **Viernes, 30 minutos:** el sistema completo levantando. No valen capturas de pantalla.
+- **Viernes, 30 minutos:** el sistema completo levantando desde `dev`. No valen capturas de pantalla.
 
 ### El repositorio
 
@@ -1258,6 +1321,7 @@ Un aviso para la defensa: el repositorio *golang-standards/project-layout* se ci
 
 ```
 hydrovalley/
+  CLAUDE.md              Contexto y reglas para programar con IA
   README.md              Que es esto y como se levanta
   .gitattributes         Fuerza saltos de linea de Linux
   .github/workflows/     Un workflow por servicio, con filtro por ruta
@@ -1290,21 +1354,23 @@ Dos cosas son decisión nuestra, sin referente directo. La primera, la carpeta `
 
 **El nombre: hydrovalley.** Va en inglés, como pide la convención de nombres del contrato, y sirve de prefijo a los paquetes gRPC: `hydrovalley.world.v1`, `hydrovalley.chat.v1`. Así cada paquete tiene las tres partes que pide Buf: sistema, propósito y versión.
 
+**Contexto para programar con IA.** En la raíz va un `CLAUDE.md` que resume en dos páginas la arquitectura, las reglas que no se rompen, las convenciones y el plan de diagramas: es lo primero que lee una sesión de programación con IA. Junto a él, `docs/documento-inicial.md` es este documento y la fuente de verdad del proyecto: los cambios se hacen ahí, por pull request, para que el código y los requerimientos nunca se separen.
+
 ### Ramas y reglas
 
-El repositorio es [iadev2005/hydrovalley](https://github.com/iadev2005/hydrovalley). Se trabaja con tres tipos de rama, y `dev` se fusiona en `main` **cada semana**, no solo al final:
+El repositorio es [iadev2005/hydrovalley](https://github.com/iadev2005/hydrovalley), privado. Se trabaja con tres tipos de rama, y `dev` se fusiona en `main` **solo cuando hay una versión lista**:
 
 | Rama | Para qué | Cómo entra el código |
 | --- | --- | --- |
 | `feature/…`, `fix/…` | Una tarea concreta. Viven pocos días | Se crean desde `dev` |
-| `dev` | La integración diaria: lo que ya funciona junto | Pull request con el CI en verde y una revisión de otra persona |
-| `main` | La última versión que funciona de punta a punta. Es la que se despliega en el laboratorio y se enseña | Fusión de `dev` el viernes, cuando el sistema completo levanta, con una etiqueta de versión (`v0.1`, `v0.2`…) |
+| `dev` | La integración diaria: lo que ya funciona junto | Pull request con el CI en verde |
+| `main` | La última versión que funciona de punta a punta. Es la que se usa en la defensa y en la entrega final | Fusión de `dev` cuando hay una versión lista (el sistema completo levanta con Docker Compose, el CI está en verde y pasan los casos de prueba correspondientes), con una etiqueta de versión (`v0.1`, `v0.2`…) |
 
-Por qué cada semana y no al final: si `main` recibe una sola fusión el día de la entrega, no aporta nada y esa fusión es la más arriesgada del proyecto. Fusionar cada viernes coincide con la cadencia del plan y deja siempre una versión estable para el laboratorio y para el plan B. El propio autor del modelo *git-flow* [recomienda desde 2020](https://nvie.com/posts/a-successful-git-branching-model/) algo más simple, como GitHub flow, para aplicaciones que se entregan de forma continua; con `dev` como capa de integración nos quedamos en un punto medio razonable.
+Por qué solo cuando está lista: así `main` es siempre una versión que funciona de punta a punta y se puede enseñar, mientras `dev` absorbe los problemas de integración. La revisión del viernes sigue existiendo, pero sobre `dev`. El propio autor del modelo *git-flow* [recomienda desde 2020](https://nvie.com/posts/a-successful-git-branching-model/) algo más simple, como GitHub flow, para aplicaciones que se entregan de forma continua; con `dev` como capa de integración nos quedamos en un punto medio razonable.
 
-El pipeline publica imágenes distintas según la rama: con la etiqueta `dev` al fusionar en `dev`, y con la versión (`v0.2`) al etiquetar `main`. El laboratorio siempre despliega una versión etiquetada.
+El pipeline publica imágenes distintas según la rama: con la etiqueta `dev` al fusionar en `dev`, y con la versión (`v0.2`) al etiquetar `main`. Los ensayos de despliegue en el laboratorio usan la imagen `dev`; la defensa y la entrega final usan una versión etiquetada de `main`.
 
-**Reglas en GitHub**, sobre `main` y `dev`: exigir pull request con una aprobación, que pasen las comprobaciones del CI, y bloquear el force push y el borrado. La aprobación obligatoria es, además, la revisión cruzada que mitiga R-01. Con el repositorio privado en una cuenta gratuita, GitHub no deja activarlas: hasta hacerlo público (o tener GitHub Pro) se cumplen por acuerdo.
+**Reglas en GitHub**, ya activas sobre `main` y `dev`: pull request obligatorio, sin aprobaciones exigidas (lo decidió el equipo para no frenar el desarrollo), comprobaciones del CI obligatorias y force push y borrado bloqueados. Las comprobaciones del CI se activan en cuanto exista el primer workflow y haya corrido una vez.
 
 ## El informe
 
@@ -1367,15 +1433,16 @@ Y una costumbre que conviene adoptar: **enseñarle avances por partes y temprano
 
 ## Preguntas para el profesor
 
-Por orden de urgencia. La primera es la única que bloquea el plan; el resto son confirmaciones que conviene tener por escrito.
+Por orden de urgencia. La primera ya está respondida; el resto son confirmaciones que conviene tener por escrito.
 
-- [ ] **¿Cuál es la fecha de entrega del proyecto?** Es lo único que bloquea el plan
+- [x] **¿Cuál es la fecha de entrega del proyecto?** Respondida: semana 7 del curso
 - [ ] Confirmar el reparto de máquinas del laboratorio: una para la base de datos, una para Rust, una para Go y dos para los otros lenguajes
 - [ ] **¿Le parece bien que Rust sea el simulador del valle** en vez de un servicio de cálculo menor? (D-03)
 - [ ] ¿Hay problema en basar la mecánica en un juego existente (Drop and Grow), sin usar su nombre ni su arte?
 - [ ] ¿Los cinco patrones de la nube van en el informe del proyecto o en el trabajo escrito de UML? ¿Hay una lista de referencia que prefiera?
 - [ ] ¿Qué profundidad espera en Rust y en Go? ¿Basta un servicio real en cada uno?
 - [ ] ¿El despliegue tiene que quedar corriendo en el laboratorio o basta con demostrarlo en contenedores?
+- [ ] ¿Se puede desplegar todo en una sola máquina (con contenedores o máquinas virtuales), o el reparto en varias máquinas de RES-07 es obligatorio? De esto depende si el despliegue repartido es nivel 1 o nivel 2
 - [ ] ¿Hay un número de usuarios concurrentes que debamos alcanzar?
 - [ ] ¿El proyecto se entrega y defiende junto con el trabajo escrito de UML, o por separado?
 - [ ] ¿El informe sigue la estructura de capítulos de un trabajo de grado dentro de las 20 páginas? ¿Portada, índices y anexos cuentan en ese límite?
