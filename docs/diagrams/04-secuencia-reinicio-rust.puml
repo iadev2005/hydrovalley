@@ -9,23 +9,23 @@ database "PostgreSQL" as Db
 
 == Funcionamiento normal ==
 
-loop cada 100 ms
+loop cada 100 ms (un tick)
   Hub -> World : WorldService.Step(comandos)
   World --> Hub : estado + resultado por comando
-end
-
-loop cada 5 s
-  World -> Persistence : PersistenceService.SaveSnapshot(instantánea)
-  note right of World
-    La instantánea incluye:
-    - estado del mundo (valle y jugadores)
-    - estado del generador de azar
-    - action_id aplicados recientemente,
-      por jugador (últimos 600 ticks)
-  end note
-  Persistence -> Db : guardar en una sola transacción
-  Db --> Persistence : ok
-  Persistence --> World : ok
+  opt tick % 50 == 0 (cada 50 ticks, 5 s)
+    World -> Persistence : PersistenceService.SaveSnapshot(instantánea)
+    note right of World
+      La instantánea incluye:
+      - estado del mundo (valle y jugadores,
+        con sus contadores de las 3R)
+      - estado del generador de azar
+      - action_id aplicados recientemente,
+        por jugador (últimos 600 ticks)
+    end note
+    Persistence -> Db : guardar en una sola transacción
+    Db --> Persistence : ok
+    Persistence --> World : ok
+  end
 end
 
 == Rust se cae ==
@@ -35,11 +35,17 @@ Hub -> World : WorldService.Step(comandos)
 Hub <--x World : falla (sin respuesta)
 
 group Circuit Breaker: abierto
-  Hub -> Hub : abrir el circuito:\ndejar de llamar a Step
+  Hub -> Hub : devolver los comandos del Step fallido\nal frente de la cola
+  Hub -> Hub : abrir el circuito: dejar de llamar a Step\n(el valle queda en pausa y el tick no avanza)
   Hub -> Players : aviso: «valle en pausa»\n(nadie se desconecta, las sesiones siguen abiertas)
   loop mientras el circuito está abierto
     Players -> Hub : acciones
-    Hub -> Hub : filtrar (sesión, action_id, 15 gotas/s)\ny guardar en la cola
+    Hub -> Hub : filtrar (sesión, action_id, 15 gotas/s)
+    alt la cola tiene menos de 5.000 comandos
+      Hub -> Hub : guardar en la cola
+    else cola llena
+      Hub -> Players : {"type": "result", "status": "paused"}
+    end
   end
 end
 
@@ -51,21 +57,26 @@ Persistence -> Db : leer la última instantánea
 Db --> Persistence : instantánea
 Persistence --> World : instantánea
 World -> World : recuperar el mundo, el estado del azar\ny los action_id recientes
+World -> Persistence : CatalogService.GetCatalog()
+Persistence --> World : catálogo
 
 group Circuit Breaker: semiabierto y cerrado
   Hub -> World : WorldService.Step (llamada de prueba)
   World --> Hub : responde
   Hub -> Hub : cerrar el circuito
+  Hub -> Hub : vaciar su propia ventana de duplicados\n(la autoridad es el conjunto recuperado por Rust)
   note right of Hub
-    El estado semiabierto es la forma estándar
-    del patrón; el documento solo dice que el
-    hub «deja de reenviar, encola y avisa».
+    El estado semiabierto es la
+    forma estándar del patrón.
   end note
 end
 
-Hub -> World : WorldService.Step(comandos en cola)
-World -> World : aplicar en orden
-World --> Hub : resultado por comando
+loop hasta vaciar la cola
+  Hub -> Hub : descartar los comandos de más de 30 s
+  Hub -> World : WorldService.Step(como mucho 500 comandos)
+  World -> World : aplicar en orden
+  World --> Hub : resultado por comando
+end
 note right of World
   Los action_id aplicados antes de la instantánea
   se rechazan como <b>duplicados</b>.
@@ -73,9 +84,10 @@ end note
 Hub -> Players : el valle sigue
 
 note over Hub, Db
-  <b>Ventana de pérdida: como máximo 5 s.</b> Lo aplicado después de la última
-  instantánea se pierde. Su action_id no está en el conjunto recuperado, así que
-  si el cliente reintenta esa acción, Rust la acepta como nueva (Capa 3). Es lo correcto.
+  <b>Ventana de pérdida: como máximo 5 s (50 ticks).</b> Lo aplicado después de la última
+  instantánea se pierde. Su action_id no está en el conjunto recuperado y el hub ya vació
+  su ventana, así que si el cliente reintenta esa acción (lo hace durante 30 s como máximo),
+  Rust la acepta como nueva (Capa 3). Es lo correcto.
 end note
 
 @enduml
