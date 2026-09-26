@@ -68,9 +68,10 @@ hydrovalley/
 
 ## Ramas
 
-- `feature/…` y `fix/…` salen de `dev` y vuelven a `dev` por pull request, con el CI en verde y la revisión de otra persona.
-- `dev` se fusiona en `main` cada viernes, cuando el sistema completo levanta, con una etiqueta de versión (`v0.1`, `v0.2`…).
-- El laboratorio siempre despliega una versión etiquetada de `main`.
+- `feature/…` y `fix/…` salen de `dev` y vuelven a `dev` por pull request, con el CI en verde.
+- `dev` se fusiona en `main` solo cuando hay una versión lista: el sistema completo levanta con Docker Compose, el CI está en verde y pasan los casos de prueba correspondientes. Cada fusión lleva una etiqueta de versión (`v0.1`, `v0.2`…).
+- Los ensayos de despliegue en el laboratorio usan la imagen con la etiqueta `dev`; la defensa y la entrega final usan una versión etiquetada de `main`.
+- Reglas activas en GitHub sobre `main` y `dev`: pull request obligatorio sin aprobaciones exigidas, comprobaciones del CI obligatorias (en cuanto exista el primer workflow) y force push y borrado bloqueados.
 
 ## Entorno de despliegue (laboratorio)
 
@@ -81,8 +82,8 @@ hydrovalley/
 
 ## Alcance
 
-- **Nivel 1 (sí o sí):** valle con gotas, humedad, crecimiento, evaporación y marchitamiento; depósito; las tres instalaciones; dos mejoras (gota más grande y depósito mayor); incendios que aparecen y se apagan; límite de gotas; ranking; valle isométrico con salida de emergencia a vista cenital; gRPC; proxy; bots; panel del sistema mínimo; Docker Compose; pipeline; diagramas UML.
-- **Nivel 2 (si da tiempo, en orden):** despliegue repartido en el laboratorio, instantáneas y recuperación, chat, propagación del fuego, obras comunitarias, comparativa Go vs. Rust, resumen al volver, Prometheus y Grafana, más contenido.
+- **Nivel 1 (sí o sí):** valle con gotas, humedad, crecimiento, evaporación y marchitamiento; depósito; las tres instalaciones; dos mejoras (gota más grande y depósito mayor); incendios que aparecen y se apagan; límite de gotas; ranking; valle isométrico con salida de emergencia a vista cenital; instantáneas cada 5 s y recuperación tras reiniciar Rust; gRPC; proxy; bots; panel del sistema mínimo; Docker Compose; pipeline; diagramas UML.
+- **Nivel 2 (si da tiempo, en orden):** despliegue repartido en el laboratorio, chat, propagación del fuego, obras comunitarias, comparativa Go vs. Rust, resumen al volver, Prometheus y Grafana, más contenido.
 - Toda idea nueva dice en qué nivel entra y qué desplaza.
 
 ## Diagramas
