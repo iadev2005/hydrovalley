@@ -33,15 +33,16 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 ## Reglas que no se rompen
 
 1. **Escritor único.** Solo el simulador en Rust modifica el estado del mundo. Go lo llama con `WorldService.Step` una vez por tick, nunca dos a la vez.
-2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go descarta los repetidos (60 s por sesión) y Rust recuerda, por jugador, los aplicados en los últimos 600 ticks; ese conjunto va dentro de la instantánea. `Step` devuelve el resultado de cada comando.
-   - Si Rust cae, el hub pausa el valle (no llama a `Step`), encola hasta 5.000 comandos y, cuando Rust vuelve, vacía su propia ventana de duplicados y drena la cola en lotes de 500 por tick, descartando los de más de 30 s.
-   - El cliente reintenta una acción sin confirmar durante 30 s como máximo.
+2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go lleva dos conjuntos por sesión: `pending` (en cola o en curso; un reenvío se ignora) y `confirmed` (aplicados, con su tick, durante 60 s; un reenvío recibe `duplicate`). Rust recuerda, por jugador, los aplicados en los últimos 600 ticks; ese conjunto va dentro de la instantánea y es la autoridad final. `Step` devuelve el resultado de cada comando.
+   - Un solo reloj para los plazos, el del hub: cada acción admitida recibe exactamente un resultado final, `applied | duplicate | rejected | expired` (`expired`: más de 30 s en la cola desde que el hub la admitió). Los rechazos inmediatos del hub son `duplicate | rate_limited | paused | forbidden`. El cliente trata `duplicate` como `applied`; muestra la acción como pendiente hasta el resultado final y solo reenvía las pendientes al reconectarse.
+   - Si Rust cae, el hub pausa el valle (no llama a `Step`), devuelve los comandos del `Step` fallido al frente de la cola (siguen en `pending`) y encola hasta 5.000; los nuevos que pasen de ahí reciben `paused`. Cuando Rust vuelve, su primera respuesta trae `restored_tick` y el hub quita de `confirmed` las entradas con tick mayor; luego drena la cola en lotes de 500 por tick y responde `expired` a los de más de 30 s.
+   - El hub cuenta las gotas aceptadas solo a partir de los resultados `applied` de `Step`.
 3. **El tick es el reloj lógico.** Nunca se ordenan eventos comparando relojes de máquinas distintas.
 4. **Sin streams de gRPC.** Todas las llamadas internas son de pregunta y respuesta. El chat usa `SendMessage`/`ListMessages` con un número de secuencia; la entrega en vivo va por el WebSocket del chat.
 5. **Solo Python toca la base de datos.** Nadie más tiene credenciales de PostgreSQL.
 6. **El azar solo lo decide Rust**, con un generador con semilla cuyo estado se guarda en la instantánea. Misma semilla + mismos comandos = mismo valle.
 7. **Enteros de 64 bits sin signo**, nunca decimales, para agua, hojas y humedad. En JSON, los números grandes viajan como texto.
-8. **Instantánea del mundo cada 50 ticks (5 s)** de Rust a Python (`tick % 50 == 0`); nada de escribir en la base de datos con cada gota. Rust carga el catálogo con `CatalogService.GetCatalog` al arrancar y al reiniciar el valle.
+8. **Instantánea del mundo cada 50 ticks (5 s)** de Rust a Python (`tick % 50 == 0`); nada de escribir en la base de datos con cada gota. Rust copia el mundo y envía `SaveSnapshot` desde una tarea en segundo plano: `Step` nunca espera a la persistencia. Como mucho un guardado en curso (si el anterior sigue, esa instantánea se salta); si falla, se registra y se reintenta en el siguiente tick de instantánea, y el juego sigue. Un fallo de la persistencia nunca abre el *Circuit Breaker* del hub, que solo vigila `Step`. Rust carga el catálogo con `CatalogService.GetCatalog` al arrancar y al reiniciar el valle.
 
 ## Convenciones
 
@@ -64,7 +65,7 @@ hydrovalley/
   src/                   api, frontend, hub, chat, world, world-go, persistence, bots
   catalog/               Cifras del juego (datos, no código)
   deploy/                docker-compose.yml y nginx
-  tests/                 e2e/ (casos CP-01 a CP-11) y bench/ (comparativa Go vs. Rust)
+  tests/                 e2e/ (casos CP-01 a CP-12) y bench/ (comparativa Go vs. Rust)
   scripts/               Diagnóstico del laboratorio y despliegue
   docs/                  documento-inicial.md, diagrams/, informe
 ```
@@ -121,5 +122,5 @@ Los nombres de actores, casos de uso, servicios y métodos deben coincidir con l
 Cada `.puml` lleva su `.svg` generado al lado. Los SVG van en un commit aparte, después del commit de los `.puml`, y no pasan por la revisión automática: lo que se revisa es el `.puml`. Se generan con:
 
 ```
-docker run --rm -v "$PWD/docs/diagrams:/data" plantuml/plantuml -tsvg '/data/*.puml'
+docker run --rm -v "$PWD/docs/diagrams:/data" plantuml/plantuml:1.2026.8 -tsvg '/data/*.puml'
 ```
