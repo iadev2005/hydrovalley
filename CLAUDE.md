@@ -50,7 +50,9 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 - Paquetes gRPC `hydrovalley.<servicio>.v1`, en `proto/hydrovalley/<servicio>/v1/` (guía de estilo de Buf).
 - Identificadores: UUID en texto. Fechas: ISO 8601 en UTC. Tiempos: segundos.
 - Errores: códigos estándar de gRPC.
-- Comandos de administración (modo demo, reiniciar valle; RF-31): por el WebSocket `/play`, solo con rol de administrador en el token, y entran en la cola del tick como cualquier comando.
+- Comandos de administración (modo demo, reiniciar valle; RF-31): por el WebSocket `/play`, solo con rol de administrador en el token, y entran en la cola del tick como cualquier comando. Reiniciar el valle no reinicia el tick.
+- Token: Ed25519, `{player_id, role, exp}`, 12 h. Firma la API (clave privada); el hub verifica con la pública al abrir `/play`. Claves por variables de entorno.
+- Contraseñas: TLS termina en nginx; la API calcula y verifica el hash Argon2id; la persistencia solo guarda el hash. El gRPC interno va sin cifrar dentro de la red del laboratorio.
 - Coordenadas: casilla `(x, y)` desde la esquina superior izquierda, empezando en 0. El servidor no sabe cómo se dibuja el valle.
 - Dentro de cada servicio, la estructura oficial de su lenguaje: Go con `cmd/` + `internal/`; Rust con la lógica en `src/lib.rs` y el servidor en `src/main.rs`.
 - Saltos de línea LF en todo el repositorio (`.gitattributes`). El laboratorio usa Windows.
@@ -74,7 +76,7 @@ hydrovalley/
 
 - `feature/…` y `fix/…` salen de `dev` y vuelven a `dev` por pull request, con el CI en verde.
 - `dev` se fusiona en `main` solo cuando hay una versión lista: el sistema completo levanta con Docker Compose, el CI está en verde y pasan los casos de prueba correspondientes. Cada fusión lleva una etiqueta de versión (`v0.1`, `v0.2`…).
-- Los ensayos de despliegue en el laboratorio usan la imagen con la etiqueta `dev`; la defensa y la entrega final usan una versión etiquetada de `main`.
+- El pipeline publica las imágenes en `ghcr.io` (`linux/amd64`): `dev` al fusionar en `dev`, `vX.Y` al etiquetar `main`. Los ensayos de despliegue en el laboratorio usan la imagen con la etiqueta `dev`; la defensa y la entrega final usan una versión etiquetada de `main`.
 - Reglas activas en GitHub sobre `main` y `dev`: pull request obligatorio sin aprobaciones exigidas, comprobaciones del CI obligatorias (en cuanto exista el primer workflow) y force push y borrado bloqueados.
 
 ## Entorno de despliegue (laboratorio)
@@ -82,8 +84,8 @@ hydrovalley/
 - Máquinas LABBD-01 (`10.68.17.1`) y LABBD-02 (`10.68.17.2`), misma subred. Windows 10 Pro, x86_64, i7-13700F (16 núcleos, 24 hilos) y 31,7 GB de RAM.
 - Docker Desktop 29.5.3 con WSL 2. Cuenta genérica del dominio, **no administradora**: ejecuta contenedores y descarga imágenes amd64, pero no instala nada ni abre puertos.
 - Las imágenes las construye el pipeline para `linux/amd64`; no se construyen en un Mac con chip Apple para desplegarlas.
-- Puertos publicados en el host: proxy **8080** (el 80 lo ocupa Windows), gRPC **50051**, PostgreSQL en contenedor **5433** (el 5432 lo ocupa un PostgreSQL 16 nativo del laboratorio).
-- El cortafuegos bloquea las conexiones entrantes entre máquinas hasta que el encargado cree la regla. Nunca se da por hecha la conectividad entre máquinas. Mientras tanto, plan B: todo en una sola máquina con Docker Compose.
+- Puertos publicados en el despliegue repartido: nodo TypeScript **8080** (nginx con HTTPS; el 80 lo ocupa Windows); nodo Go **8081** (WebSocket del hub), **8082** (WebSocket del chat) y **50051** (gRPC del chat); nodos Rust y Python **50051**; nodo de base de datos **5433** (el 5432 lo ocupa un PostgreSQL 16 nativo del laboratorio). En el plan B solo se publica el 8080.
+- El cortafuegos bloquea las conexiones entrantes entre máquinas hasta que el encargado cree la regla (entrada TCP 8080, 8081, 8082, 50051 y 5433 desde `10.68.17.0/24`). Nunca se da por hecha la conectividad entre máquinas. Mientras tanto, plan B: todo en una sola máquina con Docker Compose.
 - El objetivo sigue siendo el despliegue repartido en las máquinas del laboratorio (RES-07). Una sola máquina es el plan B, no el destino.
 
 ## Alcance
@@ -114,8 +116,9 @@ Se diseña antes de programar. Los diagramas van en PlantUML, en `docs/diagrams/
 4. `04-secuencia-reinicio-rust.puml`
 5. `05-estados-casilla.puml`
 6. `06-dominio-simulador.puml`
-7. `07-entidad-relacion.puml` (al empezar la persistencia)
+7. `07-entidad-relacion.puml`
 8. `08-despliegue.puml`
+9. `09-secuencia-acceso.puml`
 
 Los nombres de actores, casos de uso, servicios y métodos deben coincidir con los RF del documento y con los `.proto`. Si el código cambia el diseño, el diagrama se actualiza en el mismo pull request. No se hacen diagramas de clases por servicio: el único de clases es el modelo de dominio del simulador.
 

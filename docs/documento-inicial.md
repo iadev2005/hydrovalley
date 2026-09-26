@@ -424,7 +424,7 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 | --- | --- | --- |
 | RF-31 | El administrador debe poder activar y desactivar el modo demo y reiniciar el valle; solo con rol de administrador en el token | Con un token sin ese rol, el comando se rechaza; con rol de administrador, el modo demo y el reinicio se aplican en el siguiente tick |
 
-El panel de administración envía estos comandos por el mismo WebSocket `/play`, con su token de administrador. El hub solo los admite con ese rol, y entran en la cola del tick como cualquier comando: Rust los aplica en `Step`, así que el escritor único se mantiene. La prueba de carga no se lanza desde la interfaz sino desde el contenedor de los bots (por ejemplo, `docker compose run bots load-test`); la cubren RNF-01, RNF-02 y CP-11.
+El panel de administración envía estos comandos por el mismo WebSocket `/play`, con su token de administrador. El hub solo los admite con ese rol, y entran en la cola del tick como cualquier comando: Rust los aplica en `Step`, así que el escritor único se mantiene. Reiniciar el valle devuelve el mundo a su estado inicial y pone a cero los contadores de las 3R y de RF-27, pero conserva las cuentas y **no reinicia el tick**, que es el reloj lógico y solo crece (Capa 4); cada reinicio incrementa la época (`epoch`) de las instantáneas, y los reportes por periodo usan solo las instantáneas posteriores al último reinicio. Las cuentas de administrador las crea la persistencia al arrancar, si no existen, a partir de las variables de entorno `ADMIN_USERNAME` y `ADMIN_PASSWORD_HASH`; `Register` crea siempre jugadores. La prueba de carga no se lanza desde la interfaz sino desde el contenedor de los bots (por ejemplo, `docker compose run bots load-test`); la cubren RNF-01, RNF-02 y CP-11.
 
 ### Tolerancia a fallos
 
@@ -586,7 +586,7 @@ Y aquí el diseño regala la solución: **el número de tick del simulador es el
 
 ### Capa 5 · Instantáneas para sobrevivir a un reinicio
 
-El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada 50 ticks (5 s), cuando `tick % 50 == 0`, Rust copia el estado del mundo y envía la instantánea a Python con `SaveSnapshot` desde una tarea en segundo plano; Python la guarda en una sola transacción. `Step` nunca espera a la persistencia. Hay como mucho un guardado en curso: si el anterior no ha terminado, esa instantánea se salta. Si `SaveSnapshot` falla, Rust lo registra y lo vuelve a intentar en el siguiente tick de instantánea, y el juego sigue (RNF-04). Un fallo de la persistencia nunca abre el *Circuit Breaker* del hub, que solo vigila `Step`. Se cuenta en ticks porque el tick es el reloj (Capa 4). Si Rust se reinicia, arranca desde la última. La instantánea incluye los `action_id` recientes, así que un reinicio no abre la puerta a duplicados (Capa 3).
+El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada 50 ticks (5 s), cuando `tick % 50 == 0`, Rust copia el estado del mundo y envía la instantánea a Python con `SaveSnapshot` desde una tarea en segundo plano; Python la guarda en una sola transacción. `Step` nunca espera a la persistencia. Hay como mucho un guardado en curso: si el anterior no ha terminado, esa instantánea se salta. Si `SaveSnapshot` falla, Rust lo registra y lo vuelve a intentar en el siguiente tick de instantánea, y el juego sigue (RNF-04). Un fallo de la persistencia nunca abre el *Circuit Breaker* del hub, que solo vigila `Step`. Se cuenta en ticks porque el tick es el reloj (Capa 4). Si Rust se reinicia, arranca desde la última. La instantánea incluye los `action_id` recientes, así que un reinicio no abre la puerta a duplicados (Capa 3). Retención: se conservan todas las instantáneas de la última hora (720) y una por hora de las anteriores; la persistencia borra el resto.
 
 Lo que se pierde en el peor caso son esos cinco segundos, mientras la persistencia responda. Es un compromiso consciente, y conviene explicarlo así en la defensa: **velocidad a cambio de una ventana de pérdida pequeña y conocida.**
 
@@ -626,7 +626,7 @@ Y trae un beneficio inmediato: **cada quien puede probar solo**. Se generan los 
 | `WorldService` | `Step` | Go le envía los comandos admitidos del tick y recibe el estado nuevo y el resultado de cada comando: aplicado, duplicado o rechazado. Tras un reinicio, su primera respuesta informa del tick recuperado (`restored_tick`) | Simulador (Rust) |
 | `WorldService` | `GetRanking` | Ranking global de quién más aportó al valle | Simulador (Rust) |
 | `PersistenceService` | `SaveSnapshot` / `LoadSnapshot` | Guarda y recupera el mundo completo | Persistencia (Python) |
-| `AccountService` | `Register` / `Login` | Alta y autenticación | Persistencia (Python) |
+| `AccountService` | `Register` / `GetAccount` | `Register(username, password_hash)` guarda una cuenta nueva; `GetAccount(username)` devuelve id, hash y rol. Solo guarda y devuelve el hash: la API calcula el hash al registrar y verifica la contraseña al entrar | Persistencia (Python) |
 | `CatalogService` | `GetCatalog` | Todas las cifras del juego: precios, producciones y mejoras. La piden la API y Rust, este al arrancar y al reiniciar el valle | Persistencia (Python) |
 | `ReportService` | `GetReport` | Reporte de las 3R, calculado a partir de las instantáneas guardadas | Persistencia (Python) |
 | `ChatService` | `SendMessage` / `ListMessages` | Mensajes entre jugadores. `ListMessages` devuelve los mensajes posteriores a un número de secuencia (pregunta y respuesta, sin streams) | Chat (Go) |
@@ -646,7 +646,9 @@ Hacia el navegador hay dos tipos de puerta, y cada una hace lo que le toca. **La
 | `WS /play` | Hub (Go) | Canal en vivo: comandos de ida, estado del mundo de vuelta |
 | `WS /chat` | Chat (Go) | Mensajes en vivo |
 
-Un detalle que ahorra trabajo: al entrar, la API entrega un **token firmado**. El hub lo verifica por sí solo, comprobando la firma, sin preguntarle a nadie. Así cada comando del juego no tiene que ir a consultar la base de datos para saber quién lo manda.
+Un detalle que ahorra trabajo: al entrar, la API entrega un **token firmado**. El hub lo verifica por sí solo, comprobando la firma, sin preguntarle a nadie. Así cada comando del juego no tiene que ir a consultar la base de datos para saber quién lo manda. La firma es asimétrica, **Ed25519**: solo la API tiene la clave privada y firma; el hub tiene la clave pública y verifica. Las dos llegan por variables de entorno (RNF-13). El token lleva `{player_id, role, exp}` y vale 12 horas. El hub lo comprueba al abrir `/play`: una conexión abierta no se corta cuando el token vence, dura hasta que se cierra, y para reconectar hace falta un token vigente.
+
+**Contraseñas (RNF-12).** nginx termina TLS en el puerto 8080 del host (con un certificado autofirmado en el laboratorio), así que entre el navegador y el proxy todo va por HTTPS y WSS. La contraseña nunca entra en la red interna: la API calcula el hash con Argon2id al registrar y lo verifica al entrar, y `AccountService` solo guarda y devuelve el hash. El gRPC interno va sin cifrar dentro de la red del laboratorio, porque por él no viaja ningún secreto. El tramo de nginx al hub y al chat (WebSocket en 8081 y 8082) también va sin cifrar y sí lleva el token: se acepta porque la red del laboratorio es cerrada, el token caduca en 12 h y no es una contraseña; en el plan B ese tramo ni siquiera sale de la máquina. Si el usuario no existe, la API verifica igualmente contra un hash de relleno, para que el tiempo de respuesta no delate qué nombres están registrados.
 
 **Todo lo de adentro es gRPC; el borde es HTTP y WebSocket.** Esa frontera es justo lo que hay que dibujar con notación *lollipop* en el diagrama de componentes. Swagger documenta la parte HTTP; los mensajes del canal en vivo se definen en los mismos `.proto`, así que quedan documentados igual.
 
@@ -914,13 +916,13 @@ flowchart TD
     N5 -->|TCP/IP| N1
 ```
 
-Coincide con el reparto del laboratorio: una máquina para la base de datos, una para Rust, una para Go y dos para los otros lenguajes. Y un detalle que se ve en el diagrama: **solo el nodo de Python toca la base de datos.** Ningún otro tiene credenciales de PostgreSQL.
+Coincide con el reparto del laboratorio: una máquina para la base de datos, una para Rust, una para Go y dos para los otros lenguajes. El frontend no es un servicio sino archivos estáticos que sirve el contenedor de nginx (RES-03 cuenta servicios), y los bots y el tick en Go (`world-go`) se lanzan a demanda en el nodo de Go. Y un detalle que se ve en el diagrama: **solo el nodo de Python toca la base de datos.** Ningún otro tiene credenciales de PostgreSQL.
 
 Para la entrega en UML hay que añadir tres cosas que estos diagramas no llevan y el profesor sí espera:
 
 - El estereotipo `<<device>>` o `<<execution environment>>` en cada nodo.
 - Los **artefactos** dentro de cada nodo: el contenedor, el ejecutable, el motor de base de datos.
-- Los **puertos** expuestos por cada nodo (8080, 50051, 5433). La notación *lollipop* va en el diagrama de componentes, no en este.
+- Los **puertos** expuestos por cada nodo (8080, 8081, 8082, 50051, 5433). La notación *lollipop* va en el diagrama de componentes, no en este.
 
 Eso se dibuja en una herramienta de UML. Los diagramas de aquí sirven para que los cuatro acordemos la arquitectura, no como entregable formal.
 
@@ -1133,7 +1135,7 @@ La pieza que lo hace posible es Docker. Cada servicio viaja en un contenedor que
 
 El primer reconocimiento ya está hecho en parte (resultados en la sección siguiente). Lo que queda abierto:
 
-- [ ] **Cortafuegos:** que el encargado cree en cada máquina que usemos una regla de entrada para los puertos 50051, 8080 y 5433, limitada a `10.68.17.0/24`, y repetir la prueba entre máquinas. Una directiva de grupo del dominio podría anular las reglas locales: si la prueba sigue fallando con la regla creada, preguntarlo
+- [ ] **Cortafuegos:** que el encargado cree en cada máquina que usemos una regla de entrada para los puertos 8080, 8081, 8082, 50051 y 5433, limitada a `10.68.17.0/24`, y repetir la prueba entre máquinas. Una directiva de grupo del dominio podría anular las reglas locales: si la prueba sigue fallando con la regla creada, preguntarlo
 - [ ] **Con el encargado:** confirmar que las IP son fijas y qué política hay sobre el PostgreSQL nativo del laboratorio
 - [ ] **En la próxima visita:** comprobar que el archivo de prueba y las imágenes de Docker siguen ahí
 
@@ -1157,15 +1159,16 @@ Si alguna respuesta es «no», mejor saberlo en la semana 3 que el día de la de
 | Cortafuegos | Activo en los tres perfiles. Bloquea las conexiones **entrantes** entre máquinas | `Test-NetConnection` desde LABBD-01 hacia LABBD-02 por los puertos 50051, 8080 y 5433 da `False` en los tres, aunque el contenedor responde en local. Hace falta una regla de entrada creada por el encargado |
 | Internet | GitHub, `ghcr.io` y Docker Hub responden | Se pueden descargar las imágenes que construya el pipeline |
 
-**Pendiente con el encargado:** crear en cada máquina que usemos una regla de entrada acotada a esos tres puertos y a la red del laboratorio, y volver a hacer la prueba de red. La regla, para que la ejecute como administrador:
+**Pendiente con el encargado:** crear en cada máquina que usemos una regla de entrada acotada a los puertos 8080, 8081, 8082, 50051 y 5433 y a la red del laboratorio, y volver a hacer la prueba de red. La regla, para que la ejecute como administrador:
 
 ```powershell
-New-NetFirewallRule -DisplayName "hydrovalley (proyecto Sistemas Distribuidos)" -Direction Inbound -Protocol TCP -LocalPort 50051,8080,5433 -RemoteAddress 10.68.17.0/24 -Action Allow -Profile Domain,Private
+New-NetFirewallRule -DisplayName "hydrovalley (proyecto Sistemas Distribuidos)" -Direction Inbound -Protocol TCP -LocalPort 8080,8081,8082,50051,5433 -RemoteAddress 10.68.17.0/24 -Action Allow -Profile Domain,Private
 ```
 
 **Lo que implica para el código:**
 
-- `docker-compose.yml` publica en el host el **8080** (proxy), el **50051** (gRPC) y el **5433** (PostgreSQL).
+- En el despliegue repartido, cada nodo publica en su host: el de TypeScript, el **8080** (nginx con HTTPS); el de Go, el **8081** (WebSocket del hub), el **8082** (WebSocket del chat) y el **50051** (gRPC del chat); el de Rust y el de Python, el **50051** (su gRPC); el de la base de datos, el **5433** (PostgreSQL). Cada servicio gRPC usa el 50051 en su propia máquina, así que no chocan.
+- En el plan B (una sola máquina con Docker Compose) solo se publica el **8080**: los servicios se hablan por la red de Compose con el nombre del servicio, y el navegador y los bots corren en esa misma máquina, porque el cortafuegos bloquea las entradas.
 - Nunca se da por hecho que las máquinas se ven entre sí. Las direcciones de los demás servicios se configuran, no se fijan en el código.
 - Mientras no exista la regla del cortafuegos, el plan B es todo en una sola máquina con Docker Compose, que en estos equipos va sobrada.
 - Las imágenes las construye el pipeline para `linux/amd64`.
@@ -1264,8 +1267,9 @@ Se diseña antes de programar, con los diagramas justos para que cada persona se
 | 4 | Secuencia: Rust se reinicia | Qué hace cada servicio mientras el simulador no está y cómo vuelve desde la instantánea. Guía el *Circuit Breaker* y CP-05 | Tolerancia a fallos |
 | 5 | Estados de la casilla | Las reglas del autómata del valle. Es casi pseudocódigo para Rust | Exigido (estados). Ya está en D-01 |
 | 6 | Modelo de dominio del simulador | Valle, casilla, jugador, instalación, incendio y obra, con sus atributos y relaciones. Es lo que Rust guarda en memoria y lo que viaja en la instantánea | Es el único diagrama de clases que hace falta |
-| 7 | Entidad-relación | Las tablas de PostgreSQL: cuentas, catálogo, instantáneas y reportes | Lo usa una de las tesis modelo; se hace al empezar la persistencia |
-| 8 | Despliegue | Nodos, contenedores y puertos (8080, 50051, 5433), con estereotipos UML | Exigido. Hay un borrador en Mermaid en la sección de arquitectura |
+| 7 | Entidad-relación | Las tablas de PostgreSQL: cuentas, catálogo e instantáneas, y de dónde salen los reportes (de las instantáneas, sin tabla propia) | Lo usa una de las tesis modelo |
+| 8 | Despliegue | Nodos, contenedores y puertos (8080, 8081, 8082, 50051, 5433), con estereotipos UML | Exigido. Hay un borrador en Mermaid en la sección de arquitectura |
+| 9 | Secuencia: registro y acceso | `AccountService` (`Register` / `GetAccount`), dónde se calcula y verifica el hash, quién firma el token y cómo lo valida el hub (firma, vencimiento y rol) sin llamar a nadie, y qué ve un acceso nuevo si la persistencia cae (CP-07) | Fija el contrato de acceso entre la API, la persistencia y el hub |
 
 Lo que **no** se hace: un diagrama de clases por servicio. Go y Rust no se organizan en clases sino en estructuras y módulos, y cuatro diagramas de clases de código que todavía no existe envejecen en una semana. El modelo de dominio del simulador cumple ese papel donde de verdad importa. Tampoco hacen falta diagramas de actividades de un «proceso actual»: no hay un proceso previo que mejorar.
 
@@ -1277,7 +1281,7 @@ El proyecto se entrega en la semana 7 del curso. Las semanas 1 y 2 ya pasaron; e
 
 - [ ] Preguntarle al profesor las dudas de más abajo
 - [ ] **Reconocimiento del laboratorio**: hecho en parte en la primera visita (LABBD-01 y LABBD-02). Queda abierta la red entre máquinas
-- [ ] Pedir al encargado la regla de entrada del cortafuegos (50051, 8080, 5433 en 10.68.17.0/24) y repetir la prueba entre máquinas
+- [ ] Pedir al encargado la regla de entrada del cortafuegos (8080, 8081, 8082, 50051 y 5433 en 10.68.17.0/24) y repetir la prueba entre máquinas
 - [ ] Conversación de equipo: quién conoce Go, Rust, gRPC, Docker, frontend
 - [ ] Cerrar D-01: las reglas del juego en una página, y congelarlas
 - [ ] Cerrar D-02: elegir los dos lenguajes
@@ -1397,7 +1401,7 @@ El repositorio es [iadev2005/hydrovalley](https://github.com/iadev2005/hydrovall
 
 Por qué solo cuando está lista: así `main` es siempre una versión que funciona de punta a punta y se puede enseñar, mientras `dev` absorbe los problemas de integración. La revisión del viernes sigue existiendo, pero sobre `dev`. El propio autor del modelo *git-flow* [recomienda desde 2020](https://nvie.com/posts/a-successful-git-branching-model/) algo más simple, como GitHub flow, para aplicaciones que se entregan de forma continua; con `dev` como capa de integración nos quedamos en un punto medio razonable.
 
-El pipeline publica imágenes distintas según la rama: con la etiqueta `dev` al fusionar en `dev`, y con la versión (`v0.2`) al etiquetar `main`. Los ensayos de despliegue en el laboratorio usan la imagen `dev`; la defensa y la entrega final usan una versión etiquetada de `main`.
+El pipeline publica las imágenes en `ghcr.io`, para `linux/amd64`: con la etiqueta `dev` al fusionar en `dev`, y con la versión (`vX.Y`) al etiquetar `main`. El laboratorio las descarga de ahí. Los ensayos de despliegue en el laboratorio usan la imagen `dev`; la defensa y la entrega final usan una versión etiquetada de `main`.
 
 **Reglas en GitHub**, ya activas sobre `main` y `dev`: pull request obligatorio, sin aprobaciones exigidas (lo decidió el equipo para no frenar el desarrollo), comprobaciones del CI obligatorias y force push y borrado bloqueados. Las comprobaciones del CI se activan en cuanto exista el primer workflow y haya corrido una vez.
 
