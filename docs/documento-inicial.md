@@ -261,7 +261,7 @@ Nadie pierde una hoja, y el estanque aparece en las tres pantallas en la misma a
 4. Rust aplica los comandos en orden y después avanza el valle un paso: cobra el litro, suma humedad, hace crecer lo que toque y reparte hojas, riega con los aspersores, evapora y enciende incendios.
 5. Una vez por segundo, el hub envía a cada navegador el estado del valle y el de su jugador. El navegador anima la barra del depósito hasta el siguiente mensaje.
 
-En modo demo esto regala una comprobación de consistencia: sin evaporación ni incendios, y con cada gota sumando 1, **la humedad de todo el valle tiene que ser igual al número de gotas aceptadas.** Son dos contadores que viven en sitios distintos y tienen que coincidir.
+En modo demo esto regala una comprobación de consistencia. Rust lleva un contador de la **humedad aportada** por las gotas en todo el valle (`humidity_contributed` en el código): solo crece, y ni el crecimiento, ni la evaporación, ni los incendios lo tocan. Como en modo demo cada gota suma 1, **la humedad aportada tiene que ser igual al número de gotas aceptadas que cuenta el hub.** Son dos contadores que viven en sitios distintos y tienen que coincidir.
 
 #### Lo que cambia por dentro
 
@@ -347,6 +347,8 @@ Lo que no hay que hacer es dejar a Rust ordenando una lista.
 
 Un chat obliga a resolver el problema central de la materia en su forma más pura: **si dos personas escriben a la vez desde máquinas distintas, ¿en qué orden se muestran los mensajes?** Ordenar por la hora de cada servidor no funciona, porque los relojes se desvían. La solución es un contador lógico, y poder explicar eso en la defensa vale mucho.
 
+El servicio de chat es el único punto que asigna a cada mensaje un **número de secuencia creciente** (un contador lógico), y eso fija el mismo orden para todos (RF-14, CP-09). Los navegadores reciben los mensajes en vivo por el WebSocket `/chat` del propio servicio, que es donde vive el Publisher-Subscriber; por eso no hay un `Subscribe` en gRPC. `ListMessages` sirve para ponerse al día tras una reconexión.
+
 Además encaja sin estorbar:
 
 - Refuerza el patrón **Publisher-Subscriber**, uno de los cinco del informe.
@@ -396,7 +398,7 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 | RF-27 | **El sistema debe mantener cuadradas las cuentas de cada jugador en todo momento: agua = recargada − gastada, y hojas = ganadas − gastadas** | Tras una prueba de carga con instalaciones encendidas, el sistema comprueba la igualdad para todos los jugadores |
 | RF-28 | El sistema debe hacer evolucionar el valle en cada tick, con evaporación, crecimiento y marchitamiento, aunque nadie juegue | Se riega una casilla y se deja: pierde humedad al ritmo del catálogo y, seca demasiado tiempo, se marchita |
 | RF-29 | **El sistema debe encender y apagar los incendios según reglas fijas, con un azar que decide solo el simulador a partir de una semilla** | Con la misma semilla y los mismos comandos, dos ejecuciones dan exactamente el mismo valle |
-| RF-30 | **El sistema debe aplicar las gotas de varios jugadores sobre una misma casilla en el mismo tick sin perder ninguna** | Veinte bots sueltan gotas sobre la misma casilla en modo demo: su humedad es exactamente la de las gotas aceptadas |
+| RF-30 | **El sistema debe aplicar las gotas de varios jugadores sobre una misma casilla en el mismo tick sin perder ninguna** | Veinte bots sueltan gotas sobre la misma casilla en modo demo: la humedad aportada sube exactamente lo de las gotas aceptadas |
 
 ### Ranking y reportes
 
@@ -549,7 +551,17 @@ Esto tiene nombre en la literatura: **principio del escritor único**. Y es la r
 
 Hay un caso que las dos capas anteriores no cubren solas: **la misma acción que llega dos veces**. El jugador hace doble clic, o la red se corta y el navegador reintenta, o gRPC reintenta por su cuenta.
 
-Cada acción lleva un **identificador único** generado por el cliente. Go descarta los que ya vio. Y como red de seguridad, Rust recuerda los últimos identificadores aplicados de cada jugador y también los ignora.
+Cada acción lleva un **identificador único**, el `action_id` (un UUID que genera el cliente). El filtro tiene dos niveles:
+
+| Quién | Qué hace | Qué pasa si se reinicia |
+| --- | --- | --- |
+| Go, primera línea | Descarta los `action_id` repetidos en la ventana reciente de la sesión. Es barato | Esa memoria vive solo en el hub y se pierde |
+| Rust, la autoridad | Recuerda, por jugador, los `action_id` aplicados en los últimos 600 ticks (60 s; valor configurable). **Ese conjunto viaja dentro de la instantánea de 5 s**, junto con el mundo y el estado del generador de azar | Lo recupera de la instantánea |
+
+`WorldService.Step` devuelve el resultado de cada comando (aplicado, duplicado o rechazado), así el hub puede confirmarle a cada jugador lo que pasó con su acción.
+
+- **Si se reinicia el hub** (RF-24, CP-06): los jugadores se reconectan y pueden reenviar las acciones sin confirmar. Rust sigue en marcha y rechaza las duplicadas.
+- **Si se reinicia Rust** (RF-23, CP-05): carga la última instantánea (mundo, azar y `action_id` recientes) y el hub vuelve a enviar sus comandos en cola. Los que ya se aplicaron antes de la instantánea se rechazan como duplicados. Los que se aplicaron después se pierden con la ventana de 5 s como máximo; como su `action_id` no está en el conjunto recuperado, si el cliente los reintenta se aceptan como nuevos. Es lo correcto.
 
 Es RF-09, el requisito que más se olvida y más caro sale: los reintentos automáticos son justamente lo que hace que un sistema distribuido duplique cosas.
 
@@ -561,7 +573,7 @@ Y aquí el diseño regala la solución: **el número de tick del simulador es el
 
 ### Capa 5 · Instantáneas para sobrevivir a un reinicio
 
-El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada cinco segundos Rust envía una instantánea completa a Python, que la guarda en una sola transacción. Si Rust se reinicia, arranca desde la última.
+El mundo en memoria es rápido, pero se pierde si Rust se cae. Por eso cada cinco segundos Rust envía una instantánea completa a Python, que la guarda en una sola transacción. Si Rust se reinicia, arranca desde la última. La instantánea incluye los `action_id` recientes, así que un reinicio no abre la puerta a duplicados (Capa 3).
 
 Lo que se pierde en el peor caso son esos cinco segundos. Es un compromiso consciente, y conviene explicarlo así en la defensa: **velocidad a cambio de una ventana de pérdida pequeña y conocida.**
 
@@ -571,17 +583,17 @@ Cada cosa que puede salir mal es un caso de prueba que hay que provocar a propó
 
 | ID | Qué se prueba | Precondiciones | Flujo | Resultado esperado |
 | --- | --- | --- | --- | --- |
-| CP-01 | Acciones simultáneas del mismo jugador (RF-08) | Modo demo; un jugador con el depósito lleno | Un bot envía 100 gotas a la vez | El depósito baja y la humedad sube exactamente lo de las gotas aceptadas |
+| CP-01 | Acciones simultáneas del mismo jugador (RF-08) | Modo demo; un jugador con el depósito lleno | Un bot envía 100 gotas a la vez | El depósito no cambia (en modo demo la gota es gratis) y la humedad aportada al valle sube exactamente lo de las gotas aceptadas |
 | CP-02 | Acción repetida (RF-09) | Un jugador conectado | Se envía dos veces la misma gota con el mismo `action_id` | Se aplica una sola vez |
 | CP-03 | Autoclicker (RF-05) | Un jugador conectado | Un bot envía 50 gotas por segundo durante 10 s | Se aceptan 15 por segundo y el resto se rechaza con un error de límite |
-| CP-04 | Varios jugadores sobre la misma casilla (RF-30) | Una casilla ardiendo | Tres bots sueltan gotas sobre ella en el mismo tick | El fuego se apaga una vez, hay un solo bono y la humedad coincide con las gotas |
+| CP-04 | Varios jugadores sobre la misma casilla (RF-30) | Una casilla ardiendo | Tres bots sueltan gotas sobre ella en el mismo tick | El fuego se apaga una vez, hay un solo bono y la humedad aportada sube exactamente lo que suman las gotas aceptadas |
 | CP-05 | Reinicio del simulador (RF-23) | Instantáneas activas y jugadores conectados | Se detiene el contenedor de Rust 10 s y se vuelve a arrancar | El valle vuelve a la última instantánea, con 5 s de pérdida como máximo, y nadie pierde la sesión |
 | CP-06 | Caída del hub (RF-24) | Jugadores conectados | Se detiene el contenedor de Go y se vuelve a arrancar | El valle sigue intacto en Rust y los jugadores se reconectan |
 | CP-07 | Caída de la persistencia (RNF-04) | Jugadores conectados | Se detiene el contenedor de Python o el de PostgreSQL | Quien juega sigue jugando en menos de 200 ms; un acceso nuevo recibe un aviso claro |
 | CP-08 | Arranque desordenado (RNF-09) | Todo apagado | Se levantan los servicios en orden inverso | Todos terminan conectados sin intervención. \[DATO: medir el tiempo\] |
 | CP-09 | Mensajes simultáneos (RF-14) | Dos jugadores con el chat abierto | Los dos envían un mensaje a la vez | Las dos pantallas muestran el mismo orden |
 | CP-10 | Azar reproducible (RF-29) | Una semilla y una lista de comandos grabada | Se ejecuta dos veces la misma simulación | Los dos valles finales son idénticos |
-| CP-11 | Carga (RNF-01, RNF-02) | Modo demo | 30 bots durante 60 s | Al menos 100 gotas por segundo, el 95 % por debajo de 200 ms, y la humedad del valle igual a las gotas aceptadas |
+| CP-11 | Carga (RNF-01, RNF-02) | Modo demo | 30 bots durante 60 s | Al menos 100 gotas por segundo, el 95 % por debajo de 200 ms, y la humedad aportada igual a las gotas aceptadas |
 
 ## El contrato: cómo se hablan los servicios
 
@@ -597,13 +609,13 @@ Y trae un beneficio inmediato: **cada quien puede probar solo**. Se generan los 
 
 | Servicio | Método | Qué hace | Quién lo ofrece |
 | --- | --- | --- | --- |
-| `WorldService` | `Step` | Go le envía los comandos admitidos del tick y recibe el estado nuevo | Simulador (Rust) |
+| `WorldService` | `Step` | Go le envía los comandos admitidos del tick y recibe el estado nuevo y el resultado de cada comando: aplicado, duplicado o rechazado | Simulador (Rust) |
 | `WorldService` | `GetRanking` | Ranking global de quién más aportó al valle | Simulador (Rust) |
 | `PersistenceService` | `SaveSnapshot` / `LoadSnapshot` | Guarda y recupera el mundo completo | Persistencia (Python) |
 | `AccountService` | `Register` / `Login` | Alta y autenticación | Persistencia (Python) |
 | `CatalogService` | `GetCatalog` | Todas las cifras del juego: precios, producciones y mejoras | Persistencia (Python) |
 | `ReportService` | `GetReport` | Reporte de las 3R | Persistencia (Python) |
-| `ChatService` | `SendMessage` / `Subscribe` | Mensajes entre jugadores | Chat (Go) |
+| `ChatService` | `SendMessage` / `ListMessages` | Mensajes entre jugadores. `ListMessages` devuelve los mensajes posteriores a un número de secuencia (pregunta y respuesta, sin streams) | Chat (Go) |
 
 Todas las llamadas internas son de pregunta y respuesta. **Descartamos a propósito los streams de gRPC**: son más potentes, pero son justo la parte donde más se atasca quien empieza con Rust, y a diez llamadas por segundo dentro de una red local no nos hacen falta.
 
@@ -935,7 +947,7 @@ Es el requisito más barato de cumplir y el más fácil de olvidar. Y tiene una 
 | **Gateway Routing** | Un solo punto de entrada que reparte hacia varios servicios | El proxy de entrada: el navegador solo conoce una dirección, y `/api`, `/play` y `/chat` van cada uno a su servicio |
 | **Gatekeeper** | Validar cada petición antes de que llegue a lo que hay que proteger | El hub en Go: ningún comando llega al simulador sin pasar su filtro |
 | **Queue-Based Load Leveling** | Absorber picos de carga con una cola intermedia | El hub acumula comandos y se los entrega al simulador tick a tick: un pico de farmeo se reparte en varios ticks en vez de saturar el mundo |
-| **Publisher-Subscriber** | Anunciar un evento a muchos destinatarios sin acoplarlos | Tras cada tick, el hub publica el estado del mundo a todos los jugadores suscritos. El chat funciona igual |
+| **Publisher-Subscriber** | Anunciar un evento a muchos destinatarios sin acoplarlos | Tras cada tick, el hub publica el estado del mundo a todos los jugadores suscritos. El chat funciona igual: publica cada mensaje, con su número de secuencia, a todos los conectados a `/chat` |
 | **Circuit Breaker** | Dejar de insistir con un servicio caído en vez de bloquearse esperando | Si el simulador no responde, el hub deja de reenviar, encola y avisa a los jugadores |
 
 ### Y cuatro más que salen casi gratis
@@ -1007,10 +1019,10 @@ Al terminar, un resumen como este (en modo demo: sin evaporación ni incendios, 
 Gotas enviadas: 6.500 · aceptadas: 6.500 · rechazadas: 0
 Ritmo: 108 gotas por segundo
 Latencia: mediana 12 ms · p95 38 ms
-Humedad total del valle: 6.500  -> coincide
+Humedad aportada: 6.500  -> coincide
 ```
 
-La última línea es la que importa: **la humedad total del valle coincide exactamente con las gotas aceptadas.** Son RF-08 y RF-30 demostrados con un número, no con una afirmación. Con el juego normal la cuenta es la de RF-27, jugador por jugador. Los números de este ejemplo son ilustrativos: los reales salen de medir.
+La última línea es la que importa: **la humedad aportada coincide exactamente con las gotas aceptadas.** Son RF-08 y RF-30 demostrados con un número, no con una afirmación. Con el juego normal la cuenta es la de RF-27, jugador por jugador. Los números de este ejemplo son ilustrativos: los reales salen de medir.
 
 Hay un bot más, travieso a propósito: **uno que hace trampa**, soltando cincuenta gotas por segundo, muy por encima del límite de quince. El hub deja pasar quince y rechaza el resto. Es la forma de enseñar en vivo los patrones *Gatekeeper* y *Rate Limiting*.
 
@@ -1022,7 +1034,7 @@ Una página aparte, pensada para el profesor y no para los jugadores, que muestr
 
 - Jugadores conectados y goroutines activas en el hub
 - Acciones por segundo y latencia de respuesta
-- El número de tick, la humedad total del valle y los incendios activos
+- El número de tick, la humedad total del valle, la humedad aportada y los incendios activos
 - El estado de cada servicio: verde si responde, rojo si no
 
 La versión mínima es una página del propio frontend que consulta el punto de salud de cada servicio (RNF-08). Si sobra tiempo, Prometheus y Grafana dan un panel profesional con muy poco código.
@@ -1033,7 +1045,7 @@ Seis pasos, en unos cinco minutos, que cubren todo lo que se evalúa:
 
 1. **La clase juega.** Todos abren la dirección en las máquinas del laboratorio, con unos pocos bots vecinos. El valle compartido va reverdeciendo en pantalla.
 2. **Prueba de carga.** Se pasa a modo demo y se lanzan 30 bots durante un minuto. El panel muestra las gotas por segundo, la latencia y las goroutines subiendo.
-3. **El total cuadra.** Los bots terminan y la humedad del valle marca exactamente las gotas aceptadas. Se reinicia el valle.
+3. **El total cuadra.** Los bots terminan y la humedad aportada marca exactamente las gotas aceptadas. Se reinicia el valle.
 4. **Fuego.** Se vuelve al modo normal, aparecen incendios y dos o tres bots bomberos compiten por apagarlos mientras la clase sigue jugando.
 5. **Se apaga Rust en vivo.** El valle queda en pausa y los jugadores no se caen. Se vuelve a encender y el valle se recupera desde la última instantánea, con el azar incluido.
 6. **Se apaga Python.** Nadie nuevo puede entrar, pero quien ya juega sigue jugando.
@@ -1412,7 +1424,7 @@ Con 20 páginas, lo largo va a anexos si el profesor los acepta: los `.proto` co
 
 - **Comparar alternativas con una tabla antes de decidir.** Es el sello de esas tesis, y ya está en D-01 (tipos de juego), D-02 (lenguajes), D-05 (despliegue) y en el modelo de ejecución. En el informe, cada criterio se define antes de la tabla, con su fuente.
 - **Requerimientos con código y no funcionales medibles.** RNF-01 pide 100 acciones por segundo y RNF-02 respuestas en menos de 200 ms. Las tesis modelo los tienen vagos, así que aquí ya se les supera.
-- **Evidencia con números.** La prueba de carga, la comparativa Go vs. Rust y la comprobación de que la humedad del valle es igual a las gotas aceptadas son justo el «ideal frente a obtenido» que usan esas tesis. Si algo sale mal, se muestra y se explica: pesa más que un 100 % sin análisis.
+- **Evidencia con números.** La prueba de carga, la comparativa Go vs. Rust y la comprobación de que la humedad aportada es igual a las gotas aceptadas son justo el «ideal frente a obtenido» que usan esas tesis. Si algo sale mal, se muestra y se explica: pesa más que un 100 % sin análisis.
 - **Diagramas de componentes, despliegue y secuencia.** Esas tesis no los traen y aquí son obligatorios, así que suman.
 
 ### Cómo se redacta
@@ -1425,7 +1437,7 @@ El estilo es lo que más distingue a esas tesis, y funciona igual en 20 páginas
 4. **Una definición y, enseguida, un ejemplo concreto.** Tras definir la idempotencia con su autor, el ejemplo: una gota enviada dos veces con el mismo `action_id` se aplica una sola vez.
 5. **Requerimientos con sujeto, capacidad y condición**: «El sistema debe rechazar las gotas de un jugador que pasen de 15 por segundo». Ya están así en este documento.
 6. **Figuras y tablas anunciadas antes e interpretadas después**: «La arquitectura se muestra en la Figura 3», y debajo un párrafo que dice qué se ve. Ninguna captura sin explicar.
-7. **Conclusiones con la fórmula qué se hizo, qué se encontró y por qué importa**: «La prueba de carga con 30 bots evidenció que la humedad total del valle coincidió con las \[DATO\] gotas aceptadas, lo que confirma que el escritor único evitó pérdidas y duplicados». Las recomendaciones empiezan con un verbo: «Implementar la propagación del fuego…».
+7. **Conclusiones con la fórmula qué se hizo, qué se encontró y por qué importa**: «La prueba de carga con 30 bots evidenció que la humedad aportada coincidió con las \[DATO\] gotas aceptadas, lo que confirma que el escritor único evitó pérdidas y duplicados». Las recomendaciones empiezan con un verbo: «Implementar la propagación del fuego…».
 
 Los conectores que se repiten en esas tesis: con base en, en vista de que, cabe destacar que, por consiguiente, en síntesis. Las citas van en APA, y las de más de 40 palabras, en bloque. Nunca se inventa una cita ni un dato: se deja \[FUENTE\] o \[DATO\] hasta tenerlo.
 

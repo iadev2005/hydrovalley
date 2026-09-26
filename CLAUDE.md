@@ -33,9 +33,9 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 ## Reglas que no se rompen
 
 1. **Escritor único.** Solo el simulador en Rust modifica el estado del mundo. Go lo llama con `WorldService.Step` una vez por tick, nunca dos a la vez.
-2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go descarta los repetidos y Rust recuerda los últimos aplicados por jugador.
+2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go descarta los repetidos y Rust recuerda, por jugador, los `action_id` aplicados recientemente; ese conjunto va dentro de la instantánea. `Step` devuelve el resultado de cada comando.
 3. **El tick es el reloj lógico.** Nunca se ordenan eventos comparando relojes de máquinas distintas.
-4. **Sin streams de gRPC.** Todas las llamadas internas son de pregunta y respuesta.
+4. **Sin streams de gRPC.** Todas las llamadas internas son de pregunta y respuesta. El chat usa `SendMessage`/`ListMessages` con un número de secuencia; la entrega en vivo va por el WebSocket del chat.
 5. **Solo Python toca la base de datos.** Nadie más tiene credenciales de PostgreSQL.
 6. **El azar solo lo decide Rust**, con un generador con semilla cuyo estado se guarda en la instantánea. Misma semilla + mismos comandos = mismo valle.
 7. **Enteros de 64 bits sin signo**, nunca decimales, para agua, hojas y humedad. En JSON, los números grandes viajan como texto.
