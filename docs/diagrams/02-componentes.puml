@@ -11,7 +11,7 @@ component "Bots" as Bots <<Go>>
 
 ' --- Borde: HTTP y WebSocket ---
 component "Proxy de entrada\n(nginx)" as Proxy
-() "Entrada única\n(HTTP / WebSocket)" as I_Entry
+() "Entrada única\n(HTTPS / WSS)" as I_Entry
 
 component "API" as Api <<TypeScript>>
 component "Hub en tiempo real" as Hub <<Go>>
@@ -27,7 +27,7 @@ database "PostgreSQL" as Db
 () "WorldService\nStep, GetRanking" as I_World
 () "ChatService\nSendMessage, ListMessages" as I_ChatSvc
 () "PersistenceService\nSaveSnapshot, LoadSnapshot" as I_Persistence
-() "AccountService\nRegister, Login" as I_Account
+() "AccountService\nRegister, GetAccount" as I_Account
 () "CatalogService\nGetCatalog" as I_Catalog
 () "ReportService\nGetReport" as I_Report
 
