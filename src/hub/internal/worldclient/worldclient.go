@@ -24,9 +24,11 @@ type Client struct {
 	api  worldv1.WorldServiceClient
 }
 
-// New crea el cliente para addr (host:puerto). No abre la conexión.
-func New(addr string) (*Client, error) {
-	conn, err := grpc.NewClient(addr,
+// New crea el cliente para addr (host:puerto). No abre la conexión. extra
+// se añade a las opciones propias (las pruebas inyectan un marcador con
+// grpc.WithContextDialer).
+func New(addr string, extra ...grpc.DialOption) (*Client, error) {
+	opts := []grpc.DialOption{
 		// gRPC interno sin cifrar dentro de la red del laboratorio (CLAUDE.md).
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		// Espera de reconexión acotada a 1 s, la cadencia de prueba del
@@ -41,7 +43,8 @@ func New(addr string) (*Client, error) {
 			},
 			MinConnectTimeout: time.Second,
 		}),
-	)
+	}
+	conn, err := grpc.NewClient(addr, append(opts, extra...)...)
 	if err != nil {
 		return nil, err
 	}

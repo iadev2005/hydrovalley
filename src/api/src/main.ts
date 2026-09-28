@@ -1,11 +1,18 @@
 // Proceso de la API: lee la configuración, escucha y se detiene con SIGINT
 // o SIGTERM.
 import { buildApp } from "./app.js";
-import { loadConfig } from "./config.js";
+import { type Config, loadConfig } from "./config.js";
 
-const config = loadConfig(process.env);
+let config: Config;
+try {
+  config = loadConfig(process.env);
+} catch (err) {
+  // Error de configuración: una sola línea clara, sin traza, y salida con 1.
+  console.error(`invalid configuration: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
 const app = await buildApp({
-  logger: { level: process.env.LOG_LEVEL ?? "info" },
+  logger: { level: config.logLevel },
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

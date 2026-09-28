@@ -7,6 +7,8 @@
 // Variables:
 //   HV_BASE_URL          raíz de nginx (por defecto http://localhost:8080)
 //   E2E_READY_TIMEOUT_S  espera máxima a que el stack esté listo (180)
+// La sesión de /play está en play-session.mjs, con pruebas propias que no
+// necesitan el stack (play-session.test.mjs).
 // La consulta a PostgreSQL usa `docker compose exec`, con COMPOSE_PROJECT_NAME,
 // COMPOSE_FILE y COMPOSE_ENV_FILES definidos por run.sh.
 import { describe, it, before, after } from "node:test";
@@ -14,11 +16,14 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
+import { PlaySession } from "./play-session.mjs";
 
 const run = promisify(execFile);
 const BASE_URL = (process.env.HV_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 const WS_BASE = BASE_URL.replace(/^http/, "ws");
 const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_S ?? 180) * 1000;
+// Instantánea del mundo cada 50 ticks (`tick % 50 == 0`): regla 8 de
+// CLAUDE.md y src/world/README.md ("guarda una cada 50 ticks").
 const SNAPSHOT_EVERY = 50n;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -36,50 +41,6 @@ async function eventually(what, timeoutMs, fn, intervalMs = 1000) {
     await sleep(intervalMs);
   }
   throw new Error(`timed out waiting for ${what}${lastError ? `: ${lastError.message}` : ""}`);
-}
-
-/** Conexión a /play que guarda los mensajes y deja esperar por uno. */
-class PlaySession {
-  constructor(playerId) {
-    this.frames = [];
-    this.waiters = [];
-    this.ws = new WebSocket(`${WS_BASE}/play?player_id=${playerId}&map=false`);
-    this.opened = new Promise((resolve, reject) => {
-      this.ws.addEventListener("open", resolve, { once: true });
-      this.ws.addEventListener("error", () => reject(new Error("websocket error")), { once: true });
-      this.ws.addEventListener("close", (e) => reject(new Error(`websocket closed (${e.code})`)), {
-        once: true,
-      });
-    });
-    this.ws.addEventListener("message", (event) => {
-      const frame = JSON.parse(String(event.data));
-      this.frames.push(frame);
-      this.waiters = this.waiters.filter((w) => !w.match(frame) || (w.resolve(frame), false));
-    });
-  }
-
-  next(what, match, timeoutMs) {
-    const seen = this.frames.find(match);
-    if (seen) return Promise.resolve(seen);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), timeoutMs);
-      this.waiters.push({
-        match,
-        resolve: (frame) => {
-          clearTimeout(timer);
-          resolve(frame);
-        },
-      });
-    });
-  }
-
-  send(message) {
-    this.ws.send(JSON.stringify(message));
-  }
-
-  close() {
-    this.ws.close();
-  }
 }
 
 async function snapshotRows() {
@@ -126,10 +87,10 @@ describe("walking skeleton (CP-01-lite)", () => {
     // El hub está listo cuando difunde un estado sin pausa: Step ya responde,
     // o sea, el simulador cargó su instantánea desde la persistencia.
     session = await eventually("a running valley on /play", READY_TIMEOUT_MS, async () => {
-      const candidate = new PlaySession(playerId);
+      const candidate = new PlaySession(`${WS_BASE}/play?player_id=${playerId}&map=false`);
       try {
         await candidate.opened;
-        await candidate.next("a state frame without pause", (f) => f.type === "state" && !f.paused, 3000);
+        await candidate.first("a state frame without pause", (f) => f.type === "state" && !f.paused, 3000);
         return candidate;
       } catch (err) {
         candidate.close();
@@ -139,7 +100,7 @@ describe("walking skeleton (CP-01-lite)", () => {
 
     const actionId = randomUUID();
     session.send({ type: "drop", action_id: actionId, x: 3, y: 4 });
-    const result = await session.next(
+    const result = await session.first(
       `the result of ${actionId}`,
       (f) => f.type === "result" && f.action_id === actionId,
       10_000,
@@ -147,8 +108,9 @@ describe("walking skeleton (CP-01-lite)", () => {
     assert.equal(result.status, "applied", JSON.stringify(result));
     console.log(`drop ${actionId} -> ${result.status}`);
 
-    // La gota cuesta 1 L de los 20 iniciales (D-01).
-    const state = await session.next(
+    // La gota cuesta 1 L de los 20 iniciales (D-01). Solo cuenta un estado
+    // que llegue después del resultado: los anteriores aún tienen 20 L.
+    const state = await session.waitFor(
       "a state with the player",
       (f) => f.type === "state" && f.player !== undefined,
       5000,
@@ -159,7 +121,7 @@ describe("walking skeleton (CP-01-lite)", () => {
 
   it("snapshots the world to PostgreSQL through the persistence", async () => {
     assert.ok(session, "needs the /play session of the previous test");
-    const state = await session.next(
+    const state = await session.first(
       `a state with tick >= ${SNAPSHOT_EVERY}`,
       (f) => f.type === "state" && BigInt(f.tick ?? "0") >= SNAPSHOT_EVERY,
       30_000,

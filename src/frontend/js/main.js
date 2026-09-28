@@ -3,20 +3,23 @@
 import {
   buildDropFrame,
   buildPlayUrl,
+  createReconnectBackoff,
   describeFrame,
+  GRID_SIZE,
   loadOrCreatePlayerId,
   newUuid,
   parseFrame,
 } from "./play.js";
 
 const MAX_LOG_LINES = 100;
-const RECONNECT_DELAY_MS = 1000;
-const GRID_SIZE = 32;
 
 const $ = (id) => document.getElementById(id);
 const playerId = loadOrCreatePlayerId(window.localStorage);
 $("player-id").textContent = playerId;
 
+// El tamaño del valle se define una sola vez, en play.js; los límites reales
+// los decide el servidor (32 × 32 según D-01).
+for (const id of ["x", "y"]) $(id).max = String(GRID_SIZE - 1);
 const randomCoord = () => Math.floor(Math.random() * GRID_SIZE);
 $("x").value = String(randomCoord());
 $("y").value = String(randomCoord());
@@ -29,6 +32,7 @@ function log(line) {
 }
 
 let socket = null;
+const backoff = createReconnectBackoff();
 
 function connect() {
   const ws = new WebSocket(buildPlayUrl(window.location, playerId));
@@ -36,6 +40,7 @@ function connect() {
   $("conn").textContent = "conectando…";
 
   ws.addEventListener("open", () => {
+    backoff.opened();
     $("conn").textContent = "conectado";
     $("drop").disabled = false;
   });
@@ -46,10 +51,12 @@ function connect() {
     log(line);
   });
   ws.addEventListener("close", () => {
-    $("conn").textContent = "desconectado (reintentando)";
+    backoff.closed();
+    const delay = backoff.nextDelay();
+    $("conn").textContent = `desconectado (reintento en ${(delay / 1000).toFixed(1)} s)`;
     $("drop").disabled = true;
     // TODO: reenviar las acciones pendientes al reconectar (CLAUDE.md, regla 2).
-    setTimeout(connect, RECONNECT_DELAY_MS);
+    setTimeout(connect, delay);
   });
 }
 

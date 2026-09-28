@@ -182,7 +182,7 @@ func TestCircuitBreakerOpensProbesAndCloses(t *testing.T) {
 	if len(notice) != 1 || !notice[0].GetPaused() {
 		t.Fatalf("opening the breaker must notify players with a paused state, got %v", notice)
 	}
-	if h.hub.Ready() {
+	if h.hub.Status().Ready {
 		t.Fatal("not ready while the breaker is open")
 	}
 
@@ -208,24 +208,24 @@ func TestCircuitBreakerOpensProbesAndCloses(t *testing.T) {
 	if st := h.hub.Status(); st.Breaker != breaker.Closed.String() || st.Paused {
 		t.Fatalf("successful probe must close, status = %+v", st)
 	}
-	if !h.hub.Ready() {
+	if !h.hub.Status().Ready {
 		t.Fatal("ready once the breaker is closed and Step answers")
 	}
 }
 
 func TestReadyOnlyAfterASuccessfulStep(t *testing.T) {
 	h := newHarness(t)
-	if h.hub.Ready() {
+	if h.hub.Status().Ready {
 		t.Fatal("not ready before any Step")
 	}
 	h.world.set(func(w *fakeWorld) { w.fail = true })
 	h.tick()
-	if h.hub.Ready() {
+	if h.hub.Status().Ready {
 		t.Fatal("not ready after a failed Step")
 	}
 	h.world.set(func(w *fakeWorld) { w.fail = false })
 	h.tick()
-	if !h.hub.Ready() {
+	if !h.hub.Status().Ready {
 		t.Fatal("ready after a successful Step")
 	}
 }

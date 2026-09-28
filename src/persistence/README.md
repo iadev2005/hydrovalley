@@ -64,7 +64,7 @@ PYTHONPATH=.:../../gen/python DATABASE_URL=postgresql://usuario:clave@127.0.0.1:
 
 En Windows (PowerShell), el separador de `PYTHONPATH` es `;`.
 
-El servicio arranca aunque PostgreSQL no esté (regla 5 de portabilidad): el gRPC atiende desde el principio y un hilo se conecta con esperas crecientes (0,5 s, 1 s, 2 s… hasta 5 s). Mientras no hay base de datos, `SaveSnapshot` y `LoadSnapshot` responden `UNAVAILABLE` y la salud está en `NOT_SERVING`; al conectar se aplican las migraciones pendientes y la salud pasa a `SERVING`. Si luego se pierde la conexión, vuelve a `NOT_SERVING` y se reconecta solo. El hilo que conecta registra cualquier excepción (no solo las de red, también un fallo del aviso de salud) y sigue reintentando: nunca muere en silencio.
+El servicio arranca aunque PostgreSQL no esté (regla 5 de portabilidad): el gRPC atiende desde el principio y un hilo se conecta con esperas crecientes (0,5 s, 1 s, 2 s… hasta 5 s). Mientras no hay base de datos, `SaveSnapshot` y `LoadSnapshot` responden `UNAVAILABLE` y la salud está en `NOT_SERVING`; al conectar se aplican las migraciones pendientes y la salud pasa a `SERVING`. Si luego se pierde la conexión, vuelve a `NOT_SERVING` y se reconecta solo. Mientras está conectado, el mismo hilo comprueba la conexión cada 5 s con un `SELECT 1`, así que una conexión que el servidor o la red cortaron por inactividad se detecta aunque nadie llame al servicio. El aviso de cambio de salud se ejecuta fuera del cerrojo del repositorio y siempre publica el estado vigente. El hilo que conecta registra cualquier excepción (no solo las de red, también un fallo del aviso de salud) y sigue reintentando: nunca muere en silencio.
 
 ## Comportamiento
 

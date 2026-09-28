@@ -2,7 +2,10 @@ package worldclient
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,16 +35,80 @@ func serve(t *testing.T, lis net.Listener) {
 	t.Cleanup(srv.Stop)
 }
 
-// freeAddr reserva un puerto local y lo libera: nadie escucha en él.
-func freeAddr(t *testing.T) string {
+// gate es un marcador de conexión controlado por la prueba. El listener se
+// reserva al principio y nunca se libera (no hay que volver a enlazar un
+// puerto liberado); mientras la puerta está cerrada, cada intento de
+// conexión falla como si nadie escuchara.
+type gate struct {
+	mu   sync.Mutex
+	open bool
+	lis  net.Listener
+	// dials cuenta los intentos de conexión, abiertos o no.
+	dials int
+}
+
+func newGate(t *testing.T) *gate {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := lis.Addr().String()
-	_ = lis.Close()
-	return addr
+	t.Cleanup(func() { _ = lis.Close() })
+	return &gate{lis: lis}
+}
+
+func (g *gate) dialer(ctx context.Context, _ string) (net.Conn, error) {
+	g.mu.Lock()
+	g.dials++
+	open := g.open
+	g.mu.Unlock()
+	if !open {
+		return nil, errors.New("connection refused (gate closed)")
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, "tcp", g.lis.Addr().String())
+}
+
+// up sirve el WorldService falso en el listener reservado y abre la puerta.
+func (g *gate) up(t *testing.T) {
+	t.Helper()
+	serve(t, g.lis)
+	g.mu.Lock()
+	g.open = true
+	g.mu.Unlock()
+}
+
+func (g *gate) attempts() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.dials
+}
+
+func (g *gate) client(t *testing.T) *Client {
+	t.Helper()
+	// passthrough: el nombre llega tal cual al marcador, sin resolución DNS.
+	c, err := New("passthrough:///world:50051", grpc.WithContextDialer(g.dialer))
+	if err != nil {
+		t.Fatalf("the client must be created without the world running: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// eventually repite f hasta que devuelve nil o vence el plazo.
+func eventually(t *testing.T, within time.Duration, f func() error) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for {
+		err := f()
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("condition not met within %v: %v", within, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func step(c *Client, timeout time.Duration) (*worldv1.StepResponse, error) {
@@ -71,11 +138,7 @@ func TestStepRoundTrip(t *testing.T) {
 }
 
 func TestStartsWithoutTheWorldAndFailsFast(t *testing.T) {
-	c, err := New(freeAddr(t))
-	if err != nil {
-		t.Fatalf("the client must be created without the world running: %v", err)
-	}
-	defer c.Close()
+	c := newGate(t).client(t)
 	start := time.Now()
 	if _, err := step(c, 200*time.Millisecond); err == nil {
 		t.Fatal("Step without a server must fail")
@@ -86,29 +149,23 @@ func TestStartsWithoutTheWorldAndFailsFast(t *testing.T) {
 }
 
 func TestReconnectsWhenTheWorldAppears(t *testing.T) {
-	addr := freeAddr(t)
-	c, err := New(addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
+	g := newGate(t)
+	c := g.client(t)
 	if _, err := step(c, 200*time.Millisecond); err == nil {
 		t.Fatal("Step must fail while nobody listens")
 	}
-	time.Sleep(1500 * time.Millisecond) // el world tarda en volver
-	lis, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Skipf("port %s was taken meanwhile: %v", addr, err)
-	}
-	serve(t, lis)
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		if _, err := step(c, 200*time.Millisecond); err == nil {
-			return
+	// El canal reintenta la conexión por su cuenta (con su backoff), sin que
+	// nadie llame a Step.
+	eventually(t, 3*time.Second, func() error {
+		if n := g.attempts(); n < 2 {
+			return fmt.Errorf("%d connection attempts, want a retry", n)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the client did not reconnect within 3 s of the world coming back")
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+		return nil
+	})
+	g.up(t)
+	// Espera de reconexión acotada a 1 s (MaxDelay): con margen, 3 s.
+	eventually(t, 3*time.Second, func() error {
+		_, err := step(c, 200*time.Millisecond)
+		return err
+	})
 }

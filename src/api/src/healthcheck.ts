@@ -1,14 +1,14 @@
 // Comprobación para el HEALTHCHECK de Docker: sale con 0 si /api/health
-// responde 200 dentro del propio contenedor (la imagen no trae curl).
+// responde 2xx dentro del propio contenedor (la imagen no trae curl). La
+// lógica vive en health-probe.ts, que tiene pruebas.
 import { loadConfig } from "./config.js";
+import { probeHealth } from "./health-probe.js";
 
-const { host, port } = loadConfig(process.env);
-const target = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-const url = `http://${target.includes(":") ? `[${target}]` : target}:${String(port)}/api/health`;
-
+let code: 0 | 1;
 try {
-  const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
-  process.exit(res.ok ? 0 : 1);
+  code = await probeHealth(loadConfig(process.env));
 } catch {
-  process.exit(1);
+  // Configuración inválida: el contenedor no está sano.
+  code = 1;
 }
+process.exit(code);

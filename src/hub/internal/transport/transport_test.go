@@ -158,13 +158,18 @@ func TestReadyzFollowsTheWorld(t *testing.T) {
 		t.Fatalf("/readyz after a successful Step = %d, want 200", resp.StatusCode)
 	}
 	var body map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body["breaker"] != "closed" {
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body["breaker"] != "closed" || body["ready"] != true || body["paused"] != false {
 		t.Fatalf("/readyz body = %v (%v)", body, err)
 	}
 	e.world.fail = true
 	e.tick()
-	if resp := e.get("/readyz"); resp.StatusCode != http.StatusServiceUnavailable {
+	resp = e.get("/readyz")
+	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("/readyz after a failed Step = %d, want 503", resp.StatusCode)
+	}
+	body = nil
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body["ready"] != false || body["paused"] != true {
+		t.Fatalf("/readyz body after a failed Step = %v (%v)", body, err)
 	}
 }
 

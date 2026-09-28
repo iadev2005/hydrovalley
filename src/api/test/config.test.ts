@@ -3,13 +3,14 @@ import { loadConfig } from "../src/config.js";
 
 describe("loadConfig", () => {
   it("uses 0.0.0.0:3000 when API_LISTEN is not set", () => {
-    expect(loadConfig({})).toEqual({ host: "0.0.0.0", port: 3000 });
+    expect(loadConfig({})).toEqual({ host: "0.0.0.0", port: 3000, logLevel: "info" });
   });
 
   it("reads host and port from API_LISTEN", () => {
     expect(loadConfig({ API_LISTEN: "127.0.0.1:4000" })).toEqual({
       host: "127.0.0.1",
       port: 4000,
+      logLevel: "info",
     });
   });
 
@@ -17,6 +18,7 @@ describe("loadConfig", () => {
     expect(loadConfig({ API_LISTEN: ":3001" })).toEqual({
       host: "0.0.0.0",
       port: 3001,
+      logLevel: "info",
     });
   });
 
@@ -24,6 +26,7 @@ describe("loadConfig", () => {
     expect(loadConfig({ API_LISTEN: "[::]:3000" })).toEqual({
       host: "::",
       port: 3000,
+      logLevel: "info",
     });
   });
 
@@ -33,4 +36,23 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ API_LISTEN: value })).toThrow(/API_LISTEN/);
     },
   );
+});
+
+describe("loadConfig LOG_LEVEL", () => {
+  it.each(["fatal", "error", "warn", "info", "debug", "trace", "silent"])(
+    "accepts the pino level %s",
+    (level) => {
+      expect(loadConfig({ LOG_LEVEL: level }).logLevel).toBe(level);
+    },
+  );
+
+  it("defaults to info when LOG_LEVEL is not set", () => {
+    expect(loadConfig({}).logLevel).toBe("info");
+  });
+
+  it.each(["verbose", "INFO", "", "warning"])("rejects the invalid level %j", (level) => {
+    expect(() => loadConfig({ LOG_LEVEL: level })).toThrow(
+      /^LOG_LEVEL must be one of fatal, error, warn, info, debug, trace, silent; got ".*"$/,
+    );
+  });
 });

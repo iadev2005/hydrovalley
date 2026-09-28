@@ -1,6 +1,13 @@
 // Mensajes del WebSocket /play (proto/hydrovalley/play/v1/play.proto) y
 // utilidades sin DOM, para poder probarlas con node:test.
 
+/**
+ * Lado del valle (32 × 32 casillas, D-01). Solo sirve para proponer
+ * coordenadas en la página: los límites los decide el servidor, que
+ * rechaza las gotas fuera del valle.
+ */
+export const GRID_SIZE = 32;
+
 const PLAYER_ID_KEY = "hydrovalley.player_id";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -151,4 +158,56 @@ export function describeFrame(frame) {
     default:
       return `mensaje no reconocido: ${frame.raw}`;
   }
+}
+
+/** Espera base de la reconexión: la del primer reintento, como máximo. */
+export const RECONNECT_BASE_MS = 500;
+/** Techo de la espera de reconexión. */
+export const RECONNECT_CAP_MS = 10_000;
+/** Una conexión que dura al menos esto reinicia la secuencia de esperas. */
+export const RECONNECT_STABLE_MS = 5_000;
+
+/**
+ * Espera antes del reintento número `attempt` (desde 0): espera exponencial
+ * con *full jitter*, un valor al azar en [0, min(techo, base · 2^attempt)).
+ * El azar evita que todos los clientes se reconecten a la vez tras una caída.
+ * @param {number} attempt
+ * @param {() => number} [random] fuente en [0, 1)
+ * @returns {number} milisegundos
+ */
+export function reconnectDelay(attempt, random = Math.random) {
+  if (!Number.isInteger(attempt) || attempt < 0) {
+    throw new RangeError(`attempt must be a non-negative integer, got ${attempt}`);
+  }
+  // A partir de 2^5 · 500 ms ya se supera el techo; se acota el exponente
+  // para no calcular potencias enormes.
+  const ceiling = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** Math.min(attempt, 16));
+  return Math.floor(random() * ceiling);
+}
+
+/**
+ * Estado de la reconexión de un WebSocket. `opened()` al abrirse,
+ * `closed()` al cerrarse y `nextDelay()` para saber cuánto esperar antes
+ * del siguiente intento. Si la conexión duró al menos `RECONNECT_STABLE_MS`,
+ * la secuencia vuelve a empezar desde la espera base.
+ * @param {{random?: () => number, now?: () => number}} [deps]
+ */
+export function createReconnectBackoff({ random = Math.random, now = Date.now } = {}) {
+  let attempt = 0;
+  /** @type {number | null} */
+  let openedAt = null;
+  return {
+    opened() {
+      openedAt = now();
+    },
+    closed() {
+      if (openedAt !== null && now() - openedAt >= RECONNECT_STABLE_MS) attempt = 0;
+      openedAt = null;
+    },
+    nextDelay() {
+      const delay = reconnectDelay(attempt, random);
+      attempt += 1;
+      return delay;
+    },
+  };
 }

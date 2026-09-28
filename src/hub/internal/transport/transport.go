@@ -46,9 +46,10 @@ func NewHandler(ctx context.Context, h *hub.Hub, log *slog.Logger, opts Options)
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		// Una sola foto: "ready" y el resto de campos son del mismo instante.
 		st := h.Status()
 		code := http.StatusOK
-		if !h.Ready() {
+		if !st.Ready {
 			code = http.StatusServiceUnavailable
 		}
 		w.Header().Set("Content-Type", "application/json")
