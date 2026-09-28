@@ -39,7 +39,7 @@ Persistence --> Api : id, password_hash, role\n(o NOT_FOUND)
 Api -> Api : verificar la contraseña contra el hash Argon2id\n(si NOT_FOUND, contra un hash de relleno:\nmismo tiempo de respuesta)
 
 alt credenciales correctas
-  Api -> Api : firmar el token con la clave privada Ed25519\n{player_id, role, exp = ahora + 12 h}
+  Api -> Api : firmar el token con la clave privada Ed25519\n{player_id, username, role, exp = ahora + 12 h}
   Api --> Browser : 200 {"token": "…", "expires_at": "ISO 8601 en UTC"}
   Browser -> Browser : guardar el token
 else usuario inexistente o contraseña incorrecta

@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package hydrovalley.play.v1;
+
+// Mensajes del canal en vivo, el WebSocket /play (hub en Go). Sin servicio
+// gRPC: este archivo solo define los mensajes JSON entre el navegador (o un
+// bot) y el hub.
+//
+// Convención JSON
+// - Cada mensaje del WebSocket es exactamente uno de los mensajes
+//   siguientes, codificado con protojson usando los nombres de campo del
+//   .proto (Go: protojson.MarshalOptions{UseProtoNames: true}); los
+//   decodificadores de protojson también aceptan esos nombres.
+// - El campo de texto `type` (siempre el campo 1) indica qué mensaje es, como
+//   en los ejemplos del documento: {"type": "drop", "x": 14, "y": 9,
+//   "action_id": "..."} y {"type": "result", "action_id": "...",
+//   "status": "duplicate"}. Quien lo recibe lo decodifica como Envelope, lee
+//   `type` y después lo decodifica como ese mensaje.
+//   No se usa un oneof a propósito: protojson anidaría el contenido bajo el
+//   nombre del caso ({"drop": {"x": 14}}) en vez de la forma plana de arriba.
+// - Los valores de tipo enumerado (type, status, reason, installation,
+//   upgrade) son textos en minúsculas y snake_case, como en el documento. El
+//   hub los valida y los traduce a los enums de hydrovalley.world.v1 (p. ej.,
+//   "sprinkler" -> INSTALLATION_KIND_SPRINKLER, "insufficient_water" ->
+//   REJECT_REASON_INSUFFICIENT_WATER).
+// - Los enteros de 64 bits (agua, hojas, humedad, tick) viajan como texto en
+//   JSON ("12345678901234567"); protojson ya lo hace con uint64.
+// - Los valores cero pueden omitirse (comportamiento por defecto de
+//   protojson); un campo ausente se lee como 0, false o "".
+// - Los bots pueden abrir /play?token=...&map=false para no recibir los
+//   campos del mapa de StateMessage.
+
+// Solo el discriminador, para inspeccionar un mensaje entrante.
+message Envelope {
+  string type = 1;
+}
+
+// --- Navegador -> hub -------------------------------------------------------
+// Cada comando lleva un action_id generado por el cliente (UUID, RF-09) y
+// recibe exactamente un ResultMessage final, o uno inmediato si el hub lo
+// rechaza. Un reenvío de un action_id que sigue en `pending` se ignora.
+
+// {"type": "drop", "action_id": "...", "x": 14, "y": 9} (RF-04, RF-05).
+message DropMessage {
+  // Siempre "drop".
+  string type = 1;
+  string action_id = 2;
+  uint32 x = 3;
+  uint32 y = 4;
+}
+
+// Compra y coloca una instalación (RF-04, RF-07).
+message PlaceInstallationMessage {
+  // Siempre "place_installation".
+  string type = 1;
+  string action_id = 2;
+  // "sprinkler" | "drip" | "treatment_plant".
+  string installation = 3;
+  uint32 x = 4;
+  uint32 y = 5;
+}
+
+// Mejora única (RF-07).
+message BuyUpgradeMessage {
+  // Siempre "buy_upgrade".
+  string type = 1;
+  string action_id = 2;
+  // "bigger_drop" | "bigger_tank".
+  string upgrade = 3;
+}
+
+// Solo administrador (RF-31); sin role = admin el hub responde "forbidden".
+message SetDemoModeMessage {
+  // Siempre "set_demo_mode".
+  string type = 1;
+  string action_id = 2;
+  bool enabled = 3;
+}
+
+// Solo administrador (RF-31). Reinicia el valle; el tick no se reinicia.
+message ResetValleyMessage {
+  // Siempre "reset_valley".
+  string type = 1;
+  string action_id = 2;
+}
+
+// --- Hub -> navegador -------------------------------------------------------
+
+// Resultado de un comando.
+// Inmediatos (el hub lo rechaza y nunca lo encola):
+//   "duplicate" (ya está en `confirmed`), "rate_limited" (más de 15 gotas por
+//   segundo, RF-05, CP-03), "paused" (valle en pausa y cola llena, con 5.000
+//   comandos, CP-05), "forbidden" (comando de administración sin
+//   role = admin, RF-31).
+// Finales (exactamente uno por comando admitido, justo después de su Step):
+//   "applied", "duplicate" (Rust ya lo había aplicado), "rejected" (con
+//   reason, RF-06), "expired" (más de 30 s en la cola del hub).
+// El cliente trata "duplicate" como "applied" y muestra la acción como
+// pendiente hasta que llega un resultado.
+message ResultMessage {
+  // Siempre "result".
+  string type = 1;
+  string action_id = 2;
+  // "applied" | "duplicate" | "rejected" | "expired" | "rate_limited" |
+  // "paused" | "forbidden".
+  string status = 3;
+  // Solo con "rejected": "insufficient_water" | "insufficient_leaves" |
+  // "out_of_bounds" | "tile_occupied" | "upgrade_already_owned" |
+  // "invalid_command".
+  string reason = 4;
+}
+
+// Mensaje que el hub no pudo interpretar o cuyo type es desconocido (RF-06).
+// Lleva el action_id cuando se pudo leer. No se encola nada.
+message ErrorMessage {
+  // Siempre "error".
+  string type = 1;
+  string action_id = 2;
+  // "invalid_message" | "unknown_type".
+  string code = 3;
+}
+
+// Estado del valle y del jugador, difundido una vez por segundo a cada
+// conexión (Publisher-Subscriber, RF-03). Con el mapa ocupa unos 8-10 KB. El
+// navegador anima la barra del depósito hasta el siguiente; los números del
+// servidor siempre mandan.
+message StateMessage {
+  // Siempre "state".
+  string type = 1;
+  // Tick del estado (el reloj lógico, Capa 4).
+  uint64 tick = 2;
+  // Verdadero mientras el valle está en pausa porque Step falla: el tick no
+  // avanza (CP-05).
+  bool paused = 3;
+  bool demo_mode = 4;
+  uint32 width = 5;
+  uint32 height = 6;
+  // Campos del mapa (vacíos con map=false). Por filas: índice = y * width +
+  // x. Etapa de cada casilla, con los números de hydrovalley.world.v1.TileStage
+  // (1 tierra seca, 2 pasto, 3 arbusto, 4 flores, 5 árbol).
+  repeated uint32 stages = 7;
+  // Humedad de cada casilla.
+  repeated uint64 humidity = 8;
+  // Casillas ardiendo.
+  repeated FireView fires = 9;
+  // Instalaciones colocadas.
+  repeated InstallationView installations = 10;
+  // Estado del propio jugador que recibe el mensaje; ausente hasta que su
+  // primer comando lo hace entrar en el mundo.
+  PlayerView player = 11;
+}
+
+message FireView {
+  uint32 x = 1;
+  uint32 y = 2;
+  // Gotas recibidas hasta ahora; la tercera lo apaga.
+  uint32 drops_received = 3;
+}
+
+message InstallationView {
+  uint32 x = 1;
+  uint32 y = 2;
+  // "sprinkler" | "drip" | "treatment_plant".
+  string installation = 3;
+  string owner_id = 4;
+}
+
+message PlayerView {
+  uint64 water = 1;
+  uint64 tank_capacity = 2;
+  uint64 leaves = 3;
+  // Mejoras compradas: "bigger_drop" | "bigger_tank".
+  repeated string upgrades = 4;
+  // Precio de la siguiente instalación de cada tipo (RF-07).
+  uint64 next_sprinkler_price = 5;
+  uint64 next_drip_price = 6;
+  uint64 next_treatment_plant_price = 7;
+}

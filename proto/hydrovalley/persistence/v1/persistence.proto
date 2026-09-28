@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package hydrovalley.persistence.v1;
+
+// PersistenceService guarda y recupera las instantáneas del mundo (Capa 5).
+// Lo sirve la persistencia (Python), el único servicio con credenciales de
+// PostgreSQL. Solo lo llama el simulador.
+//
+// Política de llamadas: plazo de 2 s; hasta 3 reintentos con esperas de 100,
+// 200 y 400 ms. Las dos llamadas son idempotentes (SaveSnapshot gracias a
+// ON CONFLICT).
+service PersistenceService {
+  // Guarda una instantánea en una sola transacción:
+  // INSERT ... ON CONFLICT (tick) DO NOTHING, así que reintentar el guardado
+  // del mismo tick no cambia nada y devuelve OK igualmente. Tras cada
+  // guardado correcto, la persistencia poda en otra transacción las
+  // instantáneas fuera de la retención (todas las de la última hora y una
+  // por hora de las anteriores).
+  // Se envía cada 50 ticks (tick % 50 == 0) desde una tarea en segundo
+  // plano; Step nunca la espera y un fallo nunca abre el Circuit Breaker
+  // del hub.
+  rpc SaveSnapshot(SaveSnapshotRequest) returns (SaveSnapshotResponse);
+
+  // Devuelve la instantánea de mayor tick. NOT_FOUND si no hay ninguna (el
+  // simulador arranca entonces con un mundo vacío; restored_tick = 0).
+  rpc LoadSnapshot(LoadSnapshotRequest) returns (LoadSnapshotResponse);
+}
+
+message SaveSnapshotRequest {
+  Snapshot snapshot = 1;
+}
+
+message SaveSnapshotResponse {}
+
+message LoadSnapshotRequest {}
+
+message LoadSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+// Fila de `snapshots` más sus filas de `snapshot_players` (diagrama 07).
+message Snapshot {
+  // Clave primaria. Se toma después de aplicar los comandos del tick N y
+  // avanzar el valle: incluye todo lo aplicado con tick <= N.
+  uint64 tick = 1;
+  // Se incrementa con cada reinicio del valle (RF-31); los reportes usan la
+  // época actual.
+  uint32 epoch = 2;
+  // Hash del catálogo vigente al tomar la instantánea.
+  string catalog_version = 3;
+  // hydrovalley.world.v1.WorldSnapshot serializado. Opaco para la
+  // persistencia.
+  bytes world_state = 4;
+  // Copia de los contadores de cada jugador como campos tipados; son las
+  // columnas de `snapshot_players`, para que los reportes usen SQL sin
+  // abrir world_state.
+  repeated SnapshotPlayer players = 5;
+}
+
+message SnapshotPlayer {
+  string player_id = 1;
+  uint64 water = 2;
+  uint64 leaves = 3;
+  // RF-27: water = water_refilled - water_spent; leaves = leaves_earned -
+  // leaves_spent.
+  uint64 water_refilled = 4;
+  uint64 water_spent = 5;
+  uint64 leaves_earned = 6;
+  uint64 leaves_spent = 7;
+  // Contadores acumulados de las 3R (RF-12): goteo (Reducir), aspersores
+  // (Reutilizar) y planta de tratamiento (Reciclar).
+  uint64 water_reduced = 8;
+  uint64 water_reused = 9;
+  uint64 water_recycled = 10;
+}

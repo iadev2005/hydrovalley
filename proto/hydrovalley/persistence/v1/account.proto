@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package hydrovalley.persistence.v1;
+
+// AccountService guarda las cuentas (RF-01). Solo guarda y devuelve el hash
+// Argon2id que calcula la API (RNF-12): la contraseña nunca viaja por el
+// gRPC interno, pero el hash sí, sin cifrar, dentro de la red cerrada del
+// laboratorio (riesgo aceptado).
+//
+// Política de llamadas: plazo de 2 s. GetAccount y GetUsernames son
+// idempotentes (hasta 3 reintentos con esperas de 100, 200 y 400 ms);
+// Register no se reintenta.
+service AccountService {
+  // Crea una cuenta de jugador (siempre role = player). ALREADY_EXISTS si
+  // el nombre de usuario ya existe. Las cuentas de administrador las crea
+  // la persistencia al arrancar, a partir de ADMIN_USERNAME y
+  // ADMIN_PASSWORD_HASH.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Busca una cuenta por nombre de usuario. NOT_FOUND si no existe.
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+
+  // Traduce identificadores de jugador a nombres de usuario. La API lo usa
+  // para completar el ranking de WorldService.GetRanking (RF-10).
+  rpc GetUsernames(GetUsernamesRequest) returns (GetUsernamesResponse);
+}
+
+message RegisterRequest {
+  string username = 1;
+  string password_hash = 2;
+}
+
+message RegisterResponse {
+  // UUID; es el player_id del token y del mundo.
+  string account_id = 1;
+  Role role = 2;
+}
+
+message GetAccountRequest {
+  string username = 1;
+}
+
+message GetAccountResponse {
+  string account_id = 1;
+  string password_hash = 2;
+  Role role = 3;
+}
+
+message GetUsernamesRequest {
+  repeated string player_ids = 1;
+}
+
+message GetUsernamesResponse {
+  // player_id -> username. Los identificadores que no existen no aparecen.
+  map<string, string> usernames = 1;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_PLAYER = 1;
+  // Puede enviar comandos de administración por /play (RF-31).
+  ROLE_ADMIN = 2;
+}

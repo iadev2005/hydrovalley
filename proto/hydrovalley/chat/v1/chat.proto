@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+package hydrovalley.chat.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ChatService (D-04, nivel 2). El chat es el único punto que asigna a cada
+// mensaje un número de secuencia creciente (un contador lógico), y eso fija
+// el mismo orden para todos (RF-14, CP-09). Guarda en memoria los últimos
+// 200 mensajes, sin base de datos. El juego tiene que sobrevivir sin él
+// (RF-15). La entrega en vivo va por el WebSocket /chat del propio servicio
+// (mensajes al final de este archivo), no por streams de gRPC.
+//
+// Política de llamadas: plazo de 2 s; las dos llamadas son idempotentes
+// (SendMessage gracias a message_id), hasta 3 reintentos con esperas de
+// 100, 200 y 400 ms.
+service ChatService {
+  // Publica un mensaje. El hub lo usa para avisos del sistema, como las
+  // alertas de fuego. Un reintento con el mismo message_id devuelve el
+  // mensaje original y su seq sin publicarlo otra vez (mientras siga entre
+  // los últimos 200).
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+  // Mensajes con seq > after_seq, del más antiguo al más reciente (para
+  // ponerse al día tras una reconexión).
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+}
+
+message SendMessageRequest {
+  // UUID generado por el cliente; hace idempotentes los reintentos.
+  string message_id = 1;
+  // player_id del emisor; vacío en los avisos del sistema.
+  string sender_id = 2;
+  // Nombre de usuario del emisor, tomado del token; vacío en los avisos del
+  // sistema.
+  string username = 3;
+  string text = 4;
+  MessageKind kind = 5;
+}
+
+message SendMessageResponse {
+  ChatMessage message = 1;
+}
+
+message ListMessagesRequest {
+  // 0 devuelve todo lo que sigue en memoria.
+  uint64 after_seq = 1;
+  // Número máximo de mensajes; 0 significa sin límite (como mucho 200).
+  uint32 limit = 2;
+}
+
+message ListMessagesResponse {
+  repeated ChatMessage messages = 1;
+  // Mayor seq asignado hasta ahora.
+  uint64 last_seq = 2;
+}
+
+message ChatMessage {
+  // Lo asigna el servicio de chat; solo crece. Es la única clave de orden.
+  uint64 seq = 1;
+  string message_id = 2;
+  string sender_id = 3;
+  string username = 4;
+  string text = 5;
+  MessageKind kind = 6;
+  // Reloj del servicio de chat, solo para mostrar; nunca se usa para
+  // ordenar (RNF-05).
+  google.protobuf.Timestamp sent_at = 7;
+}
+
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  MESSAGE_KIND_PLAYER = 1;
+  // Lo publica el hub (p. ej., alertas de fuego).
+  MESSAGE_KIND_SYSTEM = 2;
+}
+
+// --- Mensajes del WebSocket /chat -------------------------------------------
+//
+// Misma convención JSON que hydrovalley.play.v1: cada mensaje del WebSocket
+// es exactamente uno de los mensajes siguientes, codificado con protojson
+// usando los nombres de campo del .proto (snake_case). El campo de texto
+// `type` indica cuál es: quien lo recibe lee primero `type` (ChatEnvelope) y
+// después lo decodifica como ese mensaje. Los enteros de 64 bits (seq)
+// viajan como texto en JSON, como hace protojson; sent_at viaja como texto
+// ISO 8601 en UTC.
+
+// Solo el discriminador, para inspeccionar un mensaje entrante.
+message ChatEnvelope {
+  string type = 1;
+}
+
+// Navegador -> chat: {"type": "send", "message_id": "...", "text": "..."}.
+// El chat toma el emisor (player_id y username) del token de la sesión.
+message SendFrame {
+  // Siempre "send".
+  string type = 1;
+  string message_id = 2;
+  string text = 3;
+}
+
+// Navegador -> chat: {"type": "sync", "after_seq": "41"}. Se envía tras una
+// reconexión; el chat responde con un MessageFrame por cada mensaje perdido.
+message SyncFrame {
+  // Siempre "sync".
+  string type = 1;
+  uint64 after_seq = 2;
+}
+
+// Chat -> navegador: {"type": "message", "seq": "42", ...}. Se publica a
+// todos los navegadores conectados (Publisher-Subscriber), incluido el del
+// emisor, que lo reconoce por message_id.
+message MessageFrame {
+  // Siempre "message".
+  string type = 1;
+  uint64 seq = 2;
+  string message_id = 3;
+  string sender_id = 4;
+  string username = 5;
+  string text = 6;
+  // "player" o "system".
+  string kind = 7;
+  google.protobuf.Timestamp sent_at = 8;
+}

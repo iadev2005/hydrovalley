@@ -27,7 +27,7 @@ database "PostgreSQL" as Db
 () "WorldService\nStep, GetRanking" as I_World
 () "ChatService\nSendMessage, ListMessages" as I_ChatSvc
 () "PersistenceService\nSaveSnapshot, LoadSnapshot" as I_Persistence
-() "AccountService\nRegister, GetAccount" as I_Account
+() "AccountService\nRegister, GetAccount,\nGetUsernames" as I_Account
 () "CatalogService\nGetCatalog" as I_Catalog
 () "ReportService\nGetReport" as I_Report
 
@@ -85,7 +85,9 @@ note left of Hub
   <b>Publisher-Subscriber</b>: difunde el
   estado a todos los jugadores 1 vez/s
   <b>Circuit Breaker</b>: si Step falla, pausa
-  el valle, encola (máx. 5.000) y avisa
+  el valle y encola (máx. 5.000); tras 3
+  fallos seguidos deja de llamar a Step,
+  avisa y prueba cada 1 s
 end note
 
 note right of Chat
