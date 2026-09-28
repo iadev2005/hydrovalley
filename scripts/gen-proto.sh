@@ -51,10 +51,8 @@ buf generate --template proto/buf.gen.yaml
 #   require github.com/iadev2005/hydrovalley/gen/go v0.0.0
 #   replace github.com/iadev2005/hydrovalley/gen/go => ../../gen/go
 # Sus dependencias (protobuf y grpc) las fija el go.mod de cada servicio.
-cat > "${ROOT}/gen/go/go.mod" <<'EOF'
-module github.com/iadev2005/hydrovalley/gen/go
-
-go 1.24
-EOF
+# Su go.mod sale de proto/go.mod.tmpl, la misma plantilla que usan el
+# Dockerfile del hub y el CI.
+cp "${ROOT}/proto/go.mod.tmpl" "${ROOT}/gen/go/go.mod"
 
 echo "==> Código generado en ${ROOT}/gen (go, python, ts)"

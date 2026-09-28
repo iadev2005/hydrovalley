@@ -101,7 +101,8 @@ const (
 	IgnoredPending
 	// RejectedDuplicate: ya estaba en confirmed; se responde "duplicate".
 	RejectedDuplicate
-	// RejectedRateLimited: más de 15 gotas por segundo; "rate_limited".
+	// RejectedRateLimited: más de Config.DropsPerSecond gotas en
+	// Config.RateWindow; "rate_limited".
 	RejectedRateLimited
 	// RejectedPaused: cola llena; "paused".
 	RejectedPaused
@@ -207,7 +208,10 @@ type Hub struct {
 	succeeded  bool
 	tick       uint64
 	bootID     string
-	world0     *worldv1.WorldState
+	// latestWorld es el resumen del valle (WorldState) de la última
+	// respuesta correcta de Step. Es la base del estado que se difunde y
+	// se conserva mientras el valle está en pausa.
+	latestWorld *worldv1.WorldState
 	// Gotas aceptadas (APPLIED) por tick y en total (comprobación del modo
 	// demo, RF-30).
 	ledger        map[uint64]uint64

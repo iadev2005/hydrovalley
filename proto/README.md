@@ -50,7 +50,7 @@ DOCKER_CONFIG=/ruta/a/esa/carpeta scripts/gen-proto.sh
 | `gen/python/` | Python | `protocolbuffers/python`, `protocolbuffers/pyi`, `grpc/python` | persistencia |
 | `gen/ts/` | TypeScript | `bufbuild/es` (protobuf-es v2) | API y frontend |
 
-**Go.** `gen/go/` es un módulo propio, `github.com/iadev2005/hydrovalley/gen/go` (el script escribe su `go.mod`). Cada servicio Go lo usa así en su `go.mod`:
+**Go.** `gen/go/` es un módulo propio, `github.com/iadev2005/hydrovalley/gen/go` (su `go.mod` se copia de la plantilla versionada `proto/go.mod.tmpl`; la usan el script, el Dockerfile del hub y el CI, así que se cambia en un solo sitio). Cada servicio Go lo usa así en su `go.mod`:
 
 ```
 require github.com/iadev2005/hydrovalley/gen/go v0.0.0

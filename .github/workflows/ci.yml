@@ -20,7 +20,7 @@ jobs:
     name: proto
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Historial completo: buf breaking compara con la rama base desde .git.
           fetch-depth: 0
@@ -40,7 +40,7 @@ jobs:
           fi
 
       # buf build siempre; lint en todo evento; breaking solo en pull requests.
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         with:
           version: 1.73.0
           input: proto
@@ -56,9 +56,9 @@ jobs:
     name: codegen
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         with:
           version: 1.73.0
           setup_only: true
@@ -79,7 +79,7 @@ jobs:
       pull-requests: read
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           # Base desechable del CI; esta clave no protege nada real.
           POSTGRES_USER: hydrovalley
@@ -93,9 +93,9 @@ jobs:
           --health-timeout 5s
           --health-retries 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
           filters: |
@@ -108,7 +108,7 @@ jobs:
         if: steps.changes.outputs.persistence != 'true'
         run: echo "Sin cambios en src/persistence, proto ni el workflow; no hay nada que probar."
 
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         if: steps.changes.outputs.persistence == 'true'
         with:
           version: 1.73.0
@@ -118,7 +118,7 @@ jobs:
         if: steps.changes.outputs.persistence == 'true'
         run: buf generate --template proto/buf.gen.yaml
 
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         if: steps.changes.outputs.persistence == 'true'
         with:
           version: 0.12.3
@@ -153,9 +153,9 @@ jobs:
       # dorny/paths-filter lee los archivos del pull request por la API.
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
           filters: |
@@ -168,13 +168,13 @@ jobs:
         if: steps.changes.outputs.world != 'true'
         run: echo "Sin cambios en src/world, proto ni el workflow; no hay nada que probar."
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1 (sin versiones semánticas; mismo commit que master)
         if: steps.changes.outputs.world == 'true'
         with:
           toolchain: 1.97.1
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: steps.changes.outputs.world == 'true'
         with:
           workspaces: src/world
@@ -205,9 +205,9 @@ jobs:
       # dorny/paths-filter lee los archivos del pull request por la API.
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
           filters: |
@@ -220,20 +220,21 @@ jobs:
         if: steps.changes.outputs.hub != 'true'
         run: echo "Sin cambios en src/hub, proto ni el workflow; no hay nada que probar."
 
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         if: steps.changes.outputs.hub == 'true'
         with:
           version: 1.73.0
           setup_only: true
 
-      # El mismo go.mod que escribe scripts/gen-proto.sh para gen/go.
+      # El go.mod de gen/go sale de proto/go.mod.tmpl, la misma plantilla
+      # que usan scripts/gen-proto.sh y el Dockerfile del hub.
       - name: buf generate
         if: steps.changes.outputs.hub == 'true'
         run: |
           buf generate --template proto/buf.gen.yaml
-          printf 'module github.com/iadev2005/hydrovalley/gen/go\n\ngo 1.24\n' > gen/go/go.mod
+          cp proto/go.mod.tmpl gen/go/go.mod
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         if: steps.changes.outputs.hub == 'true'
         with:
           go-version-file: src/hub/go.mod
@@ -270,9 +271,9 @@ jobs:
       # dorny/paths-filter lee los archivos del pull request por la API.
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
           filters: |
@@ -284,7 +285,7 @@ jobs:
         if: steps.changes.outputs.api != 'true'
         run: echo "Sin cambios en src/api ni el workflow; no hay nada que probar."
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         if: steps.changes.outputs.api == 'true'
         with:
           node-version: 22
@@ -311,8 +312,9 @@ jobs:
         working-directory: src/api
         run: npm test
 
-  # Frontend (módulos ES sin compilación). Solo las pruebas de play.js con
-  # node:test; no tiene dependencias.
+  # Frontend (módulos ES sin compilación). Las pruebas de play.js con
+  # node:test y las de PlaySession (cliente de la prueba de humo, con un
+  # WebSocket falso); ninguna tiene dependencias ni necesita el stack.
   frontend:
     name: frontend
     runs-on: ubuntu-latest
@@ -321,21 +323,22 @@ jobs:
       # dorny/paths-filter lee los archivos del pull request por la API.
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
           filters: |
             frontend:
               - 'src/frontend/**'
+              - 'tests/e2e/**'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en el frontend
         if: steps.changes.outputs.frontend != 'true'
-        run: echo "Sin cambios en src/frontend ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/frontend, tests/e2e ni el workflow; no hay nada que probar."
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         if: steps.changes.outputs.frontend == 'true'
         with:
           node-version: 22
@@ -344,6 +347,10 @@ jobs:
         if: steps.changes.outputs.frontend == 'true'
         working-directory: src/frontend
         run: npm test
+
+      - name: Pruebas de PlaySession (tests/e2e)
+        if: steps.changes.outputs.frontend == 'true'
+        run: node --test tests/e2e/play-session.test.mjs
 
   # Prueba de humo de punta a punta (CP-01-lite) con el plan B: construye
   # todas las imágenes, levanta deploy/compose.yml y suelta una gota por
@@ -361,16 +368,16 @@ jobs:
       POSTGRES_PASSWORD: ci-only
       POSTGRES_DB: hydrovalley
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Construye las imágenes de compose.yml con sus nombres (image:) y las
       # carga en Docker, así `compose up` no vuelve a construir. Bake resuelve
       # el `context: ..` de compose.yml desde el directorio de trabajo, no
       # desde deploy/: se fija la raíz del repositorio a mano.
       - name: Construir las imágenes
-        uses: docker/bake-action@v7
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         with:
           source: .
           files: deploy/compose.yml
@@ -381,7 +388,7 @@ jobs:
             *.cache-from=type=gha,scope=e2e
             *.cache-to=type=gha,scope=e2e,mode=max
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
 

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 # Imagen del proxy de entrada con el frontend dentro (linux/amd64 en el
 # pipeline).
 #
@@ -13,7 +13,7 @@
 # una etapa de compilación con Node y se copia su dist/.
 
 # nginx oficial sin privilegios: usuario 101 y puerto 8080.
-FROM nginxinc/nginx-unprivileged:1.30-alpine
+FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e
 
 # Destinos por defecto del plan B; el plan A los cambia por variables de
 # entorno sin reconstruir la imagen.

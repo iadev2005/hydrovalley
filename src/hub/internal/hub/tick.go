@@ -15,12 +15,13 @@ import (
 var errInvalidResponse = errors.New("invalid Step response")
 
 // Tick ejecuta una vuelta del bucle:
-//  1. responde "expired" a los comandos con más de 30 s en la cola;
-//  2. si el Circuit Breaker lo permite, saca hasta 500 comandos y llama a
-//     Step (sin el candado, con plazo de 200 ms);
+//  1. responde "expired" a los comandos con más de Config.ExpireAfter en la
+//     cola;
+//  2. si el Circuit Breaker lo permite, saca hasta Config.BatchSize comandos
+//     y llama a Step (sin el candado, con plazo Config.StepTimeout);
 //  3. con éxito, reparte los resultados finales; con fallo, devuelve los
 //     comandos al frente de la cola y pausa el valle;
-//  4. difunde el estado si toca (una vez por segundo).
+//  4. difunde el estado si toca (cada Config.BroadcastEvery).
 func (h *Hub) Tick(ctx context.Context) {
 	h.mu.Lock()
 	h.expireLocked()
@@ -136,7 +137,7 @@ func (h *Hub) stepSucceededLocked(batch []queued, resp *worldv1.StepResponse) {
 	h.succeeded = true
 	h.observeBootLocked(resp.GetBootId(), resp.GetRestoredTick())
 	h.tick = resp.GetTick()
-	h.world0 = resp.GetState()
+	h.latestWorld = resp.GetState()
 
 	for i, r := range resp.GetResults() {
 		playerID, actionID := r.GetPlayerId(), r.GetActionId()
@@ -291,7 +292,7 @@ func (h *Hub) maybeBroadcastLocked() {
 // cuenta de gotas aceptadas no tiene campo en StateMessage: se registra.
 func (h *Hub) broadcastLocked() {
 	h.lastBroadcast = h.clock.Now()
-	builder := frames.NewStateBuilder(h.tick, h.paused, h.world0)
+	builder := frames.NewStateBuilder(h.tick, h.paused, h.latestWorld)
 	for _, p := range h.players {
 		for s := range p.sessions {
 			s.Send(builder.For(s.playerID, s.withMap))
@@ -300,7 +301,7 @@ func (h *Hub) broadcastLocked() {
 	if h.acceptedDrops != h.loggedDrops {
 		h.loggedDrops = h.acceptedDrops
 		h.log.Info("accepted drops", "tick", h.tick, "accepted_drops", h.acceptedDrops,
-			"humidity_contributed", h.world0.GetHumidityContributed(), "demo_mode", h.world0.GetDemoMode())
+			"humidity_contributed", h.latestWorld.GetHumidityContributed(), "demo_mode", h.latestWorld.GetDemoMode())
 	}
 	h.log.Debug("state broadcast", slog.Uint64("tick", h.tick), slog.Bool("paused", h.paused), slog.Int("queue", len(h.queue)))
 }

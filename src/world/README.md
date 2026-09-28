@@ -16,7 +16,7 @@ Servicio en Rust que es el escritor único del estado del mundo (regla 1 de `CLA
 | `src/main.rs` | Proceso: configuración, puerto y parada con SIGINT o SIGTERM |
 | `build.rs` | Genera el código de Rust desde `../../proto` con `tonic-prost-build` |
 | `tests/` | Prueba de integración: el servidor en el mismo proceso contra una persistencia falsa servida con tonic |
-| `benches/` | Reservado para la comparativa Go vs. Rust (D-03) |
+| `benches/` | Vacía por ahora (solo `.gitkeep`): reservada para la comparativa Go vs. Rust (D-03, nivel 2). Ya entra en el contexto de la imagen para cuando tenga pruebas de rendimiento |
 
 ## Requisitos
 
