@@ -1,0 +1,103 @@
+# Plan B: el sistema completo en una sola máquina, un contenedor por
+# servicio (diagrama 08-despliegue-plan-b, regla 6 de portabilidad).
+#
+#   cp deploy/.env.example deploy/.env      # y cambiar la clave
+#   docker compose -f deploy/compose.yml up --build
+#
+# Solo nginx publica un puerto en el host (HV_HTTP_PORT, 8080 por defecto).
+# Los servicios se encuentran por su nombre en la red de Compose mediante
+# variables de entorno (world:50051…), nunca por localhost. El plan A usa
+# las mismas imágenes con deploy/nodes/<nodo>.yml.
+#
+# depends_on no se usa a propósito: cada servicio arranca aunque los demás
+# no estén y se reconecta solo (regla 5, RNF-09, CP-08). Los healthchecks
+# vienen en cada imagen (hub healthcheck, grpc_health_probe, node, wget);
+# aquí solo se define el de PostgreSQL.
+
+name: hydrovalley
+
+x-service: &service
+  restart: unless-stopped
+  networks: [backend]
+
+services:
+  postgres:
+    <<: *service
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?definir POSTGRES_USER en deploy/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD en deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?definir POSTGRES_DB en deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Sin ports: solo la persistencia llega a la base de datos.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  persistence:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-persistence:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/persistence/Dockerfile
+    environment:
+      # La clave va dentro de la URL: sin caracteres reservados (@ : / ? #)
+      # o codificados.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PERSISTENCE_LISTEN: 0.0.0.0:50051
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  world:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-world:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/world/Dockerfile
+    environment:
+      PERSISTENCE_ADDR: persistence:50051
+      WORLD_LISTEN: 0.0.0.0:50051
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  hub:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-hub:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/hub/Dockerfile
+    environment:
+      WORLD_ADDR: world:50051
+      HUB_LISTEN: :8081
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  api:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/api/Dockerfile
+    environment:
+      API_LISTEN: 0.0.0.0:3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  nginx:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-proxy:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: deploy/nginx/Dockerfile
+    environment:
+      API_ADDR: api:3000
+      HUB_ADDR: hub:8081
+      NGINX_RESOLVER: 127.0.0.11
+    ports:
+      - "${HV_HTTP_PORT:-8080}:8080"
+
+networks:
+  backend: {}
+
+volumes:
+  pgdata: {}

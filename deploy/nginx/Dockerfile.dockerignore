@@ -1,0 +1,8 @@
+# Filtro del contexto para deploy/nginx/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: solo
+# entran la configuración de nginx y los archivos estáticos del frontend.
+*
+!deploy/nginx/templates/
+!src/frontend/index.html
+!src/frontend/styles.css
+!src/frontend/js/

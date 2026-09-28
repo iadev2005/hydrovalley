@@ -258,3 +258,134 @@ jobs:
         if: steps.changes.outputs.hub == 'true'
         working-directory: src/hub
         run: go test -race ./...
+
+  # API (TypeScript). Mismo patrón que `persistence`: el filtro de rutas va
+  # dentro del job, así que sin cambios termina en verde y puede ser una
+  # comprobación obligatoria.
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            api:
+              - 'src/api/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en la API
+        if: steps.changes.outputs.api != 'true'
+        run: echo "Sin cambios en src/api ni el workflow; no hay nada que probar."
+
+      - uses: actions/setup-node@v6
+        if: steps.changes.outputs.api == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/api/package-lock.json
+
+      - name: Instalar dependencias
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm ci --ignore-scripts
+
+      - name: ESLint
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm run lint
+
+      - name: Tipos (tsc estricto)
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm run typecheck
+
+      - name: Pruebas
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm test
+
+  # Frontend (módulos ES sin compilación). Solo las pruebas de play.js con
+  # node:test; no tiene dependencias.
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'src/frontend/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el frontend
+        if: steps.changes.outputs.frontend != 'true'
+        run: echo "Sin cambios en src/frontend ni el workflow; no hay nada que probar."
+
+      - uses: actions/setup-node@v6
+        if: steps.changes.outputs.frontend == 'true'
+        with:
+          node-version: 22
+
+      - name: Pruebas
+        if: steps.changes.outputs.frontend == 'true'
+        working-directory: src/frontend
+        run: npm test
+
+  # Prueba de humo de punta a punta (CP-01-lite) con el plan B: construye
+  # todas las imágenes, levanta deploy/compose.yml y suelta una gota por
+  # nginx. Solo en pull requests; tarda varios minutos (sobre todo Rust la
+  # primera vez). Las capas se guardan en la caché de GitHub Actions.
+  e2e:
+    name: e2e
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Solo para interpolar deploy/compose.yml al construir; run.sh usa
+      # deploy/.env.example al levantar.
+      POSTGRES_USER: hydrovalley
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: hydrovalley
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Construye las imágenes de compose.yml con sus nombres (image:) y las
+      # carga en Docker, así `compose up` no vuelve a construir. Bake resuelve
+      # el `context: ..` de compose.yml desde el directorio de trabajo, no
+      # desde deploy/: se fija la raíz del repositorio a mano.
+      - name: Construir las imágenes
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          files: deploy/compose.yml
+          load: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=e2e
+            *.cache-to=type=gha,scope=e2e,mode=max
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Prueba de humo (tests/e2e/run.sh)
+        env:
+          E2E_SKIP_BUILD: "1"
+        run: tests/e2e/run.sh

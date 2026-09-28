@@ -1,0 +1,13 @@
+{
+  "name": "@hydrovalley/frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Página mínima del esqueleto: módulos ES sin paso de compilación. React y Phaser llegarán después.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}

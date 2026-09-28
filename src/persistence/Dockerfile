@@ -34,11 +34,19 @@ COPY --from=deps /app/.venv /app/.venv
 COPY --from=proto /workspace/gen/python /app/gen
 COPY src/persistence/persistence /app/persistence
 COPY src/persistence/migrations /app/migrations
+# Sonda estándar de grpc.health.v1 (binario estático), la misma que usa el
+# simulador.
+COPY --from=ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.57 /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONPATH=/app:/app/gen \
     PYTHONUNBUFFERED=1 \
     PERSISTENCE_LISTEN=0.0.0.0:50051
 USER persistence
 EXPOSE 50051
+# SERVING solo con la base de datos conectada y las migraciones aplicadas.
+# El puerto es el de PERSISTENCE_LISTEN por defecto; si se cambia, hay que
+# sobrescribir el healthcheck en Compose.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+    CMD ["grpc_health_probe", "-addr=127.0.0.1:50051", "-connect-timeout=2s", "-rpc-timeout=2s"]
 # DATABASE_URL se pasa al ejecutar el contenedor (nunca en la imagen).
 CMD ["python", "-m", "persistence"]
