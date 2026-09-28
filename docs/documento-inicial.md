@@ -1365,7 +1365,7 @@ Cada decisión de la estructura, con su referente:
 | Contratos en una carpeta propia, con el paquete y la versión en la ruta | Online Boutique (`protos/`) y la [guía de Buf](https://buf.build/docs/reference/protobuf-files-and-packages/) | Buf pide que la carpeta refleje el paquete y que el paquete lleve versión: `hydrovalley.world.v1` va en `hydrovalley/world/v1/` |
 | Los bots como un servicio más | Online Boutique (`src/loadgenerator`) | Su generador de carga vive junto a los servicios |
 | Pruebas de extremo a extremo aparte | eShop (`tests/`, `e2e/`) | Las pruebas que cruzan servicios no viven dentro de ninguno |
-| Un pipeline por servicio, con filtro por ruta | La guía de CI/CD de Microsoft | «Sea cual sea el modelo, usar disparadores por ruta», para recompilar y desplegar solo lo que cambió |
+| Un job por servicio dentro de un solo workflow (`ci.yml`), con filtro por ruta | La guía de CI/CD de Microsoft | «Sea cual sea el modelo, usar disparadores por ruta», para recompilar y desplegar solo lo que cambió. Un solo workflow porque GitHub no da por cumplida una comprobación obligatoria de un workflow que no llegó a ejecutarse; dentro de él, cada job decide por ruta si trabaja |
 | Dentro de cada servicio, la estructura oficial de su lenguaje | Go: [go.dev](https://go.dev/doc/modules/layout). Rust: [Cargo](https://doc.rust-lang.org/cargo/guide/project-layout.html) | Go: `cmd/` para el ejecutable e `internal/` para la lógica. Rust: `src/lib.rs`, `src/main.rs`, `tests/` y `benches/` |
 
 Un aviso para la defensa: el repositorio *golang-standards/project-layout* se cita mucho, pero [él mismo aclara](https://github.com/golang-standards/project-layout) que no es un estándar oficial del equipo de Go. La referencia oficial es la de go.dev.
@@ -1375,7 +1375,7 @@ hydrovalley/
   CLAUDE.md              Contexto y reglas para programar con IA
   README.md              Que es esto y como se levanta
   .gitattributes         Fuerza saltos de linea de Linux
-  .github/workflows/     Un workflow por servicio, con filtro por ruta
+  .github/workflows/     ci.yml: un job por servicio, con filtro por ruta
   proto/
     hydrovalley/
       world/v1/          world.proto (paquete hydrovalley.world.v1)

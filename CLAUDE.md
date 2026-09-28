@@ -56,13 +56,14 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 - Coordenadas: casilla `(x, y)` desde la esquina superior izquierda, empezando en 0. El servidor no sabe cómo se dibuja el valle.
 - Dentro de cada servicio, la estructura oficial de su lenguaje: Go con `cmd/` + `internal/`; Rust con la lógica en `src/lib.rs` y el servidor en `src/main.rs`.
 - Saltos de línea LF en todo el repositorio (`.gitattributes`). El laboratorio usa Windows.
+- Código generado desde `proto/`: nunca se versiona; se genera en `gen/` con `scripts/gen-proto.sh` (Rust lo genera con `tonic-build` en su `build.rs`).
 
 ## Estructura del repositorio
 
 ```
 hydrovalley/
   CLAUDE.md, README.md, .gitattributes, .gitignore
-  .github/workflows/     Un workflow por servicio, con filtro por ruta
+  .github/workflows/     ci.yml: un job por servicio, con filtro por ruta
   proto/hydrovalley/     Contratos: world/v1, persistence/v1, chat/v1, play/v1 (mensajes JSON de /play)
   src/                   api, frontend, hub, chat, world, world-go, persistence, bots
   catalog/               Cifras del juego (datos, no código)
