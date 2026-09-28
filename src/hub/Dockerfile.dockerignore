@@ -1,0 +1,9 @@
+# Filtro del contexto para src/hub/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: solo
+# entran proto/ y los archivos del hub.
+*
+!proto/
+!src/hub/go.mod
+!src/hub/go.sum
+!src/hub/cmd/
+!src/hub/internal/
