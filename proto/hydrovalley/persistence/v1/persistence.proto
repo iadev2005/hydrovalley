@@ -8,21 +8,29 @@ package hydrovalley.persistence.v1;
 //
 // Política de llamadas: plazo de 2 s; hasta 3 reintentos con esperas de 100,
 // 200 y 400 ms. Las dos llamadas son idempotentes (SaveSnapshot gracias a
-// ON CONFLICT).
+// ON CONFLICT y a la comparación del contenido).
 service PersistenceService {
   // Guarda una instantánea en una sola transacción:
-  // INSERT ... ON CONFLICT (tick) DO NOTHING, así que reintentar el guardado
-  // del mismo tick no cambia nada y devuelve OK igualmente. Tras cada
-  // guardado correcto, la persistencia poda en otra transacción las
-  // instantáneas fuera de la retención (todas las de la última hora y una
-  // por hora de las anteriores).
+  // INSERT ... ON CONFLICT (tick) DO NOTHING. Si ya había una fila con ese
+  // tick, la persistencia compara su contenido: con la misma época y el
+  // mismo world_state (columna world_state_sha256, SHA-256 de world_state)
+  // es un reintento y devuelve OK sin cambiar nada; si difiere, devuelve
+  // ALREADY_EXISTS y el simulador lo registra como error (por diseño no
+  // debe ocurrir nunca). Tras cada guardado correcto, la persistencia poda
+  // en otra transacción las instantáneas fuera de la retención (todas las
+  // de la última hora y una por hora de las anteriores).
   // Se envía cada 50 ticks (tick % 50 == 0) desde una tarea en segundo
   // plano; Step nunca la espera y un fallo nunca abre el Circuit Breaker
   // del hub.
   rpc SaveSnapshot(SaveSnapshotRequest) returns (SaveSnapshotResponse);
 
-  // Devuelve la instantánea de mayor tick. NOT_FOUND si no hay ninguna (el
-  // simulador arranca entonces con un mundo vacío; restored_tick = 0).
+  // Devuelve la instantánea de mayor tick. NOT_FOUND si no hay ninguna: el
+  // simulador arranca entonces en el tick 0 (restored_tick = 0), lo que
+  // solo pasa la primera vez, porque después la tabla siempre tiene filas.
+  // Si falla con UNAVAILABLE o DEADLINE_EXCEEDED tras sus reintentos, el
+  // simulador no arranca vacío: sigue reintentando con esperas crecientes
+  // (1 s, hasta un máximo de 5 s) y responde a Step con UNAVAILABLE
+  // mientras tanto. El tick nunca retrocede.
   rpc LoadSnapshot(LoadSnapshotRequest) returns (LoadSnapshotResponse);
 }
 

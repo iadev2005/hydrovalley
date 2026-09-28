@@ -11,6 +11,13 @@ import "google/protobuf/timestamp.proto";
 // (RF-15). La entrega en vivo va por el WebSocket /chat del propio servicio
 // (mensajes al final de este archivo), no por streams de gRPC.
 //
+// Reinicios: al arrancar, el chat genera un UUID, `server_epoch`, y lo
+// incluye en las respuestas de ListMessages y SendMessage y en los
+// MessageFrame y SyncedFrame del WebSocket. Como la memoria se pierde, seq
+// vuelve a empezar tras un reinicio. El cliente guarda el par
+// (server_epoch, último seq); si el server_epoch cambia, descarta su seq y
+// pide el historial desde el principio (after_seq = 0).
+//
 // Política de llamadas: plazo de 2 s; las dos llamadas son idempotentes
 // (SendMessage gracias a message_id), hasta 3 reintentos con esperas de
 // 100, 200 y 400 ms.
@@ -40,6 +47,8 @@ message SendMessageRequest {
 
 message SendMessageResponse {
   ChatMessage message = 1;
+  // UUID generado al arrancar el servicio de chat (ver arriba).
+  string server_epoch = 2;
 }
 
 message ListMessagesRequest {
@@ -53,6 +62,10 @@ message ListMessagesResponse {
   repeated ChatMessage messages = 1;
   // Mayor seq asignado hasta ahora.
   uint64 last_seq = 2;
+  // UUID generado al arrancar el servicio de chat. Si no coincide con el que
+  // guarda el cliente, este descarta su seq y vuelve a pedir con
+  // after_seq = 0.
+  string server_epoch = 3;
 }
 
 message ChatMessage {
@@ -100,7 +113,8 @@ message SendFrame {
 }
 
 // Navegador -> chat: {"type": "sync", "after_seq": "41"}. Se envía tras una
-// reconexión; el chat responde con un MessageFrame por cada mensaje perdido.
+// reconexión; el chat responde con un MessageFrame por cada mensaje perdido
+// y termina con un SyncedFrame.
 message SyncFrame {
   // Siempre "sync".
   string type = 1;
@@ -121,4 +135,17 @@ message MessageFrame {
   // "player" o "system".
   string kind = 7;
   google.protobuf.Timestamp sent_at = 8;
+  string server_epoch = 9;
+}
+
+// Chat -> navegador: {"type": "synced", "server_epoch": "...", "last_seq":
+// "42"}. Cierra la respuesta a un SyncFrame, aunque no hubiera mensajes
+// perdidos. Si server_epoch no coincide con el que guarda el cliente, el chat
+// se reinició: el cliente descarta su seq y envía un SyncFrame con
+// after_seq = 0.
+message SyncedFrame {
+  // Siempre "synced".
+  string type = 1;
+  string server_epoch = 2;
+  uint64 last_seq = 3;
 }

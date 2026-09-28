@@ -62,23 +62,39 @@ end
 
 == Rust vuelve ==
 
-World -> World : arranca
-World -> Persistence : PersistenceService.LoadSnapshot()
-Persistence -> Db : leer la última instantánea
-Db --> Persistence : instantánea
-Persistence --> World : instantánea
-World -> World : recuperar el mundo, el estado del azar\ny los action_id recientes
+World -> World : arranca y genera un boot_id nuevo (UUID)
+loop hasta cargar la instantánea
+  World -> Persistence : PersistenceService.LoadSnapshot()
+  alt hay instantánea
+    Persistence -> Db : leer la última instantánea
+    Db --> Persistence : instantánea
+    Persistence --> World : instantánea
+    World -> World : recuperar el mundo, el estado del azar\ny los action_id recientes
+  else NOT_FOUND (tabla vacía: solo la primera vez)
+    Persistence --> World : NOT_FOUND
+    World -> World : empezar en el tick 0 (restored_tick = 0)
+  else UNAVAILABLE o DEADLINE_EXCEEDED (tras sus reintentos)
+    Persistence --x World : falla
+    World -> World : nunca arrancar vacío: esperar 1 s,\n2 s... (máximo 5 s) y volver a intentar
+    Hub -> World : WorldService.Step (llamada de prueba)
+    World --> Hub : UNAVAILABLE (el circuito sigue abierto)
+  end
+end
 World -> Persistence : CatalogService.GetCatalog()
 Persistence --> World : catálogo
 
 group Circuit Breaker: semiabierto y cerrado
   Hub -> World : WorldService.Step (llamada de prueba, cada 1 s)
-  World --> Hub : responde, con restored_tick\n(tick recuperado de la instantánea)
+  World --> Hub : responde, con boot_id y restored_tick\n(van en todas las respuestas)
   Hub -> Hub : cerrar el circuito
-  Hub -> Hub : quitar de confirmed las entradas\ncon tick > restored_tick (se perdieron)
+  opt boot_id distinto del último visto (una sola vez por arranque)
+    Hub -> Hub : quitar de confirmed las entradas\ncon tick > restored_tick (se perdieron)\ny restar las gotas aceptadas en esos ticks
+  end
   note right of Hub
     El estado semiabierto es la
     forma estándar del patrón.
+    Comparar boot_id no depende de
+    que llegue una respuesta concreta.
   end note
 end
 

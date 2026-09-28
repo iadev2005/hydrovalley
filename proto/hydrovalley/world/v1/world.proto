@@ -18,6 +18,13 @@ package hydrovalley.world.v1;
 // 3 fallos seguidos el Circuit Breaker se abre y prueba cada 1 s.
 // GetRanking: plazo de 2 s y hasta 3 reintentos con esperas de 100, 200 y
 // 400 ms.
+//
+// Arranque: si LoadSnapshot devuelve NOT_FOUND, el valle empieza en el tick
+// 0 (solo la primera vez). Si falla con UNAVAILABLE o DEADLINE_EXCEEDED tras
+// sus reintentos, el simulador nunca arranca vacío: sigue reintentando con
+// esperas crecientes (1 s, hasta un máximo de 5 s) y mientras tanto responde
+// a Step con UNAVAILABLE (lo gestiona el Circuit Breaker del hub). Así el
+// tick nunca retrocede.
 service WorldService {
   // Aplica en orden los comandos admitidos de un tick y después avanza el
   // valle un paso. El hub nunca tiene dos llamadas a Step en curso.
@@ -89,20 +96,27 @@ message StepResponse {
   // Tick calculado por esta llamada. El tick solo crece (Capa 4).
   uint64 tick = 1;
 
-  // Solo va en la primera respuesta a Step tras arrancar el proceso del
-  // simulador: el tick de la instantánea cargada, o 0 si arrancó con un
-  // mundo vacío. La instantánea del tick N incluye todo lo aplicado con
-  // tick <= N, así que el hub quita de `confirmed` toda entrada con tick >
-  // restored_tick y resta de su cuenta de gotas aceptadas las contadas con
-  // tick > restored_tick (guarda la cuenta por tick de los últimos 600
-  // ticks). CP-05.
-  optional uint64 restored_tick = 2;
+  // Tick de la instantánea que el simulador cargó al arrancar este proceso
+  // (el de boot_id), o 0 si arrancó sin ninguna (LoadSnapshot devolvió
+  // NOT_FOUND: solo pasa la primera vez). Va en todas las respuestas, no
+  // solo en la primera. La instantánea del tick N incluye todo lo aplicado
+  // con tick <= N. CP-05.
+  uint64 restored_tick = 2;
 
   // Exactamente un resultado por comando, en el orden de la petición.
   repeated CommandResult results = 3;
 
   // Mundo tras este tick. El hub lo difunde una vez por segundo (RF-03).
   WorldState state = 4;
+
+  // UUID que el simulador genera al arrancar su proceso; va en todas las
+  // respuestas. El hub recuerda el último boot_id visto y, cuando cambia
+  // (Rust se reinició), aplica una sola vez la recuperación: quita de
+  // `confirmed` toda entrada con tick > restored_tick y resta de su cuenta
+  // de gotas aceptadas las contadas con tick > restored_tick (guarda la
+  // cuenta por tick de los últimos 600 ticks). Así no depende de recibir
+  // una respuesta concreta tras el reinicio. CP-05.
+  string boot_id = 5;
 }
 
 message CommandResult {

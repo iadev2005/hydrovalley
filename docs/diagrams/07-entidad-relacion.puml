@@ -21,6 +21,7 @@ entity "snapshots" as snapshots {
   * catalog_version : TEXT
   * taken_at : TIMESTAMPTZ
   * world_state : BYTEA
+  * world_state_sha256 : BYTEA
 }
 
 entity "snapshot_players" as snapshot_players {
@@ -55,8 +56,12 @@ note right of snapshots
   <b>Capa 5</b>: una fila cada 50 ticks (tick % 50 == 0).
   SaveSnapshot inserta snapshots y sus snapshot_players
   en <b>una sola transacción</b>, con INSERT ... ON CONFLICT
-  (tick) DO NOTHING: un reintento del mismo tick no duplica.
-  LoadSnapshot devuelve la de mayor tick. El tick es la clave:
+  (tick) DO NOTHING. Si la fila ya existía, compara epoch y
+  <b>world_state_sha256</b> (SHA-256 de world_state): iguales,
+  es un reintento y responde OK; distintos, ALREADY_EXISTS
+  (Rust lo registra como error: no debe ocurrir nunca).
+  LoadSnapshot devuelve la de mayor tick (NOT_FOUND solo la
+  primera vez: el tick nunca retrocede). El tick es la clave:
   es el reloj lógico y solo crece (Capa 4). La del tick N se
   toma tras aplicar los comandos del tick N y avanzar el valle.
   <b>epoch</b>: se incrementa con cada reinicio del valle (RF-31);
