@@ -16,6 +16,7 @@ Servicio en TypeScript (Node 22 LTS) que atenderá el registro, el acceso con to
 | `src/config.ts` | Variables de entorno |
 | `src/main.ts` | Proceso: escucha y se detiene con SIGINT o SIGTERM |
 | `src/healthcheck.ts` | Comprobación del `HEALTHCHECK` de Docker (la imagen no trae curl) |
+| `src/health-probe.ts` | Lógica probada de esa comprobación: URL de bucle local, corchetes IPv6, plazo y código de salida |
 | `test/` | Pruebas con Vitest |
 
 ## Variables de entorno
@@ -23,7 +24,7 @@ Servicio en TypeScript (Node 22 LTS) que atenderá el registro, el acceso con to
 | Variable | Obligatoria | Valor por defecto | Uso |
 | --- | --- | --- | --- |
 | `API_LISTEN` | No | `0.0.0.0:3000` | Dirección y puerto del HTTP (`host:puerto`, `:puerto` o `[ipv6]:puerto`) |
-| `LOG_LEVEL` | No | `info` | Nivel de registro de pino (`debug`, `info`, `warn`, `error`) |
+| `LOG_LEVEL` | No | `info` | Nivel de registro de pino (`fatal`, `error`, `warn`, `info`, `debug`, `trace` o `silent`). Un valor distinto detiene el arranque con un mensaje que nombra la variable y los valores admitidos |
 
 ## Rutas
 

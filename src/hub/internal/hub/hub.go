@@ -65,6 +65,10 @@ type Config struct {
 	// Mensajes pendientes de envío por conexión; si se llena, se cierra la
 	// conexión (el cliente se reconecta y reenvía sus pendientes).
 	OutboxSize int
+	// Cada cuánto, como mucho, se recorren todos los jugadores para borrar
+	// los registros inactivos. Las bajas por eventos (desconexión, resultado
+	// final, poda de confirmed) no esperan a este barrido.
+	SweepInterval time.Duration
 }
 
 // DefaultConfig devuelve las cifras de CLAUDE.md y del documento (Capa 3).
@@ -83,6 +87,7 @@ func DefaultConfig() Config {
 		ProbeInterval:    time.Second,
 		BroadcastEvery:   time.Second,
 		OutboxSize:       256,
+		SweepInterval:    time.Second,
 	}
 }
 
@@ -141,12 +146,16 @@ func WireStatus(o Outcome) (status string, ok bool) {
 	}
 }
 
-// Status es una foto del hub para /readyz y los registros.
+// Status es una foto del hub para /readyz y los registros, tomada bajo un
+// solo candado: Ready es coherente con el resto de campos.
 type Status struct {
 	Tick     uint64
 	Paused   bool
 	Breaker  string
 	QueueLen int
+	// Ready: el hub puede servir partidas (circuito cerrado y el último Step
+	// respondió).
+	Ready bool
 }
 
 type queued struct {
@@ -205,6 +214,7 @@ type Hub struct {
 	acceptedDrops uint64
 	loggedDrops   uint64
 	lastBroadcast time.Time
+	lastSweep     time.Time
 }
 
 // New crea el hub. El bucle del tick arranca con Run.
@@ -366,19 +376,16 @@ func (h *Hub) AcceptedDrops() uint64 {
 	return h.acceptedDrops
 }
 
-// Status devuelve una foto del estado del hub.
+// Status devuelve una foto del estado del hub, disponibilidad incluida, con
+// una sola toma del candado.
 func (h *Hub) Status() Status {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return Status{Tick: h.tick, Paused: h.paused, Breaker: h.breaker.State().String(), QueueLen: len(h.queue)}
-}
-
-// Ready dice si el hub puede servir partidas: circuito cerrado y el último
-// Step respondió.
-func (h *Hub) Ready() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.succeeded && !h.paused && h.breaker.State() == breaker.Closed
+	state := h.breaker.State()
+	return Status{
+		Tick: h.tick, Paused: h.paused, Breaker: state.String(), QueueLen: len(h.queue),
+		Ready: h.succeeded && !h.paused && state == breaker.Closed,
+	}
 }
 
 // Sessions devuelve cuántas conexiones hay registradas.

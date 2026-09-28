@@ -4,12 +4,13 @@ Página mínima del esqueleto, sin React ni Phaser todavía: módulos ES de Java
 
 - Genera un `player_id` (UUID) y lo guarda en `localStorage`. Es la identidad provisional hasta que exista el token firmado.
 - Abre `WS /play?player_id=…&map=false` en el mismo origen, así que funciona igual en `http://localhost:8080` que detrás de nginx en el laboratorio.
+- Si la conexión se cae, reintenta con espera exponencial y *full jitter* (base 500 ms, techo 10 s); una conexión que dura 5 s o más reinicia la secuencia.
 - **Soltar gota** envía `{"type": "drop", "action_id": …, "x": …, "y": …}` y el registro muestra los `result`, `state` y `error` que llegan.
 
 | Ruta | Qué contiene |
 | --- | --- |
 | `index.html`, `styles.css` | La página |
-| `js/play.js` | Mensajes de `play.proto` y utilidades sin DOM (UUID, identidad, URL, construir y leer mensajes) |
+| `js/play.js` | Mensajes de `play.proto` y utilidades sin DOM (UUID, identidad, URL, construir y leer mensajes, espera de reconexión, tamaño del valle) |
 | `js/main.js` | DOM y WebSocket |
 | `test/` | Pruebas de `play.js` con `node:test` |
 

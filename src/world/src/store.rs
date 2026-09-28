@@ -85,9 +85,12 @@ impl GrpcSnapshotStore {
         } else {
             format!("http://{address}")
         };
+        // Sin `Endpoint::timeout` ni `grpc-timeout` en la petición: el plazo
+        // de cada intento lo impone solo `call` (ver allí). `connect_timeout`
+        // acota el establecimiento de la conexión en segundo plano del canal
+        // perezoso, no la llamada.
         let channel = Endpoint::from_shared(uri)?
             .connect_timeout(policy.deadline)
-            .timeout(policy.deadline)
             .connect_lazy();
         Ok(Self {
             client: PersistenceServiceClient::new(channel),
@@ -95,20 +98,27 @@ impl GrpcSnapshotStore {
         })
     }
 
+    /// Ejecuta `attempt` con el plazo de la política y como mucho tantos
+    /// reintentos como esperas tenga, solo ante UNAVAILABLE o
+    /// DEADLINE_EXCEEDED.
+    ///
+    /// El plazo por intento se impone con un único mecanismo:
+    /// `tokio::time::timeout` alrededor del intento completo (incluida la
+    /// espera a que el canal perezoso conecte), que al vencer produce
+    /// DEADLINE_EXCEEDED y, por tanto, se reintenta. Antes se imponía además
+    /// con `Endpoint::timeout` y con la cabecera `grpc-timeout`
+    /// (`Request::set_timeout`); con el mismo plazo, esos dos compiten con
+    /// este y, si ganan, tonic devuelve CANCELLED («Timeout expired»), que no
+    /// se reintenta. Por eso se quitaron.
     async fn call<T, F, Fut>(&self, method: &str, mut attempt: F) -> Result<T, Status>
     where
-        F: FnMut(PersistenceServiceClient<Channel>, Duration) -> Fut,
+        F: FnMut(PersistenceServiceClient<Channel>) -> Fut,
         Fut: Future<Output = Result<T, Status>>,
     {
         let mut delays = self.policy.retry_delays.iter();
         loop {
             let deadline = self.policy.deadline;
-            let result = match tokio::time::timeout(
-                deadline,
-                attempt(self.client.clone(), deadline),
-            )
-            .await
-            {
+            let result = match tokio::time::timeout(deadline, attempt(self.client.clone())).await {
                 Ok(result) => result,
                 Err(_) => Err(Status::deadline_exceeded(format!(
                     "{method}: plazo de {deadline:?} agotado"
@@ -128,12 +138,6 @@ impl GrpcSnapshotStore {
     }
 }
 
-fn request<T>(message: T, deadline: Duration) -> Request<T> {
-    let mut request = Request::new(message);
-    request.set_timeout(deadline);
-    request
-}
-
 fn store_error(status: &Status) -> StoreError {
     let message = format!("{:?}: {}", status.code(), status.message());
     match status.code() {
@@ -146,9 +150,9 @@ fn store_error(status: &Status) -> StoreError {
 impl SnapshotStore for GrpcSnapshotStore {
     async fn load(&self) -> Result<Option<Snapshot>, StoreError> {
         let result = self
-            .call("LoadSnapshot", |mut client, deadline| async move {
+            .call("LoadSnapshot", |mut client| async move {
                 client
-                    .load_snapshot(request(persistence_pb::LoadSnapshotRequest {}, deadline))
+                    .load_snapshot(Request::new(persistence_pb::LoadSnapshotRequest {}))
                     .await
             })
             .await;
@@ -163,16 +167,13 @@ impl SnapshotStore for GrpcSnapshotStore {
     }
 
     async fn save(&self, snapshot: Snapshot) -> Result<(), StoreError> {
-        self.call("SaveSnapshot", |mut client, deadline| {
+        self.call("SaveSnapshot", |mut client| {
             let snapshot = snapshot.clone();
             async move {
                 client
-                    .save_snapshot(request(
-                        persistence_pb::SaveSnapshotRequest {
-                            snapshot: Some(snapshot),
-                        },
-                        deadline,
-                    ))
+                    .save_snapshot(Request::new(persistence_pb::SaveSnapshotRequest {
+                        snapshot: Some(snapshot),
+                    }))
                     .await
             }
         })

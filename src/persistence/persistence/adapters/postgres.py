@@ -6,6 +6,17 @@ migraciones y, si luego se pierde la conexión, vuelve a conectarse solo.
 Mientras no hay conexión, cada operación lanza RepositoryUnavailableError,
 que el servidor gRPC traduce a UNAVAILABLE.
 
+Mientras hay conexión, el mismo hilo la comprueba cada liveness_interval_s
+(5 s por defecto) con un SELECT 1: así se detecta una conexión que el
+servidor o la red cortaron por inactividad aunque nadie llame al servicio,
+la salud pasa a NOT_SERVING y se reconecta.
+
+El aviso on_ready_change se ejecuta siempre fuera del cerrojo del
+repositorio: un aviso lento o que llame al propio repositorio no bloquea
+las operaciones. Los avisos se serializan con un cerrojo propio y cada uno
+publica el estado vigente en ese momento, así que el último aviso siempre
+coincide con el estado real (dos cambios muy seguidos pueden fundirse).
+
 Se usa una sola conexión protegida por un cerrojo: el simulador guarda una
 instantánea cada 5 s y solo la carga al arrancar, así que no hace falta un
 pool.
@@ -54,6 +65,8 @@ class PostgresSnapshotRepository:
         migration_timeout_ms: int = DEFAULT_MIGRATION_TIMEOUT_MS,
         backoff_initial_s: float = 0.5,
         backoff_max_s: float = 5.0,
+        tcp_user_timeout_ms: int = 5000,
+        liveness_interval_s: float = 5.0,
     ) -> None:
         self._dsn = dsn
         self._migrations_dir = migrations_dir
@@ -65,8 +78,16 @@ class PostgresSnapshotRepository:
         self._migration_timeout_ms = migration_timeout_ms
         self._backoff_initial_s = backoff_initial_s
         self._backoff_max_s = backoff_max_s
+        # Si la red se corta sin aviso, la conexión se da por perdida a los
+        # tcp_user_timeout_ms en vez de esperar al plazo de TCP del sistema.
+        self._tcp_user_timeout_ms = tcp_user_timeout_ms
+        # Cada cuánto se comprueba la conexión cuando no hay que reconectar.
+        self._liveness_interval_s = liveness_interval_s
 
         self._lock = threading.Lock()
+        # Serializa los avisos de disponibilidad, que van fuera de _lock.
+        self._notify_lock = threading.Lock()
+        self._notified_ready = False
         self._conn: psycopg.Connection | None = None
         self._need_connection = threading.Event()
         self._need_connection.set()
@@ -101,7 +122,10 @@ class PostgresSnapshotRepository:
     def _connect_loop(self) -> None:
         delay = self._backoff_initial_s
         while True:
-            self._need_connection.wait()
+            if not self._need_connection.wait(self._liveness_interval_s):
+                # Conectado y sin nada que hacer: se comprueba la conexión.
+                self._check_liveness()
+                continue
             if self._stopping.is_set():
                 return
             # Cualquier excepción (no solo las de red) se registra y se
@@ -124,7 +148,8 @@ class PostgresSnapshotRepository:
                     return
                 self._conn = conn
                 self._need_connection.clear()
-                self._set_ready(True)
+                self._ready.set()
+            self._publish_readiness()
             delay = self._backoff_initial_s
             log.info("conectado a PostgreSQL")
 
@@ -135,9 +160,7 @@ class PostgresSnapshotRepository:
             connect_timeout=self._connect_timeout_s,
             application_name=APPLICATION_NAME,
             options=f"-c statement_timeout={self._statement_timeout_ms}",
-            # Si la red se corta sin aviso, la conexión se da por perdida a
-            # los 5 s en vez de esperar al plazo de TCP del sistema.
-            tcp_user_timeout=5000,
+            tcp_user_timeout=self._tcp_user_timeout_ms,
         )
         try:
             applied = apply_migrations(conn, self._migrations_dir, self._migration_timeout_ms)
@@ -148,14 +171,18 @@ class PostgresSnapshotRepository:
             log.info("migraciones aplicadas: %s", ", ".join(applied))
         return conn
 
-    def _set_ready(self, ready: bool) -> None:
-        if ready == self._ready.is_set():
-            return
-        if ready:
-            self._ready.set()
-        else:
-            self._ready.clear()
-        if self.on_ready_change is not None:
+    def _publish_readiness(self) -> None:
+        """Avisa del estado vigente si cambió desde el último aviso.
+
+        Se llama siempre fuera de _lock.
+        """
+        with self._notify_lock:
+            ready = self._ready.is_set()
+            if ready == self._notified_ready:
+                return
+            self._notified_ready = ready
+            if self.on_ready_change is None:
+                return
             # Un fallo del aviso no debe romper ni el hilo que conecta ni la
             # operación que detectó la caída.
             try:
@@ -163,8 +190,39 @@ class PostgresSnapshotRepository:
             except Exception:
                 log.exception("falló el aviso de cambio de disponibilidad (%s)", ready)
 
+    def _drop_connection_locked(self, conn: psycopg.Connection) -> None:
+        """Descarta la conexión perdida. Se llama con _lock tomado.
+
+        Quien llama debe luego avisar (_publish_readiness) y despertar al
+        hilo que reconecta (_need_connection.set()), en ese orden y fuera
+        del cerrojo, para que el orden de avisos sea el real.
+        """
+        conn.close()
+        self._conn = None
+        self._ready.clear()
+
+    def _connection_lost(self) -> None:
+        self._publish_readiness()
+        self._need_connection.set()
+
+    def _check_liveness(self) -> None:
+        with self._lock:
+            conn = self._conn
+            if conn is None:
+                return
+            try:
+                conn.execute("SELECT 1")
+                return
+            except psycopg.Error as error:
+                # Cualquier fallo del ping se trata como conexión perdida:
+                # reconectar es barato y una conexión dudosa no sirve.
+                log.warning("la comprobación de PostgreSQL falló (%s); reconectando", error)
+                self._drop_connection_locked(conn)
+        self._connection_lost()
+
     def _call(self, work: Callable[[psycopg.Connection], T]) -> T:
         """Ejecuta work en una transacción con la conexión compartida."""
+        lost: RepositoryUnavailableError | None = None
         with self._lock:
             conn = self._conn
             if conn is None:
@@ -173,20 +231,23 @@ class PostgresSnapshotRepository:
                 with conn.transaction():
                     return work(conn)
             except psycopg.OperationalError as error:
+                unavailable = RepositoryUnavailableError(f"PostgreSQL no respondió: {error}")
                 # Un plazo agotado deja la conexión sana; una caída, no.
-                if conn.broken or conn.closed:
-                    log.warning("se perdió la conexión con PostgreSQL; reconectando")
-                    conn.close()
-                    self._conn = None
-                    # Primero se marca no disponible y luego se despierta al
-                    # hilo que reconecta, para que el orden de avisos sea el real.
-                    self._set_ready(False)
-                    self._need_connection.set()
-                raise RepositoryUnavailableError(f"PostgreSQL no respondió: {error}") from error
+                if not (conn.broken or conn.closed):
+                    raise unavailable from error
+                log.warning("se perdió la conexión con PostgreSQL; reconectando")
+                self._drop_connection_locked(conn)
+                unavailable.__cause__ = error
+                lost = unavailable
             except (psycopg.DataError, psycopg.IntegrityError) as error:
                 # Datos que el esquema no admite: la transacción se deshizo y
                 # la conexión sigue sana.
                 raise InvalidSnapshotError(str(error)) from error
+        # Caída: se avisa y se despierta al hilo que reconecta fuera del
+        # cerrojo, y solo entonces se informa del error a quien llamó.
+        assert lost is not None  # solo se llega aquí tras una caída
+        self._connection_lost()
+        raise lost
 
     # --- Puerto SnapshotRepository ------------------------------------------
 

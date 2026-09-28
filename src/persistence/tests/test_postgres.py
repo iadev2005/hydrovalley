@@ -94,7 +94,9 @@ class FakeConnection:
     """Conexión mínima para probar el adaptador sin base de datos.
 
     rows son las filas que devuelven, en orden, los fetchone() de cada
-    execute(); error, si existe, lo lanza cada execute().
+    execute() (None cuando se acaban); error, si existe, lo lanza cada
+    execute(). drop() imita una conexión que el servidor cortó por
+    inactividad: la siguiente sentencia falla y la conexión queda rota.
     """
 
     def __init__(self, rows=(), error: Exception | None = None):
@@ -111,11 +113,16 @@ class FakeConnection:
     def execute(self, sql, params=None):
         self.statements.append(sql)
         if self.error is not None:
+            if isinstance(self.error, psycopg.OperationalError):
+                self.broken = True
             raise self.error
-        return FakeCursor(self.rows.pop(0))
+        return FakeCursor(self.rows.pop(0) if self.rows else None)
 
     def close(self):
         self.closed = True
+
+    def drop(self):
+        self.error = psycopg.OperationalError("server closed the connection unexpectedly")
 
 
 def repository_with(conn: FakeConnection) -> PostgresSnapshotRepository:
@@ -213,6 +220,97 @@ def test_connector_survives_a_failing_ready_callback():
         repository.stop()
 
 
+def wait_until(condition, timeout_s: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.005)
+    return condition()
+
+
+def test_liveness_ping_keeps_a_healthy_connection():
+    readiness: list[bool] = []
+    conn = FakeConnection()
+    repository = fast_repository(on_ready_change=readiness.append, liveness_interval_s=0.01)
+    repository._open_connection = lambda: conn
+    repository.start()
+    try:
+        assert repository.wait_ready(timeout_s=5)
+        assert wait_until(lambda: conn.statements.count("SELECT 1") >= 3)
+        assert repository.is_ready
+        assert repository._conn is conn
+    finally:
+        repository.stop()
+    assert readiness == [True]
+
+
+def test_liveness_ping_detects_an_idle_dropped_connection_and_reconnects():
+    readiness: list[bool] = []
+    first, second = FakeConnection(), FakeConnection()
+    connections = [first, second]
+    repository = fast_repository(on_ready_change=readiness.append, liveness_interval_s=0.01)
+    repository._open_connection = lambda: connections.pop(0)
+    repository.start()
+    try:
+        assert repository.wait_ready(timeout_s=5)
+        # Nadie llama al repositorio: solo el ping puede notar la caída.
+        first.drop()
+        assert wait_until(lambda: repository._conn is second and repository.is_ready)
+        assert first.closed
+        assert wait_until(lambda: readiness == [True, False, True])
+    finally:
+        repository.stop()
+
+
+def test_ready_callback_runs_outside_the_repository_lock():
+    lock_held: list[bool] = []
+    connections = [FakeConnection(), FakeConnection()]
+    repository = fast_repository(liveness_interval_s=60)
+    repository.on_ready_change = lambda ready: lock_held.append(repository._lock.locked())
+    repository._open_connection = lambda: connections.pop(0)
+    repository.start()
+    try:
+        assert repository.wait_ready(timeout_s=5)
+        # Caída detectada por una operación (camino de _call).
+        repository._conn.drop()
+        with pytest.raises(RepositoryUnavailableError):
+            repository.load_latest()
+        assert wait_until(lambda: len(lock_held) == 3)
+    finally:
+        repository.stop()
+    assert lock_held == [False, False, False]
+
+
+def test_tcp_user_timeout_is_a_constructor_parameter(monkeypatch):
+    captured: dict = {}
+
+    def fake_connect(dsn, **kwargs):
+        captured.update(kwargs)
+        return FakeConnection()
+
+    monkeypatch.setattr("persistence.adapters.postgres.psycopg.connect", fake_connect)
+    monkeypatch.setattr("persistence.adapters.postgres.apply_migrations", lambda *_: [])
+    repository = PostgresSnapshotRepository(
+        "postgresql://nobody@127.0.0.1:1/none", tcp_user_timeout_ms=1234
+    )
+    repository._open_connection()
+    assert captured["tcp_user_timeout"] == 1234
+
+
+def test_tcp_user_timeout_defaults_to_five_seconds(monkeypatch):
+    captured: dict = {}
+
+    def fake_connect(dsn, **kwargs):
+        captured.update(kwargs)
+        return FakeConnection()
+
+    monkeypatch.setattr("persistence.adapters.postgres.psycopg.connect", fake_connect)
+    monkeypatch.setattr("persistence.adapters.postgres.apply_migrations", lambda *_: [])
+    PostgresSnapshotRepository("postgresql://nobody@127.0.0.1:1/none")._open_connection()
+    assert captured["tcp_user_timeout"] == 5000
+
+
 # --- Con PostgreSQL real ---------------------------------------------------
 
 
@@ -231,6 +329,9 @@ def repository(clean_database):
         on_ready_change=readiness.append,
         backoff_initial_s=0.05,
         backoff_max_s=0.2,
+        # Sin ping durante la prueba: así es la operación la que detecta la
+        # caída en test_recovers_after_losing_the_connection.
+        liveness_interval_s=60,
     )
     repo.readiness = readiness
     repo.start()
@@ -333,6 +434,33 @@ def test_recovers_after_losing_the_connection(repository):
         time.sleep(0.05)
     assert repository.load_latest() == snapshot(50)
     assert repository.readiness == [True, False, True]
+
+
+@integration
+def test_liveness_ping_detects_a_connection_the_server_dropped(clean_database):
+    readiness: list[bool] = []
+    repo = PostgresSnapshotRepository(
+        clean_database,
+        on_ready_change=readiness.append,
+        backoff_initial_s=0.05,
+        backoff_max_s=0.2,
+        liveness_interval_s=0.1,
+    )
+    repo.start()
+    try:
+        assert repo.wait_ready(timeout_s=10)
+        query(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE application_name = 'hydrovalley-persistence'"
+        )
+        # Sin ninguna operación: el ping nota la caída y reconecta.
+        deadline = time.monotonic() + 10
+        while readiness != [True, False, True] and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert readiness == [True, False, True]
+        assert repo.load_latest() is None
+    finally:
+        repo.stop()
 
 
 @integration

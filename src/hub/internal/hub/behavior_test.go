@@ -131,3 +131,60 @@ func TestWireStatusMapping(t *testing.T) {
 		}
 	}
 }
+
+// Status trae la disponibilidad en la misma foto que el resto de campos:
+// /readyz no puede mezclar un "ready" de un instante con un "paused" de otro.
+func TestStatusCarriesReadinessInTheSameSnapshot(t *testing.T) {
+	h := newHarness(t)
+	if st := h.hub.Status(); st.Ready {
+		t.Fatalf("status before any Step = %+v, want not ready", st)
+	}
+	h.tick()
+	if st := h.hub.Status(); !st.Ready || st.Paused || st.Breaker != "closed" {
+		t.Fatalf("status after a successful Step = %+v, want ready", st)
+	}
+	h.world.set(func(w *fakeWorld) { w.fail = true })
+	h.tick()
+	if st := h.hub.Status(); st.Ready || !st.Paused {
+		t.Fatalf("status after a failed Step = %+v, want paused and not ready", st)
+	}
+}
+
+func playerKept(h *harness, id string) bool {
+	h.hub.mu.Lock()
+	defer h.hub.mu.Unlock()
+	_, ok := h.hub.players[id]
+	return ok
+}
+
+// El barrido de registros inactivos recorre todos los jugadores bajo el
+// candado: no se hace en cada tick, sino como mucho una vez por
+// SweepInterval.
+func TestIdleSweepRunsAtMostOncePerInterval(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.SweepInterval = 5 * time.Second })
+	s := h.hub.Connect(ana, true)
+	h.world.set(func(w *fakeWorld) { w.statuses[uuidN(1)] = worldv1.CommandStatus_COMMAND_STATUS_REJECTED })
+	h.hub.SubmitDrop(s, drop(1))
+	h.tick() // primer barrido: la ventana del límite sigue activa
+	h.hub.Disconnect(s)
+	if !playerKept(h, ana) {
+		t.Fatal("a player with an active rate window must be kept")
+	}
+	// La ventana se vacía, pero aún no toca barrer.
+	h.clock.Advance(1500 * time.Millisecond)
+	h.tick()
+	if !playerKept(h, ana) {
+		t.Fatal("the sweep ran before SweepInterval elapsed")
+	}
+	h.clock.Advance(3500 * time.Millisecond)
+	h.tick()
+	if playerKept(h, ana) {
+		t.Fatal("the sweep must run once SweepInterval has elapsed")
+	}
+}
+
+func TestDefaultSweepIntervalIsOneSecond(t *testing.T) {
+	if got := DefaultConfig().SweepInterval; got != time.Second {
+		t.Fatalf("SweepInterval = %v, want 1s", got)
+	}
+}

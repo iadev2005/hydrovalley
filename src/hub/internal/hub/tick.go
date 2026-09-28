@@ -261,9 +261,16 @@ func (h *Hub) dropIfIdleLocked(id string, p *player) {
 }
 
 // sweepIdlePlayersLocked borra los registros que quedaron inactivos solo
-// porque su ventana del límite se vació con el paso del tiempo.
+// porque su ventana del límite se vació con el paso del tiempo. Recorre
+// todos los jugadores bajo el candado, así que corre como mucho una vez por
+// SweepInterval y no en cada tick; el resto de bajas las hace
+// dropIfIdleLocked en cuanto ocurre el evento.
 func (h *Hub) sweepIdlePlayersLocked() {
 	now := h.clock.Now()
+	if !h.lastSweep.IsZero() && now.Sub(h.lastSweep) < h.cfg.SweepInterval {
+		return
+	}
+	h.lastSweep = now
 	for id, p := range h.players {
 		if p.idle(now) {
 			delete(h.players, id)
