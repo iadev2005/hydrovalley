@@ -140,3 +140,56 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://hydrovalley:ci-only@127.0.0.1:5432/hydrovalley_test
         run: uv run pytest -v -m integration
+
+  # Simulador del valle (Rust). Mismo patrón que `persistence`: el filtro de
+  # rutas va dentro del job, así que sin cambios termina en verde y puede
+  # ser una comprobación obligatoria. build.rs genera el código desde
+  # proto/ con un protoc incluido (protoc-bin-vendored): no necesita buf.
+  world:
+    name: world
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            world:
+              - 'src/world/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el simulador
+        if: steps.changes.outputs.world != 'true'
+        run: echo "Sin cambios en src/world, proto ni el workflow; no hay nada que probar."
+
+      - uses: dtolnay/rust-toolchain@master
+        if: steps.changes.outputs.world == 'true'
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.world == 'true'
+        with:
+          workspaces: src/world
+
+      - name: Formato
+        if: steps.changes.outputs.world == 'true'
+        working-directory: src/world
+        run: cargo fmt --check
+
+      - name: Clippy
+        if: steps.changes.outputs.world == 'true'
+        working-directory: src/world
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Pruebas
+        if: steps.changes.outputs.world == 'true'
+        working-directory: src/world
+        run: cargo test --locked
