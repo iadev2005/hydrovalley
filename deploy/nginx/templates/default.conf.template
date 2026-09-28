@@ -1,0 +1,77 @@
+# Proxy de entrada: la única puerta del sistema (patrón Gateway).
+#
+# Plantilla de la imagen oficial de nginx: al arrancar, envsubst sustituye
+# ${API_ADDR}, ${HUB_ADDR} y ${NGINX_RESOLVER} (solo las variables definidas;
+# las de nginx como $http_host quedan igual) y escribe conf.d/default.conf.
+# Plan B: api:3000 y hub:8081; plan A: 10.68.17.x:3000 y 10.68.17.x:8081.
+#
+# Los destinos se resuelven en cada petición (proxy_pass con variable y
+# resolver), no al arrancar: nginx arranca aunque la API o el hub no estén
+# y los encuentra cuando aparecen (regla 5 de portabilidad).
+#
+# TODO(RNF-12): HTTPS en el 8080 con un certificado autofirmado del
+# laboratorio (ssl_certificate por variable de entorno o volumen de solo
+# lectura). Mientras tanto, HTTP.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 8080;
+    server_tokens off;
+
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=off;
+    resolver_timeout 2s;
+
+    # Frontend: archivos estáticos dentro de esta misma imagen (RES-03).
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API REST y Swagger (/api/docs). La ruta se reenvía sin cambios.
+    location /api/ {
+        set $api_upstream http://${API_ADDR};
+        proxy_pass $api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 30s;
+    }
+
+    # WebSocket del juego. El hub compara Origin con Host: Host debe llevar
+    # el puerto ($http_host, no $host) o el navegador recibe un 403.
+    location = /play {
+        set $hub_upstream http://${HUB_ADDR};
+        proxy_pass $hub_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_connect_timeout 2s;
+        # El hub envía un estado cada segundo; una hora sin nada es una
+        # conexión muerta.
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_buffering off;
+    }
+
+    # TODO(nivel 2): WebSocket del chat (CHAT_ADDR, puerto 8082).
+    location /chat {
+        default_type application/json;
+        return 503 '{"error":"chat_not_implemented"}\n';
+    }
+}

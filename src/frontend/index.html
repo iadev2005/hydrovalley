@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>hydrovalley</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- Página mínima del esqueleto. TODO: React (paneles) y Phaser (valle isométrico). -->
+    <main>
+      <h1>hydrovalley</h1>
+      <p class="meta">Jugador: <code id="player-id">…</code> · Conexión: <span id="conn">desconectado</span></p>
+      <p class="meta" id="state">Sin estado todavía.</p>
+      <form id="drop-form">
+        <label>x <input id="x" type="number" min="0" max="31" step="1" required /></label>
+        <label>y <input id="y" type="number" min="0" max="31" step="1" required /></label>
+        <button id="drop" type="submit" disabled>Soltar gota</button>
+      </form>
+      <h2>Registro</h2>
+      <ol id="log" reversed></ol>
+    </main>
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>

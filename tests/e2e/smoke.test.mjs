@@ -1,0 +1,175 @@
+// CP-01-lite: el esqueleto camina de punta a punta.
+//
+// Contra un stack ya levantado (run.sh lo levanta y lo baja): una gota que
+// entra por nginx llega al hub, pasa por Step en Rust y vuelve como
+// "applied"; y el mundo llega a PostgreSQL por la persistencia en el tick 50.
+//
+// Variables:
+//   HV_BASE_URL          raíz de nginx (por defecto http://localhost:8080)
+//   E2E_READY_TIMEOUT_S  espera máxima a que el stack esté listo (180)
+// La consulta a PostgreSQL usa `docker compose exec`, con COMPOSE_PROJECT_NAME,
+// COMPOSE_FILE y COMPOSE_ENV_FILES definidos por run.sh.
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const BASE_URL = (process.env.HV_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
+const WS_BASE = BASE_URL.replace(/^http/, "ws");
+const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_S ?? 180) * 1000;
+const SNAPSHOT_EVERY = 50n;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function eventually(what, timeoutMs, fn, intervalMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const value = await fn();
+      if (value !== undefined && value !== false) return value;
+    } catch (err) {
+      lastError = err;
+    }
+    await sleep(intervalMs);
+  }
+  throw new Error(`timed out waiting for ${what}${lastError ? `: ${lastError.message}` : ""}`);
+}
+
+/** Conexión a /play que guarda los mensajes y deja esperar por uno. */
+class PlaySession {
+  constructor(playerId) {
+    this.frames = [];
+    this.waiters = [];
+    this.ws = new WebSocket(`${WS_BASE}/play?player_id=${playerId}&map=false`);
+    this.opened = new Promise((resolve, reject) => {
+      this.ws.addEventListener("open", resolve, { once: true });
+      this.ws.addEventListener("error", () => reject(new Error("websocket error")), { once: true });
+      this.ws.addEventListener("close", (e) => reject(new Error(`websocket closed (${e.code})`)), {
+        once: true,
+      });
+    });
+    this.ws.addEventListener("message", (event) => {
+      const frame = JSON.parse(String(event.data));
+      this.frames.push(frame);
+      this.waiters = this.waiters.filter((w) => !w.match(frame) || (w.resolve(frame), false));
+    });
+  }
+
+  next(what, match, timeoutMs) {
+    const seen = this.frames.find(match);
+    if (seen) return Promise.resolve(seen);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), timeoutMs);
+      this.waiters.push({
+        match,
+        resolve: (frame) => {
+          clearTimeout(timer);
+          resolve(frame);
+        },
+      });
+    });
+  }
+
+  send(message) {
+    this.ws.send(JSON.stringify(message));
+  }
+
+  close() {
+    this.ws.close();
+  }
+}
+
+async function snapshotRows() {
+  const { stdout } = await run("docker", [
+    "compose",
+    "exec",
+    "-T",
+    "postgres",
+    "sh",
+    "-c",
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "SELECT count(*) || \',\' || coalesce(max(tick), -1) FROM snapshots"',
+  ]);
+  const [count, maxTick] = stdout.trim().split(",").map(Number);
+  return { count, maxTick };
+}
+
+describe("walking skeleton (CP-01-lite)", () => {
+  const playerId = randomUUID();
+  let session;
+
+  before(async () => {
+    await eventually("GET /api/health through nginx", READY_TIMEOUT_MS, async () => {
+      const res = await fetch(`${BASE_URL}/api/health`);
+      return res.ok && (await res.json()).status === "ok";
+    });
+  });
+
+  after(() => session?.close());
+
+  it("serves the static page, the Swagger page and a 503 for /chat", async () => {
+    const page = await fetch(`${BASE_URL}/`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Soltar gota/);
+
+    const docs = await fetch(`${BASE_URL}/api/docs/`);
+    assert.equal(docs.status, 200);
+    assert.match(docs.headers.get("content-type") ?? "", /text\/html/);
+
+    const chat = await fetch(`${BASE_URL}/chat`);
+    assert.equal(chat.status, 503);
+  });
+
+  it("applies a drop sent through nginx and the hub", async () => {
+    // El hub está listo cuando difunde un estado sin pausa: Step ya responde,
+    // o sea, el simulador cargó su instantánea desde la persistencia.
+    session = await eventually("a running valley on /play", READY_TIMEOUT_MS, async () => {
+      const candidate = new PlaySession(playerId);
+      try {
+        await candidate.opened;
+        await candidate.next("a state frame without pause", (f) => f.type === "state" && !f.paused, 3000);
+        return candidate;
+      } catch (err) {
+        candidate.close();
+        throw err;
+      }
+    }, 2000);
+
+    const actionId = randomUUID();
+    session.send({ type: "drop", action_id: actionId, x: 3, y: 4 });
+    const result = await session.next(
+      `the result of ${actionId}`,
+      (f) => f.type === "result" && f.action_id === actionId,
+      10_000,
+    );
+    assert.equal(result.status, "applied", JSON.stringify(result));
+    console.log(`drop ${actionId} -> ${result.status}`);
+
+    // La gota cuesta 1 L de los 20 iniciales (D-01).
+    const state = await session.next(
+      "a state with the player",
+      (f) => f.type === "state" && f.player !== undefined,
+      5000,
+    );
+    assert.equal(state.player.water, "19");
+    assert.equal(state.player.tank_capacity, "20");
+  });
+
+  it("snapshots the world to PostgreSQL through the persistence", async () => {
+    assert.ok(session, "needs the /play session of the previous test");
+    const state = await session.next(
+      `a state with tick >= ${SNAPSHOT_EVERY}`,
+      (f) => f.type === "state" && BigInt(f.tick ?? "0") >= SNAPSHOT_EVERY,
+      30_000,
+    );
+    const rows = await eventually("a row in snapshots", 15_000, async () => {
+      const r = await snapshotRows();
+      return r.count >= 1 ? r : undefined;
+    });
+    assert.ok(rows.maxTick >= Number(SNAPSHOT_EVERY), JSON.stringify(rows));
+    assert.equal(rows.maxTick % Number(SNAPSHOT_EVERY), 0, JSON.stringify(rows));
+    console.log(`tick ${state.tick}: ${rows.count} snapshot row(s), latest tick ${rows.maxTick}`);
+  });
+});
