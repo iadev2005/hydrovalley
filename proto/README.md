@@ -22,8 +22,41 @@ Los nombres van en inglés; los comentarios, en español.
 Desde la raíz del repositorio, con Docker:
 
 ```
-docker run --rm -v "$PWD/proto:/workspace" -w /workspace bufbuild/buf lint
-docker run --rm -v "$PWD/proto:/workspace" -w /workspace bufbuild/buf build
+docker run --rm -v "$PWD/proto:/workspace" -w /workspace bufbuild/buf:1.73.0 lint
+docker run --rm -v "$PWD/proto:/workspace" -w /workspace bufbuild/buf:1.73.0 build
 ```
 
 La validación usa las reglas `STANDARD`, y la detección de cambios incompatibles, `FILE`. Un cambio aquí afecta a todos los servicios, así que pasa por acuerdo del equipo en un pull request.
+
+El CI (`.github/workflows/ci.yml`, job `proto`) ejecuta `buf lint` y `buf build` en cada pull request a `dev` o `main` y en cada push a `dev`; en los pull requests, además, `buf breaking` contra la rama base.
+
+## Generar código
+
+El código generado nunca se versiona: sale en `gen/`, que está en `.gitignore`. Desde la raíz del repositorio, con Docker y sin instalar buf:
+
+```
+scripts/gen-proto.sh
+```
+
+El script ejecuta `buf lint` y luego `buf generate` con `proto/buf.gen.yaml` (imagen `bufbuild/buf:1.73.0`; plugins remotos del BSR con versión fijada, así que necesita red). Si el asistente de credenciales de Docker se cuelga, se apunta a una carpeta con un `config.json` que contenga `{}`:
+
+```
+DOCKER_CONFIG=/ruta/a/esa/carpeta scripts/gen-proto.sh
+```
+
+| Salida | Lenguaje | Plugins | Quién la usa |
+| --- | --- | --- | --- |
+| `gen/go/` | Go | `protocolbuffers/go`, `grpc/go` | hub, chat, bots, world-go |
+| `gen/python/` | Python | `protocolbuffers/python`, `protocolbuffers/pyi`, `grpc/python` | persistencia |
+| `gen/ts/` | TypeScript | `bufbuild/es` (protobuf-es v2) | API y frontend |
+
+**Go.** `gen/go/` es un módulo propio, `github.com/iadev2005/hydrovalley/gen/go` (el script escribe su `go.mod`). Cada servicio Go lo usa así en su `go.mod`:
+
+```
+require github.com/iadev2005/hydrovalley/gen/go v0.0.0
+replace github.com/iadev2005/hydrovalley/gen/go => ../../gen/go
+```
+
+y lo importa como `github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1`. Se eligió un único módulo compartido en lugar de generar dentro de cada servicio porque hay cuatro servicios Go que usan los mismos contratos: una sola generación y una sola ruta de importación, sin copias que puedan quedar desfasadas. Las versiones de `google.golang.org/protobuf` y `google.golang.org/grpc` las fija el `go.mod` de cada servicio.
+
+**Rust.** No se genera aquí: el simulador (`src/world/`) compila los `.proto` con `tonic-build` en su `build.rs`, que es lo habitual en Rust y no necesita un paso aparte.

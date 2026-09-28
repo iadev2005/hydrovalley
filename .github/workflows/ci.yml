@@ -1,0 +1,68 @@
+# CI común. El job `proto` es una comprobación obligatoria en dev y main.
+# Los jobs de cada servicio se añadirán con filtros `paths`.
+name: ci
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proto:
+    name: proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Historial completo: buf breaking compara con la rama base desde .git.
+          fetch-depth: 0
+
+      # buf breaking solo tiene sentido si la rama base ya tiene proto/.
+      - name: Detectar proto/ en la rama base
+        id: base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git cat-file -e "${BASE_SHA}:proto/buf.yaml" 2>/dev/null; then
+            echo "has_proto=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_proto=false" >> "$GITHUB_OUTPUT"
+            echo "La rama base no tiene proto/buf.yaml; se omite buf breaking."
+          fi
+
+      # buf build siempre; lint en todo evento; breaking solo en pull requests.
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: 1.73.0
+          input: proto
+          lint: true
+          format: false
+          breaking: ${{ steps.base.outputs.has_proto == 'true' }}
+          breaking_against: .git#ref=${{ github.event.pull_request.base.sha }},subdir=proto
+          push: false
+          archive: false
+          pr_comment: false
+
+  codegen:
+    name: codegen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # Comprueba que la generación funciona; el resultado no se guarda.
+      - name: buf generate
+        run: buf generate --template proto/buf.gen.yaml

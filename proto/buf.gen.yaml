@@ -1,0 +1,36 @@
+# Generación de código a partir de los contratos. Se ejecuta desde la raíz
+# del repositorio (scripts/gen-proto.sh o el job `codegen` del CI):
+#
+#   buf generate --template proto/buf.gen.yaml
+#
+# Todo sale en gen/, que está en .gitignore: el código generado nunca se
+# versiona. Rust no se genera aquí: el simulador usa tonic-build en build.rs.
+version: v2
+clean: true
+inputs:
+  - directory: proto
+managed:
+  enabled: true
+  override:
+    # Ruta de importación Go: github.com/iadev2005/hydrovalley/gen/go/hydrovalley/<servicio>/v1
+    - file_option: go_package_prefix
+      value: github.com/iadev2005/hydrovalley/gen/go
+plugins:
+  # Go: hub, chat, bots y world-go.
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: gen/go
+    opt: paths=source_relative
+  - remote: buf.build/grpc/go:v1.6.1
+    out: gen/go
+    opt: paths=source_relative
+  # Python: persistencia.
+  - remote: buf.build/protocolbuffers/python:v33.2
+    out: gen/python
+  - remote: buf.build/protocolbuffers/pyi:v33.2
+    out: gen/python
+  - remote: buf.build/grpc/python:v1.76.0
+    out: gen/python
+  # TypeScript: API y frontend (protobuf-es v2).
+  - remote: buf.build/bufbuild/es:v2.10.0
+    out: gen/ts
+    opt: target=ts
