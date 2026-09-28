@@ -33,16 +33,16 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 ## Reglas que no se rompen
 
 1. **Escritor único.** Solo el simulador en Rust modifica el estado del mundo. Go lo llama con `WorldService.Step` una vez por tick, nunca dos a la vez.
-2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go lleva dos conjuntos por sesión: `pending` (en cola o en curso; un reenvío se ignora) y `confirmed` (aplicados, con su tick, durante 60 s; un reenvío recibe `duplicate`). Rust recuerda, por jugador, los aplicados en los últimos 600 ticks; ese conjunto va dentro de la instantánea y es la autoridad final. `Step` devuelve el resultado de cada comando.
-   - Un solo reloj para los plazos, el del hub: cada acción admitida recibe exactamente un resultado final, `applied | duplicate | rejected | expired` (`expired`: más de 30 s en la cola desde que el hub la admitió). Los rechazos inmediatos del hub son `duplicate | rate_limited | paused | forbidden`. El cliente trata `duplicate` como `applied`; muestra la acción como pendiente hasta el resultado final y solo reenvía las pendientes al reconectarse.
-   - Si Rust cae, el hub pausa el valle (no llama a `Step`), devuelve los comandos del `Step` fallido al frente de la cola (siguen en `pending`) y encola hasta 5.000; los nuevos que pasen de ahí reciben `paused`. Cuando Rust vuelve, su primera respuesta trae `restored_tick` y el hub quita de `confirmed` las entradas con tick mayor; luego drena la cola en lotes de 500 por tick y responde `expired` a los de más de 30 s.
-   - El hub cuenta las gotas aceptadas solo a partir de los resultados `applied` de `Step`.
+2. **Idempotencia.** Toda acción que modifica algo lleva `action_id`. Go lleva dos conjuntos por sesión: `pending` (en cola o en curso; un reenvío se ignora) y `confirmed` (aplicados, con su tick, durante 60 s; un reenvío recibe `duplicate`). Una entrada sale de `pending` con cualquier resultado final: `applied` y el `duplicate` de Rust (ya estaba aplicada) la pasan a `confirmed`; `rejected` y `expired` solo la quitan. Rust recuerda, por jugador, los aplicados en los últimos 600 ticks; ese conjunto va dentro de la instantánea y es la autoridad final. `Step` devuelve el resultado de cada comando.
+   - Un solo reloj para los plazos, el del hub: cada acción admitida recibe exactamente un resultado final, `applied | duplicate | rejected | expired` (`expired`: más de 30 s en la cola desde que el hub la admitió). Los rechazos inmediatos del hub son `duplicate | rate_limited | paused | forbidden`; un mensaje mal formado o de `type` desconocido recibe `{"type": "error"}` (RF-06) y no se encola. El cliente trata `duplicate` como `applied`; muestra la acción como pendiente hasta el resultado final y solo reenvía las pendientes al reconectarse.
+   - Desde el primer `Step` fallido el valle queda en pausa (el tick no avanza) y sus comandos vuelven al frente de la cola (siguen en `pending`); tras 3 fallos seguidos se abre el *Circuit Breaker*: deja de llamar a `Step`, avisa a los jugadores y prueba cada 1 s. La cola admite hasta 5.000; los nuevos que pasen de ahí reciben `paused`. Cuando Rust vuelve, su primera respuesta trae `restored_tick` y el hub quita de `confirmed` las entradas con tick mayor; luego drena la cola en lotes de 500 por tick y responde `expired` a los de más de 30 s.
+   - El hub cuenta las gotas aceptadas solo a partir de los resultados `applied` de `Step`. Guarda la cuenta por tick de los últimos 600 ticks y, cuando Rust vuelve, resta las de tick mayor que `restored_tick`.
 3. **El tick es el reloj lógico.** Nunca se ordenan eventos comparando relojes de máquinas distintas.
 4. **Sin streams de gRPC.** Todas las llamadas internas son de pregunta y respuesta. El chat usa `SendMessage`/`ListMessages` con un número de secuencia; la entrega en vivo va por el WebSocket del chat.
 5. **Solo Python toca la base de datos.** Nadie más tiene credenciales de PostgreSQL.
 6. **El azar solo lo decide Rust**, con un generador con semilla cuyo estado se guarda en la instantánea. Misma semilla + mismos comandos = mismo valle.
 7. **Enteros de 64 bits sin signo**, nunca decimales, para agua, hojas y humedad. En JSON, los números grandes viajan como texto.
-8. **Instantánea del mundo cada 50 ticks (5 s)** de Rust a Python (`tick % 50 == 0`); nada de escribir en la base de datos con cada gota. Rust copia el mundo y envía `SaveSnapshot` desde una tarea en segundo plano: `Step` nunca espera a la persistencia. Como mucho un guardado en curso (si el anterior sigue, esa instantánea se salta); si falla, se registra y se reintenta en el siguiente tick de instantánea, y el juego sigue. Un fallo de la persistencia nunca abre el *Circuit Breaker* del hub, que solo vigila `Step`. Rust carga el catálogo con `CatalogService.GetCatalog` al arrancar y al reiniciar el valle.
+8. **Instantánea del mundo cada 50 ticks (5 s)** de Rust a Python (`tick % 50 == 0`); nada de escribir en la base de datos con cada gota. Rust copia el mundo y envía `SaveSnapshot` desde una tarea en segundo plano: `Step` nunca espera a la persistencia. Como mucho un guardado en curso (si el anterior sigue, esa instantánea se salta); si falla, se registra y se reintenta en el siguiente tick de instantánea, y el juego sigue. Un fallo de la persistencia nunca abre el *Circuit Breaker* del hub, que solo vigila `Step`. Rust carga el catálogo con `CatalogService.GetCatalog` al arrancar y al reiniciar el valle. La instantánea del tick N se toma después de aplicar los comandos del tick N y avanzar el valle: incluye todo lo confirmado con tick ≤ N.
 
 ## Convenciones
 
@@ -51,8 +51,8 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 - Identificadores: UUID en texto. Fechas: ISO 8601 en UTC. Tiempos: segundos.
 - Errores: códigos estándar de gRPC.
 - Comandos de administración (modo demo, reiniciar valle; RF-31): por el WebSocket `/play`, solo con rol de administrador en el token, y entran en la cola del tick como cualquier comando. Reiniciar el valle no reinicia el tick.
-- Token: Ed25519, `{player_id, role, exp}`, 12 h. Firma la API (clave privada); el hub verifica con la pública al abrir `/play`. Claves por variables de entorno.
-- Contraseñas: TLS termina en nginx; la API calcula y verifica el hash Argon2id; la persistencia solo guarda el hash. El gRPC interno va sin cifrar dentro de la red del laboratorio.
+- Token: Ed25519, `{player_id, username, role, exp}`, 12 h (el chat toma de ahí el `username`; el ranking lo completa la API con `AccountService.GetUsernames`). Firma la API (clave privada); el hub verifica con la pública al abrir `/play`. Claves por variables de entorno.
+- Contraseñas: TLS termina en nginx; la API calcula y verifica el hash Argon2id; la persistencia solo guarda el hash. El gRPC interno va sin cifrar dentro de la red del laboratorio: la contraseña nunca viaja por él, pero el hash Argon2id sí (entre la API y la persistencia); es un riesgo aceptado porque la red del laboratorio es cerrada.
 - Coordenadas: casilla `(x, y)` desde la esquina superior izquierda, empezando en 0. El servidor no sabe cómo se dibuja el valle.
 - Dentro de cada servicio, la estructura oficial de su lenguaje: Go con `cmd/` + `internal/`; Rust con la lógica en `src/lib.rs` y el servidor en `src/main.rs`.
 - Saltos de línea LF en todo el repositorio (`.gitattributes`). El laboratorio usa Windows.
@@ -63,7 +63,7 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 hydrovalley/
   CLAUDE.md, README.md, .gitattributes, .gitignore
   .github/workflows/     Un workflow por servicio, con filtro por ruta
-  proto/hydrovalley/     Contratos: world/v1, persistence/v1, chat/v1
+  proto/hydrovalley/     Contratos: world/v1, persistence/v1, chat/v1, play/v1 (mensajes JSON de /play)
   src/                   api, frontend, hub, chat, world, world-go, persistence, bots
   catalog/               Cifras del juego (datos, no código)
   deploy/                docker-compose.yml y nginx
@@ -86,7 +86,7 @@ Se desarrolla con la topología del plan B (una máquina, un contenedor por serv
 1. Ninguna dirección en el código: cada servicio lee de variables de entorno a quién llama (`WORLD_ADDR`, `PERSISTENCE_ADDR`, `CHAT_ADDR`…). Plan B: `world:50051`; plan A: `10.68.17.x:50051`.
 2. Nunca `localhost` entre servicios.
 3. Sin carpetas compartidas entre contenedores: lo compartido viaja por gRPC o por la base de datos.
-4. Toda llamada gRPC con tiempo límite y reintentos acotados.
+4. Toda llamada gRPC con tiempo límite y reintentos acotados. `Step`: 200 ms y sin reintento (el hub reencola; el *Circuit Breaker* se abre tras 3 fallos seguidos y prueba cada 1 s). El resto: 2 s y, solo si es idempotente (`GetCatalog`, `GetAccount`, `GetReport`, `GetRanking`, `LoadSnapshot`, `ListMessages`, `SaveSnapshot` gracias a `ON CONFLICT` y `SendMessage` con su `message_id`), como mucho 3 reintentos con espera exponencial (100, 200 y 400 ms). Valores iniciales, ajustables.
 5. Cada servicio arranca aunque los demás no estén y se reconecta solo (RNF-09, CP-08); no depender de `depends_on`.
 6. Un archivo base y variaciones: `deploy/compose.yml` para el plan B y `deploy/nodes/<nodo>.yml` para cada máquina del plan A, con las mismas imágenes.
 
@@ -97,7 +97,7 @@ Sin Docker Swarm: pide más puertos en el cortafuegos y es frágil con Docker De
 - Máquinas LABBD-01 (`10.68.17.1`) y LABBD-02 (`10.68.17.2`), misma subred. Windows 10 Pro, x86_64, i7-13700F (16 núcleos, 24 hilos) y 31,7 GB de RAM.
 - Docker Desktop 29.5.3 con WSL 2. Cuenta genérica del dominio, **no administradora**: ejecuta contenedores y descarga imágenes amd64, pero no instala nada ni abre puertos.
 - Las imágenes las construye el pipeline para `linux/amd64`; no se construyen en un Mac con chip Apple para desplegarlas.
-- Puertos publicados en el despliegue repartido: nodo TypeScript **8080** (nginx con HTTPS; el 80 lo ocupa Windows); nodo Go **8081** (WebSocket del hub), **8082** (WebSocket del chat) y **50051** (gRPC del chat); nodos Rust y Python **50051**; nodo de base de datos **5433** (el 5432 lo ocupa un PostgreSQL 16 nativo del laboratorio). En el plan B solo se publica el 8080.
+- Puertos publicados en el despliegue repartido: nodo TypeScript **8080** (nginx con HTTPS; el 80 lo ocupa Windows); nodo Go **8081** (WebSocket del hub), **8082** (WebSocket del chat) y **50051** (gRPC del chat); nodos Rust y Python **50051** (con el plan B de D-03, `world-go` sustituye a Rust en su nodo, también en el 50051; el 50052 solo se usa en la comparativa local); nodo de base de datos **5433** (el 5432 lo ocupa un PostgreSQL 16 nativo del laboratorio). En el plan B solo se publica el 8080.
 - El cortafuegos bloquea las conexiones entrantes entre máquinas hasta que el encargado cree la regla (entrada TCP 8080, 8081, 8082, 50051 y 5433 desde `10.68.17.0/24`). Nunca se da por hecha la conectividad entre máquinas. Mientras tanto, plan B: todo en una sola máquina con Docker Compose.
 - El objetivo sigue siendo el despliegue repartido en las máquinas del laboratorio (RES-07). Una sola máquina es el plan B, no el destino.
 

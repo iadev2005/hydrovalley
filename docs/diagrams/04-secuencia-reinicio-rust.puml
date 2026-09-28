@@ -24,7 +24,7 @@ loop cada 100 ms (un tick)
     end note
   end
   World --> Hub : estado + resultado por comando\n(no espera a la persistencia)
-  Hub -> Hub : applied: de pending a confirmed (con su tick)
+  Hub -> Hub : todo resultado final quita la acción de pending:\napplied y duplicate pasan a confirmed (con su tick);\nrejected y expired solo salen
   opt instantánea en curso
     Persistence -> Db : guardar en una sola transacción
     Db --> Persistence : ok
@@ -40,12 +40,14 @@ end note
 == Rust se cae ==
 
 hnote over World #FFCCCC : el proceso muere
-Hub -> World : WorldService.Step(comandos)
-Hub <--x World : falla (sin respuesta)
+loop hasta 3 fallos seguidos (un intento por tick)
+  Hub -> World : WorldService.Step(comandos)
+  Hub <--x World : falla (sin respuesta en 200 ms)
+  Hub -> Hub : valle en pausa desde el primer fallo:\nel tick no avanza y los comandos del Step fallido\nvuelven al frente de la cola (siguen en pending)
+end
 
 group Circuit Breaker: abierto
-  Hub -> Hub : devolver los comandos del Step fallido\nal frente de la cola (siguen en pending)
-  Hub -> Hub : abrir el circuito: dejar de llamar a Step\n(el valle queda en pausa y el tick no avanza)
+  Hub -> Hub : abrir el circuito: dejar de llamar a Step
   Hub -> Players : aviso: «valle en pausa»\n(nadie se desconecta, las sesiones siguen abiertas)
   loop mientras el circuito está abierto
     Players -> Hub : acciones
@@ -70,7 +72,7 @@ World -> Persistence : CatalogService.GetCatalog()
 Persistence --> World : catálogo
 
 group Circuit Breaker: semiabierto y cerrado
-  Hub -> World : WorldService.Step (llamada de prueba)
+  Hub -> World : WorldService.Step (llamada de prueba, cada 1 s)
   World --> Hub : responde, con restored_tick\n(tick recuperado de la instantánea)
   Hub -> Hub : cerrar el circuito
   Hub -> Hub : quitar de confirmed las entradas\ncon tick > restored_tick (se perdieron)

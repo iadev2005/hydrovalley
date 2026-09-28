@@ -1,0 +1,307 @@
+syntax = "proto3";
+
+package hydrovalley.world.v1;
+
+// WorldService es el escritor único del estado del mundo (Capa 2).
+// Lo sirve el simulador en Rust (`world`, puerto 50051). Si se aplica el
+// plan B de D-03, `world-go` lo sustituye en el nodo de Rust, también en el
+// 50051. En la comparativa local Go vs. Rust, `world-go` puede escuchar en
+// el 50052.
+//
+// Convenciones: identificadores UUID en texto; agua, hojas y humedad en
+// uint64; la casilla (x, y) empieza en 0 desde la esquina superior
+// izquierda; los errores usan los códigos estándar de gRPC.
+//
+// Política de llamadas (regla de portabilidad 4): Step tiene un plazo de
+// 200 ms y el transporte nunca lo reintenta. El primer Step fallido ya
+// pausa el valle (el hub devuelve sus comandos al frente de la cola); tras
+// 3 fallos seguidos el Circuit Breaker se abre y prueba cada 1 s.
+// GetRanking: plazo de 2 s y hasta 3 reintentos con esperas de 100, 200 y
+// 400 ms.
+service WorldService {
+  // Aplica en orden los comandos admitidos de un tick y después avanza el
+  // valle un paso. El hub nunca tiene dos llamadas a Step en curso.
+  rpc Step(StepRequest) returns (StepResponse);
+
+  // Ranking global por hojas ganadas (RF-10). Solo lectura: nunca pausa el
+  // tick (RF-11). La API completa los nombres con
+  // AccountService.GetUsernames.
+  rpc GetRanking(GetRankingRequest) returns (GetRankingResponse);
+}
+
+message StepRequest {
+  // Comandos en orden de admisión (como mucho 500 mientras el hub vacía su
+  // cola tras un reinicio). Puede ir vacío: el valle avanza igual (RF-28).
+  repeated Command commands = 1;
+}
+
+// Comando admitido por el hub. Go decide si es admisible (sesión, rol,
+// duplicados, límite de gotas); Rust decide qué produce.
+message Command {
+  // UUID generado por el cliente (RF-09, CP-02).
+  string action_id = 1;
+  // Emisor: el `player_id` del token firmado.
+  string player_id = 2;
+
+  oneof kind {
+    DropCommand drop = 3;
+    PlaceInstallationCommand place_installation = 4;
+    BuyUpgradeCommand buy_upgrade = 5;
+    // Comandos de administración (RF-31): el hub solo los admite con
+    // role = admin.
+    SetDemoModeCommand set_demo_mode = 6;
+    ResetValleyCommand reset_valley = 7;
+  }
+}
+
+// Suelta una gota sobre una casilla (RF-04). Con la mejora de gota más
+// grande, Rust riega también las casillas del 3 x 3 alrededor.
+message DropCommand {
+  uint32 x = 1;
+  uint32 y = 2;
+}
+
+// Compra una instalación y la coloca en una casilla en un solo paso (RF-04,
+// RF-07). El precio sube un 15 % por cada compra del mismo tipo; como mucho
+// una instalación por casilla.
+message PlaceInstallationCommand {
+  InstallationKind kind = 1;
+  uint32 x = 2;
+  uint32 y = 3;
+}
+
+// Mejora única del jugador (RF-07).
+message BuyUpgradeCommand {
+  UpgradeKind kind = 1;
+}
+
+// Activa o desactiva el modo demo (RF-31, CP-01, CP-11).
+message SetDemoModeCommand {
+  bool enabled = 1;
+}
+
+// Devuelve el valle a su estado inicial y pone a cero los contadores de las
+// 3R y de RF-27. Conserva las cuentas, NO reinicia el tick e incrementa la
+// época de las instantáneas (RF-31).
+message ResetValleyCommand {}
+
+message StepResponse {
+  // Tick calculado por esta llamada. El tick solo crece (Capa 4).
+  uint64 tick = 1;
+
+  // Solo va en la primera respuesta a Step tras arrancar el proceso del
+  // simulador: el tick de la instantánea cargada, o 0 si arrancó con un
+  // mundo vacío. La instantánea del tick N incluye todo lo aplicado con
+  // tick <= N, así que el hub quita de `confirmed` toda entrada con tick >
+  // restored_tick y resta de su cuenta de gotas aceptadas las contadas con
+  // tick > restored_tick (guarda la cuenta por tick de los últimos 600
+  // ticks). CP-05.
+  optional uint64 restored_tick = 2;
+
+  // Exactamente un resultado por comando, en el orden de la petición.
+  repeated CommandResult results = 3;
+
+  // Mundo tras este tick. El hub lo difunde una vez por segundo (RF-03).
+  WorldState state = 4;
+}
+
+message CommandResult {
+  string action_id = 1;
+  string player_id = 2;
+  CommandStatus status = 3;
+  // Solo cuando status = COMMAND_STATUS_REJECTED (RF-06).
+  RejectReason reason = 4;
+}
+
+// Resultado final que decide Rust. El hub añade EXPIRED con su propio reloj.
+// Una entrada sale del conjunto `pending` del hub con cualquier resultado
+// final: APPLIED y DUPLICATE la pasan a `confirmed`; REJECTED y EXPIRED
+// solo la quitan.
+enum CommandStatus {
+  COMMAND_STATUS_UNSPECIFIED = 0;
+  // Aplicado en este tick. El hub cuenta las gotas APPLIED como aceptadas.
+  COMMAND_STATUS_APPLIED = 1;
+  // Ya se había aplicado en los últimos 600 ticks (Rust guarda el conjunto
+  // autoritativo, recuperado de la instantánea). El cliente lo trata como
+  // APPLIED.
+  COMMAND_STATUS_DUPLICATE = 2;
+  // No se aplicó; no se cobró nada.
+  COMMAND_STATUS_REJECTED = 3;
+}
+
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED = 0;
+  // No queda agua suficiente en el depósito (gotas fuera del modo demo).
+  REJECT_REASON_INSUFFICIENT_WATER = 1;
+  // No hay hojas suficientes para la instalación o la mejora.
+  REJECT_REASON_INSUFFICIENT_LEAVES = 2;
+  // Coordenadas fuera del valle.
+  REJECT_REASON_OUT_OF_BOUNDS = 3;
+  // La casilla ya tiene una instalación.
+  REJECT_REASON_TILE_OCCUPIED = 4;
+  // La mejora ya se había comprado.
+  REJECT_REASON_UPGRADE_ALREADY_OWNED = 5;
+  // Comando mal formado: sin tipo, con un valor de enum desconocido o con un
+  // UUID inválido.
+  REJECT_REASON_INVALID_COMMAND = 6;
+}
+
+// Lo que el hub necesita para difundir el estado y alimentar el panel del
+// sistema.
+message WorldState {
+  uint32 width = 1;
+  uint32 height = 2;
+  // Por filas: índice = y * width + x (width * height elementos).
+  repeated Tile tiles = 3;
+  // Jugadores presentes en el mundo. Un jugador entra en el mundo, con los
+  // valores iniciales del catálogo, con su primer comando.
+  repeated PlayerState players = 4;
+  bool demo_mode = 5;
+  // Humedad aportada por las gotas en todo el valle; solo crece. En modo
+  // demo debe coincidir con la cuenta de gotas aceptadas del hub (RF-30,
+  // CP-01, CP-04, CP-11).
+  uint64 humidity_contributed = 6;
+  // Se incrementa con cada reinicio del valle (RF-31).
+  uint32 epoch = 7;
+}
+
+message Tile {
+  TileStage stage = 1;
+  uint64 humidity = 2;
+  // Ticks seguidos con humedad 0; queda congelado mientras arde. Se guarda
+  // para la instantánea; el hub no lo difunde.
+  uint32 dry_ticks = 3;
+  // Presente mientras la casilla arde.
+  Fire fire = 4;
+  // Presente cuando hay una instalación colocada en la casilla.
+  Installation installation = 5;
+}
+
+enum TileStage {
+  TILE_STAGE_UNSPECIFIED = 0;
+  TILE_STAGE_DRY_SOIL = 1;
+  TILE_STAGE_GRASS = 2;
+  TILE_STAGE_SHRUB = 3;
+  TILE_STAGE_FLOWERS = 4;
+  TILE_STAGE_TREE = 5;
+}
+
+message Fire {
+  // Gotas recibidas mientras arde; la tercera lo apaga.
+  uint32 drops_received = 1;
+  // Ticks ardiendo; al llegar al límite del catálogo (300) se consume.
+  uint32 burning_ticks = 2;
+}
+
+message Installation {
+  InstallationKind kind = 1;
+  // Recibe las hojas cuando la instalación hace crecer una casilla.
+  string owner_id = 2;
+}
+
+enum InstallationKind {
+  INSTALLATION_KIND_UNSPECIFIED = 0;
+  // Aspersor de agua gris (Reutilizar).
+  INSTALLATION_KIND_SPRINKLER = 1;
+  // Riego por goteo (Reducir).
+  INSTALLATION_KIND_DRIP = 2;
+  // Planta de tratamiento (Reciclar).
+  INSTALLATION_KIND_TREATMENT_PLANT = 3;
+}
+
+enum UpgradeKind {
+  UPGRADE_KIND_UNSPECIFIED = 0;
+  UPGRADE_KIND_BIGGER_DROP = 1;
+  UPGRADE_KIND_BIGGER_TANK = 2;
+}
+
+// Datos de cada jugador que se muestran en pantalla (RF-03).
+message PlayerState {
+  string player_id = 1;
+  uint64 water = 2;
+  uint64 tank_capacity = 3;
+  uint64 leaves = 4;
+  repeated UpgradeKind upgrades = 5;
+  // Precio de la siguiente instalación de cada tipo (RF-07).
+  repeated InstallationPrice next_prices = 6;
+}
+
+message InstallationPrice {
+  InstallationKind kind = 1;
+  uint64 leaves = 2;
+}
+
+message GetRankingRequest {
+  // Número máximo de entradas; 0 devuelve todos los jugadores.
+  uint32 limit = 1;
+}
+
+message GetRankingResponse {
+  // Tick en el que se calculó el ranking.
+  uint64 tick = 1;
+  // Ordenadas por leaves_earned, de mayor a menor.
+  repeated RankingEntry entries = 2;
+}
+
+message RankingEntry {
+  uint32 rank = 1;
+  string player_id = 2;
+  uint64 leaves_earned = 3;
+}
+
+// Mundo completo que el simulador serializa en `Snapshot.world_state`
+// (hydrovalley.persistence.v1). Opaco para la persistencia; lo comparten
+// Rust y world-go, así que cualquiera de los dos puede recuperarlo.
+message WorldSnapshot {
+  // Se toma después de aplicar los comandos del tick N y avanzar el valle,
+  // así que incluye todo lo aplicado con tick <= N.
+  uint64 tick = 1;
+  uint32 epoch = 2;
+  string catalog_version = 3;
+  // Estado del generador de azar con semilla (RF-29, CP-10). Bytes propios
+  // de cada implementación.
+  bytes rng_state = 4;
+  bool demo_mode = 5;
+  uint64 humidity_contributed = 6;
+  uint32 width = 7;
+  uint32 height = 8;
+  // Por filas: índice = y * width + x.
+  repeated Tile tiles = 9;
+  repeated PlayerRecord players = 10;
+}
+
+// Todo lo que el simulador guarda de cada jugador.
+message PlayerRecord {
+  string player_id = 1;
+  uint64 water = 2;
+  uint64 tank_capacity = 3;
+  uint64 leaves = 4;
+  // RF-27: water = water_refilled - water_spent; leaves = leaves_earned -
+  // leaves_spent. leaves_earned es también la puntuación del ranking
+  // (RF-10).
+  uint64 water_refilled = 5;
+  uint64 water_spent = 6;
+  uint64 leaves_earned = 7;
+  uint64 leaves_spent = 8;
+  // Contadores acumulados de las 3R para los reportes (RF-12).
+  uint64 water_reduced = 9;
+  uint64 water_reused = 10;
+  uint64 water_recycled = 11;
+  // Compras por tipo; fijan el precio siguiente (RF-07).
+  repeated InstallationCount purchases = 12;
+  repeated UpgradeKind upgrades = 13;
+  // Las instalaciones se paran 2 h después de este tick (RF-25).
+  uint64 last_action_tick = 14;
+  // action_id aplicados en los últimos 600 ticks (Capa 3).
+  repeated AppliedAction recent_actions = 15;
+}
+
+message InstallationCount {
+  InstallationKind kind = 1;
+  uint32 count = 2;
+}
+
+message AppliedAction {
+  string action_id = 1;
+  uint64 tick = 2;
+}

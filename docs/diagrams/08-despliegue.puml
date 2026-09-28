@@ -31,16 +31,13 @@ node "Nodo 3 · Go\nPC del laboratorio (10.68.17.x)" as N3 <<device>> {
     node "bots\n(a demanda)" as BotsC <<container>> {
       artifact "Bots (Go)" as Bots
     }
-    node "world-go\n(a demanda)" as WorldGoC <<container>> {
-      artifact "Tick en Go\n(comparativa)" as WorldGo
-    }
   }
 }
 
 node "Nodo 2 · Rust\nPC del laboratorio (10.68.17.x)" as N2 <<device>> {
   node "Windows 10 Pro\nDocker Desktop + WSL 2" as N2Env <<execution environment>> {
     node "world" as WorldC <<container>> {
-      artifact "Simulador del valle (Rust)\nWorldService" as World
+      artifact "Simulador del valle (Rust)\nWorldService :50051\n(plan B de D-03: world-go en su lugar)" as World
     }
   }
 }
@@ -87,15 +84,19 @@ note as NLab
   El cortafuegos bloquea las conexiones entrantes entre máquinas hasta
   que el encargado cree la regla de entrada (TCP 8080, 8081, 8082,
   50051 y 5433 desde 10.68.17.0/24). El gRPC interno va sin cifrar
-  dentro de la red del laboratorio: por él no viaja ningún secreto. Las direcciones de los demás servicios se
-  configuran por nodo, no se fijan en el código.
+  dentro de la red del laboratorio: la contraseña nunca viaja por él,
+  pero el hash Argon2id sí (API ↔ Persistencia); riesgo aceptado en una
+  red cerrada. Las direcciones de los demás servicios se configuran por
+  nodo, no se fijan en el código.
   <b>Imágenes</b>: las construye el pipeline de GitHub para linux/amd64
   (etiqueta dev o versión de main) y cada nodo descarga la suya del
   registro (ghcr.io responde desde el laboratorio).
-  <b>Bots y world-go</b> (Go): se lanzan a demanda en el nodo 3
-  (docker compose run bots load-test); los bots entran por el 8080
-  del nodo 4. El frontend no es un servicio: son archivos estáticos
-  que sirve el contenedor de nginx.
+  <b>Bots</b> (Go): se lanzan a demanda en el nodo 3
+  (docker compose run bots load-test) y entran por el 8080 del
+  nodo 4. world-go no se despliega: se usa en local para la
+  comparativa Go vs. Rust (ahí puede escuchar en el 50052). El
+  frontend no es un servicio: son archivos estáticos que sirve el
+  contenedor de nginx.
 end note
 
 @enduml

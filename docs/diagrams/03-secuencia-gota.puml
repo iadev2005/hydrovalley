@@ -25,7 +25,7 @@ else rechazada por el hub (confirmada, límite, valle en pausa o sin rol de admi
   Goroutine -> Browser : al instante: {"type": "result", "action_id": "…",\n"status": "duplicate | rate_limited | paused | forbidden"}
   note right
     limite: más de 15 gotas por segundo (RF-05, CP-03).
-    pausa: circuito abierto y cola llena (5.000).
+    pausa: valle en pausa y cola llena (5.000).
   end note
 else admitida
   Goroutine -> Goroutine : añadir el action_id a pending
@@ -46,7 +46,7 @@ loop cada 100 ms (aunque nadie juegue)
   World -> World : avanzar el valle un paso\n(aspersores, evaporación, incendios)
   World --> Ticker : estado nuevo +\nresultado por comando: applied | duplicate | rejected
   deactivate World
-  Ticker -> Goroutine : resultado de cada comando del tick\n(solo a los jugadores con comandos en ese tick;\napplied pasa de pending a confirmed y suma a las gotas aceptadas)
+  Ticker -> Goroutine : resultado de cada comando del tick\n(solo a los jugadores con comandos en ese tick);\ntodo resultado final quita la acción de pending:\napplied y duplicate pasan a confirmed (con su tick),\nrejected y expired solo salen; applied suma a las gotas aceptadas
   Goroutine -> Browser : {"type": "result", "action_id": "…",\n"status": "applied | duplicate | rejected | expired"}
   note right
     Un solo resultado final por acción admitida.

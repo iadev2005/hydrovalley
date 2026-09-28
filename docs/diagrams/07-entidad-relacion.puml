@@ -54,14 +54,17 @@ catalog_entries -[hidden]down- accounts
 note right of snapshots
   <b>Capa 5</b>: una fila cada 50 ticks (tick % 50 == 0).
   SaveSnapshot inserta snapshots y sus snapshot_players
-  en <b>una sola transacción</b>; LoadSnapshot devuelve la de
-  mayor tick. El tick es la clave: es el reloj lógico y solo
-  crece (Capa 4), y un reintento del mismo tick no duplica.
+  en <b>una sola transacción</b>, con INSERT ... ON CONFLICT
+  (tick) DO NOTHING: un reintento del mismo tick no duplica.
+  LoadSnapshot devuelve la de mayor tick. El tick es la clave:
+  es el reloj lógico y solo crece (Capa 4). La del tick N se
+  toma tras aplicar los comandos del tick N y avanzar el valle.
   <b>epoch</b>: se incrementa con cada reinicio del valle (RF-31);
   el tick no se reinicia. <b>catalog_version</b>: hash del
   catálogo vigente al tomar la instantánea.
   <b>Retención</b>: todas las de la última hora (720) y una por
-  hora de las anteriores; Persistencia borra el resto.
+  hora de las anteriores; tras cada guardado correcto,
+  Persistencia borra el resto en otra transacción.
   <b>world_state</b>: el mundo completo serializado en protobuf,
   tal como lo envía Rust (casillas, instalaciones, incendios,
   estado del generador de azar y action_id recientes por
