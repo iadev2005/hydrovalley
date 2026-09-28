@@ -1,0 +1,200 @@
+package frames
+
+import (
+	"encoding/json"
+	"testing"
+
+	playv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/play/v1"
+	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
+)
+
+const actionID = "0b7c9a52-5f3e-4f5b-9d7e-2a1f3c4d5e6f"
+
+func TestDecodeDrop(t *testing.T) {
+	drop, errMsg := DecodeClient([]byte(`{"type":"drop","action_id":"` + actionID + `","x":14,"y":9}`))
+	if errMsg != nil {
+		t.Fatalf("unexpected error frame: %v", errMsg)
+	}
+	if drop.ActionID != actionID || drop.X != 14 || drop.Y != 9 {
+		t.Fatalf("drop = %+v", drop)
+	}
+}
+
+func TestDecodeDropWithZeroCoordinatesOmitted(t *testing.T) {
+	drop, errMsg := DecodeClient([]byte(`{"type":"drop","action_id":"` + actionID + `"}`))
+	if errMsg != nil {
+		t.Fatalf("unexpected error frame: %v", errMsg)
+	}
+	if drop.X != 0 || drop.Y != 0 {
+		t.Fatalf("absent coordinates must read as 0, got %+v", drop)
+	}
+}
+
+func TestDecodeErrors(t *testing.T) {
+	cases := []struct {
+		name         string
+		data         string
+		wantCode     string
+		wantActionID string
+	}{
+		{"invalid json", `{"type":`, CodeInvalidMessage, ""},
+		{"not an object", `[1,2]`, CodeInvalidMessage, ""},
+		{"missing type", `{"action_id":"` + actionID + `"}`, CodeInvalidMessage, actionID},
+		{"type is not a string", `{"type":5}`, CodeInvalidMessage, ""},
+		{"unknown type", `{"type":"teleport","action_id":"` + actionID + `"}`, CodeUnknownType, actionID},
+		{"server frame sent by client", `{"type":"result","action_id":"` + actionID + `"}`, CodeUnknownType, actionID},
+		{"not yet supported command", `{"type":"buy_upgrade","action_id":"` + actionID + `","upgrade":"bigger_drop"}`, CodeUnknownType, actionID},
+		{"drop without action_id", `{"type":"drop","x":1,"y":2}`, CodeInvalidMessage, ""},
+		{"drop with non-uuid action_id", `{"type":"drop","action_id":"abc","x":1}`, CodeInvalidMessage, "abc"},
+		{"drop with negative x", `{"type":"drop","action_id":"` + actionID + `","x":-1}`, CodeInvalidMessage, actionID},
+		{"drop with text x", `{"type":"drop","action_id":"` + actionID + `","x":"far"}`, CodeInvalidMessage, actionID},
+		{"drop with unknown field", `{"type":"drop","action_id":"` + actionID + `","z":3}`, CodeInvalidMessage, actionID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			drop, errMsg := DecodeClient([]byte(tc.data))
+			if drop != nil || errMsg == nil {
+				t.Fatalf("got drop %+v, want error frame", drop)
+			}
+			if errMsg.GetType() != TypeError || errMsg.GetCode() != tc.wantCode || errMsg.GetActionId() != tc.wantActionID {
+				t.Fatalf("error frame = %v, want code %q action_id %q", errMsg, tc.wantCode, tc.wantActionID)
+			}
+		})
+	}
+}
+
+func TestIsUUID(t *testing.T) {
+	valid := []string{actionID, "0B7C9A52-5F3E-4F5B-9D7E-2A1F3C4D5E6F", "00000000-0000-0000-0000-000000000000"}
+	invalid := []string{"", "abc", "0b7c9a525f3e4f5b9d7e2a1f3c4d5e6f", "{0b7c9a52-5f3e-4f5b-9d7e-2a1f3c4d5e6f}",
+		"0b7c9a52-5f3e-4f5b-9d7e-2a1f3c4d5e6g", "0b7c9a52_5f3e-4f5b-9d7e-2a1f3c4d5e6f"}
+	for _, s := range valid {
+		if !IsUUID(s) {
+			t.Errorf("IsUUID(%q) = false", s)
+		}
+	}
+	for _, s := range invalid {
+		if IsUUID(s) {
+			t.Errorf("IsUUID(%q) = true", s)
+		}
+	}
+}
+
+func decodeJSON(t *testing.T, data []byte) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("invalid JSON %s: %v", data, err)
+	}
+	return m
+}
+
+func TestMarshalResultUsesProtoNames(t *testing.T) {
+	data, err := Marshal(Result(actionID, StatusRejected, worldv1.RejectReason_REJECT_REASON_OUT_OF_BOUNDS))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeJSON(t, data)
+	if m["type"] != "result" || m["action_id"] != actionID || m["status"] != "rejected" || m["reason"] != "out_of_bounds" {
+		t.Fatalf("result JSON = %s", data)
+	}
+}
+
+func TestResultWithoutReasonOmitsIt(t *testing.T) {
+	data, _ := Marshal(Result(actionID, StatusApplied, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
+	if _, ok := decodeJSON(t, data)["reason"]; ok {
+		t.Fatalf("reason must be omitted: %s", data)
+	}
+}
+
+func TestReasonNames(t *testing.T) {
+	want := map[worldv1.RejectReason]string{
+		worldv1.RejectReason_REJECT_REASON_UNSPECIFIED:           "",
+		worldv1.RejectReason_REJECT_REASON_INSUFFICIENT_WATER:    "insufficient_water",
+		worldv1.RejectReason_REJECT_REASON_INSUFFICIENT_LEAVES:   "insufficient_leaves",
+		worldv1.RejectReason_REJECT_REASON_OUT_OF_BOUNDS:         "out_of_bounds",
+		worldv1.RejectReason_REJECT_REASON_TILE_OCCUPIED:         "tile_occupied",
+		worldv1.RejectReason_REJECT_REASON_UPGRADE_ALREADY_OWNED: "upgrade_already_owned",
+		worldv1.RejectReason_REJECT_REASON_INVALID_COMMAND:       "invalid_command",
+	}
+	for reason, name := range want {
+		if got := ReasonName(reason); got != name {
+			t.Errorf("ReasonName(%v) = %q, want %q", reason, got, name)
+		}
+	}
+}
+
+func sampleWorld() *worldv1.WorldState {
+	tiles := make([]*worldv1.Tile, 4)
+	for i := range tiles {
+		tiles[i] = &worldv1.Tile{Stage: worldv1.TileStage_TILE_STAGE_DRY_SOIL}
+	}
+	tiles[1] = &worldv1.Tile{Stage: worldv1.TileStage_TILE_STAGE_GRASS, Humidity: 25}
+	tiles[2].Fire = &worldv1.Fire{DropsReceived: 2}
+	tiles[3].Installation = &worldv1.Installation{Kind: worldv1.InstallationKind_INSTALLATION_KIND_DRIP, OwnerId: "owner"}
+	return &worldv1.WorldState{
+		Width: 2, Height: 2, Tiles: tiles, DemoMode: true,
+		Players: []*worldv1.PlayerState{{
+			PlayerId: "ana", Water: 19, TankCapacity: 20, Leaves: 3,
+			Upgrades: []worldv1.UpgradeKind{worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_TANK},
+			NextPrices: []*worldv1.InstallationPrice{
+				{Kind: worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER, Leaves: 10},
+				{Kind: worldv1.InstallationKind_INSTALLATION_KIND_DRIP, Leaves: 20},
+				{Kind: worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT, Leaves: 30},
+			},
+		}},
+	}
+}
+
+func TestStateWithMapAndPlayer(t *testing.T) {
+	msg := NewStateBuilder(12345678901234567, false, sampleWorld()).For("ana", true)
+	if msg.GetType() != TypeState || msg.GetTick() != 12345678901234567 || !msg.GetDemoMode() || msg.GetWidth() != 2 || msg.GetHeight() != 2 {
+		t.Fatalf("state header = %v", msg)
+	}
+	if got := msg.GetStages(); len(got) != 4 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("stages = %v", got)
+	}
+	if got := msg.GetHumidity(); len(got) != 4 || got[1] != 25 {
+		t.Fatalf("humidity = %v", got)
+	}
+	if f := msg.GetFires(); len(f) != 1 || f[0].GetX() != 0 || f[0].GetY() != 1 || f[0].GetDropsReceived() != 2 {
+		t.Fatalf("fires = %v", f)
+	}
+	if in := msg.GetInstallations(); len(in) != 1 || in[0].GetX() != 1 || in[0].GetY() != 1 || in[0].GetInstallation() != "drip" || in[0].GetOwnerId() != "owner" {
+		t.Fatalf("installations = %v", in)
+	}
+	p := msg.GetPlayer()
+	if p.GetWater() != 19 || p.GetTankCapacity() != 20 || p.GetLeaves() != 3 ||
+		len(p.GetUpgrades()) != 1 || p.GetUpgrades()[0] != "bigger_tank" ||
+		p.GetNextSprinklerPrice() != 10 || p.GetNextDripPrice() != 20 || p.GetNextTreatmentPlantPrice() != 30 {
+		t.Fatalf("player = %v", p)
+	}
+	data, _ := Marshal(msg)
+	if tick := decodeJSON(t, data)["tick"]; tick != "12345678901234567" {
+		t.Fatalf("tick must travel as text, got %#v", tick)
+	}
+}
+
+func TestStateWithoutMap(t *testing.T) {
+	msg := NewStateBuilder(7, true, sampleWorld()).For("ana", false)
+	if !msg.GetPaused() || msg.GetWidth() != 2 {
+		t.Fatalf("state = %v", msg)
+	}
+	if len(msg.GetStages())+len(msg.GetHumidity())+len(msg.GetFires())+len(msg.GetInstallations()) != 0 {
+		t.Fatalf("map=false must skip the map fields: %v", msg)
+	}
+	if msg.GetPlayer().GetWater() != 19 {
+		t.Fatal("map=false keeps the player view")
+	}
+}
+
+func TestStateForUnknownPlayerAndNoWorld(t *testing.T) {
+	msg := NewStateBuilder(0, true, sampleWorld()).For("bob", true)
+	if msg.GetPlayer() != nil {
+		t.Fatal("player absent from the world must have no player view")
+	}
+	empty := NewStateBuilder(0, true, nil).For("ana", true)
+	if empty.GetType() != TypeState || !empty.GetPaused() || empty.GetPlayer() != nil || len(empty.GetStages()) != 0 {
+		t.Fatalf("state without world = %v", empty)
+	}
+	var _ *playv1.StateMessage = empty
+}

@@ -1,0 +1,365 @@
+// Package hub es el núcleo del hub en tiempo real: admisión de comandos
+// (Capa 1), idempotencia con los conjuntos pending y confirmed (Capa 3),
+// cola del tick, llamada a WorldService.Step, reparto de resultados,
+// Circuit Breaker y difusión del estado.
+//
+// No sabe nada de la red: recibe el mundo como un puerto (WorldClient) y el
+// reloj como una interfaz, y el bucle del tick se alimenta de un canal. Así
+// todo se prueba sin sockets y de forma determinista.
+package hub
+
+import (
+	"context"
+	"log/slog"
+	"sync"
+	"time"
+
+	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/breaker"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/ratelimit"
+	"google.golang.org/protobuf/proto"
+)
+
+// WorldClient es el puerto hacia el simulador (WorldService). El adaptador
+// gRPC vive en internal/worldclient.
+type WorldClient interface {
+	Step(ctx context.Context, req *worldv1.StepRequest) (*worldv1.StepResponse, error)
+}
+
+// Clock da la hora del hub: el único reloj para los plazos (regla 2).
+type Clock interface {
+	Now() time.Time
+}
+
+// SystemClock es el reloj real.
+type SystemClock struct{}
+
+// Now devuelve la hora actual (con lectura monotónica).
+func (SystemClock) Now() time.Time { return time.Now() }
+
+// Config reúne las cifras del hub. DefaultConfig trae las del documento.
+type Config struct {
+	// Cada cuánto se marca el tick (lo usa quien crea el time.Ticker de Run).
+	TickInterval time.Duration
+	// Plazo de cada Step, sin reintento (regla de portabilidad 4).
+	StepTimeout time.Duration
+	// Comandos por Step como mucho.
+	BatchSize int
+	// Comandos en cola como mucho; los nuevos reciben "paused".
+	QueueCap int
+	// Gotas admitidas por jugador en cada RateWindow (RF-05).
+	DropsPerSecond int
+	RateWindow     time.Duration
+	// Un comando con más de este tiempo en la cola recibe "expired".
+	ExpireAfter time.Duration
+	// Ticks que una acción aplicada sigue en confirmed (60 s).
+	ConfirmedTicks uint64
+	// Ticks de los que se guarda la cuenta de gotas aceptadas.
+	LedgerTicks uint64
+	// Fallos seguidos que abren el Circuit Breaker y espera entre pruebas.
+	BreakerThreshold int
+	ProbeInterval    time.Duration
+	// Cada cuánto se difunde el estado (RF-03).
+	BroadcastEvery time.Duration
+	// Mensajes pendientes de envío por conexión; si se llena, se cierra la
+	// conexión (el cliente se reconecta y reenvía sus pendientes).
+	OutboxSize int
+}
+
+// DefaultConfig devuelve las cifras de CLAUDE.md y del documento (Capa 3).
+func DefaultConfig() Config {
+	return Config{
+		TickInterval:     100 * time.Millisecond,
+		StepTimeout:      200 * time.Millisecond,
+		BatchSize:        500,
+		QueueCap:         5000,
+		DropsPerSecond:   15,
+		RateWindow:       time.Second,
+		ExpireAfter:      30 * time.Second,
+		ConfirmedTicks:   600,
+		LedgerTicks:      600,
+		BreakerThreshold: 3,
+		ProbeInterval:    time.Second,
+		BroadcastEvery:   time.Second,
+		OutboxSize:       256,
+	}
+}
+
+// Outcome es lo que decidió la admisión de un comando.
+type Outcome int
+
+const (
+	// Admitted: entra en pending y en la cola; el resultado llega tras Step.
+	Admitted Outcome = iota
+	// IgnoredPending: ya estaba en pending; no se responde nada.
+	IgnoredPending
+	// RejectedDuplicate: ya estaba en confirmed; se responde "duplicate".
+	RejectedDuplicate
+	// RejectedRateLimited: más de 15 gotas por segundo; "rate_limited".
+	RejectedRateLimited
+	// RejectedPaused: cola llena; "paused".
+	RejectedPaused
+	// RejectedNoSession: la conexión ya no está registrada; no se responde.
+	RejectedNoSession
+)
+
+func (o Outcome) String() string {
+	switch o {
+	case Admitted:
+		return "admitted"
+	case IgnoredPending:
+		return "ignored_pending"
+	case RejectedDuplicate:
+		return frames.StatusDuplicate
+	case RejectedRateLimited:
+		return frames.StatusRateLimited
+	case RejectedPaused:
+		return frames.StatusPaused
+	case RejectedNoSession:
+		return "no_session"
+	default:
+		return "unknown"
+	}
+}
+
+// Status es una foto del hub para /readyz y los registros.
+type Status struct {
+	Tick     uint64
+	Paused   bool
+	Breaker  string
+	QueueLen int
+}
+
+type queued struct {
+	cmd        *worldv1.Command
+	admittedAt time.Time
+}
+
+type confirmEntry struct {
+	playerID, actionID string
+	tick               uint64
+}
+
+// player es la sesión lógica de un jugador: sobrevive a las reconexiones
+// mientras el hub siga en marcha, para que un reenvío tras reconectarse
+// se trate igual que en la misma conexión.
+type player struct {
+	sessions  map[*Session]struct{}
+	pending   map[string]struct{}
+	confirmed map[string]uint64
+	limiter   *ratelimit.SlidingWindow
+}
+
+func (p *player) idle() bool {
+	return len(p.sessions) == 0 && len(p.pending) == 0 && len(p.confirmed) == 0
+}
+
+// Hub guarda todo el estado compartido tras un único candado. El candado
+// nunca se mantiene durante la llamada a Step.
+type Hub struct {
+	world WorldClient
+	clock Clock
+	cfg   Config
+	log   *slog.Logger
+
+	mu      sync.Mutex
+	players map[string]*player
+	queue   []queued
+	// confirmed en orden de tick, para podar la ventana sin recorrerlo todo.
+	confirmLog []confirmEntry
+	breaker    *breaker.Breaker
+	paused     bool
+	succeeded  bool
+	tick       uint64
+	bootID     string
+	world0     *worldv1.WorldState
+	// Gotas aceptadas (APPLIED) por tick y en total (comprobación del modo
+	// demo, RF-30).
+	ledger        map[uint64]uint64
+	acceptedDrops uint64
+	loggedDrops   uint64
+	lastBroadcast time.Time
+}
+
+// New crea el hub. El bucle del tick arranca con Run.
+func New(world WorldClient, clock Clock, cfg Config, log *slog.Logger) *Hub {
+	return &Hub{
+		world:   world,
+		clock:   clock,
+		cfg:     cfg,
+		log:     log,
+		players: make(map[string]*player),
+		breaker: breaker.New(cfg.BreakerThreshold, cfg.ProbeInterval),
+		ledger:  make(map[uint64]uint64),
+	}
+}
+
+// Session es una conexión WebSocket registrada en el hub.
+type Session struct {
+	playerID string
+	withMap  bool
+	out      chan proto.Message
+	kicked   chan struct{}
+	kickOnce sync.Once
+}
+
+// PlayerID devuelve el jugador de la conexión.
+func (s *Session) PlayerID() string { return s.playerID }
+
+// Outbox es el buzón de mensajes que la conexión tiene que escribir.
+func (s *Session) Outbox() <-chan proto.Message { return s.out }
+
+// Kicked se cierra cuando el hub decide cerrar la conexión (buzón lleno).
+func (s *Session) Kicked() <-chan struct{} { return s.kicked }
+
+// Send encola un mensaje sin bloquear; si el buzón está lleno, echa a la
+// conexión en vez de frenar el bucle del tick.
+func (s *Session) Send(m proto.Message) {
+	select {
+	case s.out <- m:
+	default:
+		s.kickOnce.Do(func() { close(s.kicked) })
+	}
+}
+
+// Connect registra una conexión del jugador. withMap = false (map=false)
+// omite el mapa en la difusión.
+func (h *Hub) Connect(playerID string, withMap bool) *Session {
+	s := &Session{
+		playerID: playerID,
+		withMap:  withMap,
+		out:      make(chan proto.Message, h.cfg.OutboxSize),
+		kicked:   make(chan struct{}),
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p := h.playerLocked(playerID)
+	p.sessions[s] = struct{}{}
+	return s
+}
+
+// Disconnect da de baja la conexión. pending y confirmed del jugador se
+// conservan para su próxima conexión.
+func (h *Hub) Disconnect(s *Session) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p, ok := h.players[s.playerID]
+	if !ok {
+		return
+	}
+	delete(p.sessions, s)
+	if p.idle() {
+		delete(h.players, s.playerID)
+	}
+}
+
+func (h *Hub) playerLocked(id string) *player {
+	p, ok := h.players[id]
+	if !ok {
+		p = &player{
+			sessions:  make(map[*Session]struct{}),
+			pending:   make(map[string]struct{}),
+			confirmed: make(map[string]uint64),
+			limiter:   ratelimit.NewSlidingWindow(h.cfg.DropsPerSecond, h.cfg.RateWindow),
+		}
+		h.players[id] = p
+	}
+	return p
+}
+
+// SubmitDrop aplica el filtro de la Capa 1 a una gota ya decodificada, en
+// este orden: sesión, action_id en pending (se ignora) o en confirmed
+// ("duplicate"), límite de gotas ("rate_limited") y cola llena ("paused").
+// Los rechazos se responden al instante por el buzón de la sesión.
+func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p, ok := h.players[s.playerID]
+	if !ok {
+		return RejectedNoSession
+	}
+	if _, ok := p.sessions[s]; !ok {
+		return RejectedNoSession
+	}
+	if _, ok := p.pending[d.ActionID]; ok {
+		return IgnoredPending
+	}
+	now := h.clock.Now()
+	outcome := Admitted
+	switch {
+	case hasKey(p.confirmed, d.ActionID):
+		outcome = RejectedDuplicate
+	case !p.limiter.Allow(now):
+		outcome = RejectedRateLimited
+	case len(h.queue) >= h.cfg.QueueCap:
+		outcome = RejectedPaused
+	}
+	if outcome != Admitted {
+		s.Send(frames.Result(d.ActionID, outcome.String(), worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
+		return outcome
+	}
+	p.pending[d.ActionID] = struct{}{}
+	h.queue = append(h.queue, queued{
+		cmd: &worldv1.Command{
+			ActionId: d.ActionID,
+			PlayerId: s.playerID,
+			Kind:     &worldv1.Command_Drop{Drop: &worldv1.DropCommand{X: d.X, Y: d.Y}},
+		},
+		admittedAt: now,
+	})
+	return Admitted
+}
+
+func hasKey[V any](m map[string]V, k string) bool {
+	_, ok := m[k]
+	return ok
+}
+
+// Run ejecuta el bucle del tick: una vuelta por cada valor de ticks (en
+// producción, un time.Ticker de 100 ms). Como es un solo bucle y Step es
+// síncrono, nunca hay dos llamadas a Step a la vez; si una tarda más de
+// 100 ms, el siguiente tick espera (time.Ticker descarta los atrasados).
+func (h *Hub) Run(ctx context.Context, ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			h.Tick(ctx)
+		}
+	}
+}
+
+// AcceptedDrops devuelve la cuenta de gotas aceptadas (APPLIED).
+func (h *Hub) AcceptedDrops() uint64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.acceptedDrops
+}
+
+// Status devuelve una foto del estado del hub.
+func (h *Hub) Status() Status {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return Status{Tick: h.tick, Paused: h.paused, Breaker: h.breaker.State().String(), QueueLen: len(h.queue)}
+}
+
+// Ready dice si el hub puede servir partidas: circuito cerrado y el último
+// Step respondió.
+func (h *Hub) Ready() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.succeeded && !h.paused && h.breaker.State() == breaker.Closed
+}
+
+// Sessions devuelve cuántas conexiones hay registradas.
+func (h *Hub) Sessions() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, p := range h.players {
+		n += len(p.sessions)
+	}
+	return n
+}

@@ -193,3 +193,68 @@ jobs:
         if: steps.changes.outputs.world == 'true'
         working-directory: src/world
         run: cargo test --locked
+
+  # Hub en tiempo real (Go). Mismo patrón que `persistence`: el filtro de
+  # rutas va dentro del job, así que sin cambios termina en verde y puede
+  # ser una comprobación obligatoria. Usa el código generado en gen/go.
+  hub:
+    name: hub
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            hub:
+              - 'src/hub/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el hub
+        if: steps.changes.outputs.hub != 'true'
+        run: echo "Sin cambios en src/hub, proto ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@v1
+        if: steps.changes.outputs.hub == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El mismo go.mod que escribe scripts/gen-proto.sh para gen/go.
+      - name: buf generate
+        if: steps.changes.outputs.hub == 'true'
+        run: |
+          buf generate --template proto/buf.gen.yaml
+          printf 'module github.com/iadev2005/hydrovalley/gen/go\n\ngo 1.24\n' > gen/go/go.mod
+
+      - uses: actions/setup-go@v6
+        if: steps.changes.outputs.hub == 'true'
+        with:
+          go-version-file: src/hub/go.mod
+          cache-dependency-path: src/hub/go.sum
+
+      - name: Formato
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: go vet ./...
+
+      - name: staticcheck
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Pruebas (con el detector de carreras)
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: go test -race ./...
