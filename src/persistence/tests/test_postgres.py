@@ -4,9 +4,12 @@ Las de integración solo corren si TEST_DATABASE_URL apunta a una base de
 datos desechable: borran y recrean las tablas del servicio.
 """
 
+import contextlib
 import hashlib
 import os
+import shutil
 import socket
+import threading
 import time
 
 import psycopg
@@ -14,6 +17,8 @@ import pytest
 
 from persistence.adapters.postgres import PostgresSnapshotRepository
 from persistence.domain import (
+    ConcurrentSnapshotChangeError,
+    InvalidSnapshotError,
     RepositoryUnavailableError,
     SaveOutcome,
     Snapshot,
@@ -75,6 +80,137 @@ def test_unreachable_database_keeps_retrying_without_crashing():
     finally:
         repository.stop()
     assert True not in readiness
+
+
+class FakeCursor:
+    def __init__(self, row):
+        self._row = row
+
+    def fetchone(self):
+        return self._row
+
+
+class FakeConnection:
+    """Conexión mínima para probar el adaptador sin base de datos.
+
+    rows son las filas que devuelven, en orden, los fetchone() de cada
+    execute(); error, si existe, lo lanza cada execute().
+    """
+
+    def __init__(self, rows=(), error: Exception | None = None):
+        self.rows = list(rows)
+        self.error = error
+        self.statements: list[str] = []
+        self.broken = False
+        self.closed = False
+
+    @contextlib.contextmanager
+    def transaction(self):
+        yield
+
+    def execute(self, sql, params=None):
+        self.statements.append(sql)
+        if self.error is not None:
+            raise self.error
+        return FakeCursor(self.rows.pop(0))
+
+    def close(self):
+        self.closed = True
+
+
+def repository_with(conn: FakeConnection) -> PostgresSnapshotRepository:
+    repository = PostgresSnapshotRepository("postgresql://nobody@127.0.0.1:1/none")
+    repository._conn = conn
+    return repository
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        psycopg.errors.NumericValueOutOfRange("fuera de rango"),
+        psycopg.errors.NotNullViolation("nulo"),
+        psycopg.DataError("dato inválido"),
+        psycopg.IntegrityError("restricción"),
+    ],
+)
+def test_data_and_integrity_errors_become_invalid_snapshot(error):
+    conn = FakeConnection(error=error)
+    repository = repository_with(conn)
+    with pytest.raises(InvalidSnapshotError):
+        repository.save(snapshot(50))
+    assert repository._conn is conn, "la conexión sigue sana"
+
+
+def test_conflict_row_deleted_concurrently_retries_the_insert_once():
+    # INSERT choca, el SELECT no encuentra la fila (la poda la borró a la
+    # vez) y el segundo INSERT la guarda.
+    conn = FakeConnection(rows=[None, None, (50,)])
+    assert repository_with(conn).save(snapshot(50)) is SaveOutcome.INSERTED
+    assert len(conn.statements) == 3
+
+
+def test_conflict_row_deleted_twice_is_a_concurrent_change():
+    conn = FakeConnection(rows=[None, None, None, None])
+    with pytest.raises(ConcurrentSnapshotChangeError):
+        repository_with(conn).save(snapshot(50))
+    assert len(conn.statements) == 4
+
+
+def fast_repository(**kwargs) -> PostgresSnapshotRepository:
+    return PostgresSnapshotRepository(
+        "postgresql://nobody@127.0.0.1:1/none",
+        backoff_initial_s=0.01,
+        backoff_max_s=0.02,
+        **kwargs,
+    )
+
+
+def test_connector_survives_unexpected_errors_while_connecting():
+    repository = fast_repository()
+    attempts: list[int] = []
+
+    def open_connection():
+        attempts.append(1)
+        if len(attempts) <= 2:
+            raise RuntimeError("fallo inesperado al conectar")
+        return FakeConnection()
+
+    repository._open_connection = open_connection
+    repository.start()
+    try:
+        assert repository.wait_ready(timeout_s=5)
+        assert len(attempts) == 3
+        assert repository._thread.is_alive()
+    finally:
+        repository.stop()
+
+
+def test_connector_survives_a_failing_ready_callback():
+    calls: list[bool] = []
+    reconnected = threading.Event()
+
+    def failing_callback(ready: bool) -> None:
+        calls.append(ready)
+        if calls == [True, False, True]:
+            reconnected.set()
+        raise RuntimeError("fallo en el aviso de salud")
+
+    repository = fast_repository(on_ready_change=failing_callback)
+    repository._open_connection = lambda: FakeConnection(
+        error=psycopg.OperationalError("caída")
+    )
+    repository.start()
+    try:
+        assert repository.wait_ready(timeout_s=5)
+        assert repository._thread.is_alive()
+        # La conexión se pierde: el hilo, vivo, reconecta.
+        repository._conn.broken = True
+        with pytest.raises(RepositoryUnavailableError):
+            repository.load_latest()
+        assert reconnected.wait(timeout=5)
+        assert repository.wait_ready(timeout_s=5)
+    finally:
+        repository.stop()
 
 
 # --- Con PostgreSQL real ---------------------------------------------------
@@ -197,3 +333,38 @@ def test_recovers_after_losing_the_connection(repository):
         time.sleep(0.05)
     assert repository.load_latest() == snapshot(50)
     assert repository.readiness == [True, False, True]
+
+
+@integration
+def test_a_migration_longer_than_the_statement_timeout_succeeds(clean_database, tmp_path):
+    shutil.copy(DEFAULT_MIGRATIONS_DIR / "0001_create_snapshots.sql", tmp_path)
+    (tmp_path / "0002_slow.sql").write_text("SELECT pg_sleep(3);\n", encoding="utf-8")
+    repo = PostgresSnapshotRepository(
+        clean_database,
+        migrations_dir=tmp_path,
+        statement_timeout_ms=2000,
+        backoff_initial_s=0.05,
+        backoff_max_s=0.2,
+    )
+    repo.start()
+    try:
+        assert repo.wait_ready(timeout_s=15)
+        assert query("SELECT version FROM schema_migrations ORDER BY version") == [
+            ("0001",),
+            ("0002",),
+        ]
+        # La conexión del servicio conserva su plazo de 2 s.
+        assert repo._call(lambda conn: conn.execute("SHOW statement_timeout").fetchone()) == (
+            "2s",
+        )
+    finally:
+        repo.stop()
+
+
+@integration
+def test_values_the_schema_rejects_are_invalid_snapshot(repository):
+    with pytest.raises(InvalidSnapshotError):
+        repository.save(snapshot(50, epoch=2**31))
+    with pytest.raises(InvalidSnapshotError):
+        repository.save(Snapshot(tick=50, epoch=1, catalog_version="a\x00b", world_state=b""))
+    assert repository.save(snapshot(50)) is SaveOutcome.INSERTED

@@ -73,3 +73,34 @@ func TestNeverMoreThanLimitInAnyWindow(t *testing.T) {
 		}
 	}
 }
+
+func TestPermitsDoesNotRecord(t *testing.T) {
+	w := NewSlidingWindow(1, time.Second)
+	for range 5 {
+		if !w.Permits(t0) {
+			t.Fatal("Permits on an empty window must be true")
+		}
+	}
+	w.Record(t0)
+	if w.Permits(t0.Add(999 * time.Millisecond)) {
+		t.Fatal("Permits must be false while the window is full")
+	}
+	if !w.Permits(t0.Add(time.Second)) {
+		t.Fatal("Permits must be true once the oldest entry left the window")
+	}
+}
+
+func TestActive(t *testing.T) {
+	w := NewSlidingWindow(3, time.Second)
+	if w.Active(t0) {
+		t.Fatal("an empty window is not active")
+	}
+	w.Allow(t0)
+	w.Allow(t0.Add(500 * time.Millisecond))
+	if !w.Active(t0.Add(1400 * time.Millisecond)) {
+		t.Fatal("the newest entry is still inside the window")
+	}
+	if w.Active(t0.Add(1500 * time.Millisecond)) {
+		t.Fatal("every entry left the window")
+	}
+}

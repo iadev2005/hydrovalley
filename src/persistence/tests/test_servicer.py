@@ -12,9 +12,14 @@ from grpc_health.v1 import health_pb2, health_pb2_grpc
 from hydrovalley.persistence.v1 import persistence_pb2 as pb
 from hydrovalley.persistence.v1 import persistence_pb2_grpc as pb_grpc
 from persistence.adapters.memory import InMemorySnapshotRepository
-from persistence.domain import Snapshot
+from persistence.domain import (
+    ConcurrentSnapshotChangeError,
+    InvalidSnapshotError,
+    Snapshot,
+)
 from persistence.retention import TICKS_PER_HOUR
 from persistence.server import SERVICE_NAME, create_server, set_serving
+from persistence.servicer import MAX_CATALOG_VERSION_LENGTH
 
 
 @pytest.fixture
@@ -146,3 +151,47 @@ def test_other_persistence_services_are_not_registered_yet(running):
         response_deserializer=lambda raw: raw,
     )
     assert status_of(lambda: get_catalog(None, timeout=2)) == grpc.StatusCode.UNIMPLEMENTED
+
+
+# --- Validación y traducción de errores ------------------------------------
+
+
+def test_oversized_catalog_version_is_invalid_argument_without_touching_the_repository(
+    stub, repository
+):
+    message = snapshot_msg(50)
+    message.catalog_version = "x" * (MAX_CATALOG_VERSION_LENGTH + 1)
+    assert status_of(lambda: save(stub, message)) == grpc.StatusCode.INVALID_ARGUMENT
+    assert repository.ticks() == []
+
+
+def test_catalog_version_with_nul_is_invalid_argument(stub, repository):
+    message = snapshot_msg(50)
+    message.catalog_version = "cat\x00v1"
+    assert status_of(lambda: save(stub, message)) == grpc.StatusCode.INVALID_ARGUMENT
+    assert repository.ticks() == []
+
+
+def test_empty_catalog_version_is_accepted_until_catalog_service_exists(stub, repository):
+    message = snapshot_msg(50)
+    message.catalog_version = ""
+    save(stub, message)
+    assert repository.ticks() == [50]
+
+
+def test_data_that_does_not_fit_the_schema_is_invalid_argument(stub, repository):
+    repository.save_error = InvalidSnapshotError("valor fuera de rango")
+    assert status_of(lambda: save(stub, snapshot_msg(50))) == grpc.StatusCode.INVALID_ARGUMENT
+
+
+def test_concurrent_change_is_aborted(stub, repository):
+    repository.save_error = ConcurrentSnapshotChangeError("borrada a la vez")
+    assert status_of(lambda: save(stub, snapshot_msg(50))) == grpc.StatusCode.ABORTED
+
+
+def test_unexpected_errors_are_internal_never_unknown(stub, repository):
+    repository.save_error = RuntimeError("fallo inesperado")
+    repository.load_error = RuntimeError("fallo inesperado")
+    assert status_of(lambda: save(stub, snapshot_msg(50))) == grpc.StatusCode.INTERNAL
+    code = status_of(lambda: stub.LoadSnapshot(pb.LoadSnapshotRequest(), timeout=2))
+    assert code == grpc.StatusCode.INTERNAL

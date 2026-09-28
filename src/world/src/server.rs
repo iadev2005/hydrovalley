@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
@@ -23,6 +24,9 @@ pub struct Settings {
     pub persistence_addr: String,
     pub call_policy: CallPolicy,
     pub load_backoff: Backoff,
+    /// Plazo de la parada ordenada: esperar al guardado en curso y enviar
+    /// la instantánea final.
+    pub shutdown_timeout: Duration,
 }
 
 impl Settings {
@@ -32,11 +36,17 @@ impl Settings {
             persistence_addr: persistence_addr.into(),
             call_policy: CallPolicy::default(),
             load_backoff: Backoff::default(),
+            shutdown_timeout: Duration::from_secs(5),
         }
     }
 }
 
 /// Sirve en `listener` hasta que `shutdown` termine.
+///
+/// Al terminar `shutdown`, el servidor deja de aceptar peticiones y espera a
+/// las que están en curso; después el simulador espera al guardado en curso
+/// y envía una instantánea final si el tick avanzó desde la última
+/// guardada, con un plazo de `settings.shutdown_timeout`.
 ///
 /// El gRPC atiende desde el principio (regla 5 de portabilidad): mientras
 /// el mundo se carga, Step responde UNAVAILABLE y la salud está en
@@ -76,9 +86,12 @@ pub async fn serve(
 
     let result = Server::builder()
         .add_service(health_service)
-        .add_service(WorldServiceServer::new(WorldGrpc::new(simulator)))
+        .add_service(WorldServiceServer::new(WorldGrpc::new(Arc::clone(
+            &simulator,
+        ))))
         .serve_with_incoming_shutdown(TcpListenerStream::new(listener), shutdown)
         .await;
     loader.abort();
+    simulator.shutdown(settings.shutdown_timeout).await;
     result.map_err(Into::into)
 }

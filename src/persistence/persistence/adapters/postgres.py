@@ -21,12 +21,18 @@ from typing import TypeVar
 import psycopg
 
 from persistence.domain import (
+    ConcurrentSnapshotChangeError,
+    InvalidSnapshotError,
     RepositoryUnavailableError,
     SaveOutcome,
     Snapshot,
     SnapshotConflictError,
 )
-from persistence.migrations import DEFAULT_MIGRATIONS_DIR, apply_migrations
+from persistence.migrations import (
+    DEFAULT_MIGRATION_TIMEOUT_MS,
+    DEFAULT_MIGRATIONS_DIR,
+    apply_migrations,
+)
 from persistence.retention import ticks_to_prune
 
 log = logging.getLogger(__name__)
@@ -45,6 +51,7 @@ class PostgresSnapshotRepository:
         on_ready_change: Callable[[bool], None] | None = None,
         connect_timeout_s: int = 2,
         statement_timeout_ms: int = 2000,
+        migration_timeout_ms: int = DEFAULT_MIGRATION_TIMEOUT_MS,
         backoff_initial_s: float = 0.5,
         backoff_max_s: float = 5.0,
     ) -> None:
@@ -54,6 +61,8 @@ class PostgresSnapshotRepository:
         self._connect_timeout_s = connect_timeout_s
         # Plazo por sentencia, en línea con el plazo de 2 s de las llamadas.
         self._statement_timeout_ms = statement_timeout_ms
+        # Las migraciones llevan su propio plazo (ver persistence.migrations).
+        self._migration_timeout_ms = migration_timeout_ms
         self._backoff_initial_s = backoff_initial_s
         self._backoff_max_s = backoff_max_s
 
@@ -95,10 +104,16 @@ class PostgresSnapshotRepository:
             self._need_connection.wait()
             if self._stopping.is_set():
                 return
+            # Cualquier excepción (no solo las de red) se registra y se
+            # reintenta: si el hilo muriera, el servicio no volvería a
+            # conectarse nunca y nadie lo notaría.
             try:
                 conn = self._open_connection()
-            except (psycopg.Error, OSError) as error:
-                log.warning("PostgreSQL no disponible (%s); nuevo intento en %.1f s", error, delay)
+            except Exception as error:
+                if isinstance(error, (psycopg.Error, OSError)):
+                    log.warning("PostgreSQL no disponible (%s); nuevo intento en %.1f s", error, delay)
+                else:
+                    log.exception("error inesperado al conectar; nuevo intento en %.1f s", delay)
                 if self._stopping.wait(delay):
                     return
                 delay = min(delay * 2, self._backoff_max_s)
@@ -125,7 +140,7 @@ class PostgresSnapshotRepository:
             tcp_user_timeout=5000,
         )
         try:
-            applied = apply_migrations(conn, self._migrations_dir)
+            applied = apply_migrations(conn, self._migrations_dir, self._migration_timeout_ms)
         except BaseException:
             conn.close()
             raise
@@ -141,7 +156,12 @@ class PostgresSnapshotRepository:
         else:
             self._ready.clear()
         if self.on_ready_change is not None:
-            self.on_ready_change(ready)
+            # Un fallo del aviso no debe romper ni el hilo que conecta ni la
+            # operación que detectó la caída.
+            try:
+                self.on_ready_change(ready)
+            except Exception:
+                log.exception("falló el aviso de cambio de disponibilidad (%s)", ready)
 
     def _call(self, work: Callable[[psycopg.Connection], T]) -> T:
         """Ejecuta work en una transacción con la conexión compartida."""
@@ -163,33 +183,51 @@ class PostgresSnapshotRepository:
                     self._set_ready(False)
                     self._need_connection.set()
                 raise RepositoryUnavailableError(f"PostgreSQL no respondió: {error}") from error
+            except (psycopg.DataError, psycopg.IntegrityError) as error:
+                # Datos que el esquema no admite: la transacción se deshizo y
+                # la conexión sigue sana.
+                raise InvalidSnapshotError(str(error)) from error
 
     # --- Puerto SnapshotRepository ------------------------------------------
 
     def save(self, snapshot: Snapshot) -> SaveOutcome:
+        params = (
+            Decimal(snapshot.tick),
+            snapshot.epoch,
+            snapshot.catalog_version,
+            snapshot.world_state,
+            snapshot.world_state_sha256,
+        )
+
         def work(conn: psycopg.Connection) -> SaveOutcome:
-            inserted = conn.execute(
-                "INSERT INTO snapshots"
-                " (tick, epoch, catalog_version, taken_at, world_state, world_state_sha256)"
-                " VALUES (%s, %s, %s, now(), %s, %s)"
-                " ON CONFLICT (tick) DO NOTHING RETURNING tick",
-                (
-                    Decimal(snapshot.tick),
-                    snapshot.epoch,
-                    snapshot.catalog_version,
-                    snapshot.world_state,
-                    snapshot.world_state_sha256,
-                ),
-            ).fetchone()
-            if inserted is not None:
-                return SaveOutcome.INSERTED
-            epoch, sha256 = conn.execute(
-                "SELECT epoch, world_state_sha256 FROM snapshots WHERE tick = %s",
-                (Decimal(snapshot.tick),),
-            ).fetchone()
-            if epoch == snapshot.epoch and bytes(sha256) == snapshot.world_state_sha256:
-                return SaveOutcome.ALREADY_STORED
-            raise SnapshotConflictError(f"tick {snapshot.tick} ya existe con otro contenido")
+            # Si la fila que choca desaparece antes de leerla (la poda de
+            # retención la borró a la vez), se reintenta el INSERT una vez:
+            # así el guardado sigue siendo idempotente. Si vuelve a pasar,
+            # ABORTED (ConcurrentSnapshotChangeError): el simulador lo
+            # registra y lo reintenta en el siguiente tick de instantánea.
+            for _ in range(2):
+                inserted = conn.execute(
+                    "INSERT INTO snapshots"
+                    " (tick, epoch, catalog_version, taken_at, world_state, world_state_sha256)"
+                    " VALUES (%s, %s, %s, now(), %s, %s)"
+                    " ON CONFLICT (tick) DO NOTHING RETURNING tick",
+                    params,
+                ).fetchone()
+                if inserted is not None:
+                    return SaveOutcome.INSERTED
+                existing = conn.execute(
+                    "SELECT epoch, world_state_sha256 FROM snapshots WHERE tick = %s",
+                    (Decimal(snapshot.tick),),
+                ).fetchone()
+                if existing is None:
+                    continue
+                epoch, sha256 = existing
+                if epoch == snapshot.epoch and bytes(sha256) == snapshot.world_state_sha256:
+                    return SaveOutcome.ALREADY_STORED
+                raise SnapshotConflictError(f"tick {snapshot.tick} ya existe con otro contenido")
+            raise ConcurrentSnapshotChangeError(
+                f"la fila del tick {snapshot.tick} cambió mientras se guardaba"
+            )
 
         return self._call(work)
 
