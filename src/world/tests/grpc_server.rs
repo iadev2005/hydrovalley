@@ -22,12 +22,11 @@ use world::proto::persistence::v1::persistence_service_server::{
 };
 use world::proto::world::v1 as pb;
 use world::proto::world::v1::world_service_client::WorldServiceClient;
-use world::server::{Settings, serve};
+use world::server::{Settings, WORLD_SERVICE_NAME, serve};
 use world::simulator::Backoff;
 use world::store::CallPolicy;
 
 const ANA: &str = "6f1c1a52-2d0e-4f4e-9c1e-0c6c2d9b8a01";
-const WORLD_SERVICE: &str = "hydrovalley.world.v1.WorldService";
 
 #[derive(Clone)]
 enum LoadMode {
@@ -177,7 +176,7 @@ impl Harness {
 
     async fn wait_serving(&mut self) {
         for _ in 0..400 {
-            if self.health(WORLD_SERVICE).await == ServingStatus::Serving
+            if self.health(WORLD_SERVICE_NAME).await == ServingStatus::Serving
                 && self.health("").await == ServingStatus::Serving
             {
                 return;
@@ -247,7 +246,7 @@ async fn starts_empty_at_tick_zero_when_there_is_no_snapshot() {
     assert_eq!((state.width, state.height), (32, 32));
     assert_eq!(state.tiles.len(), 1024);
     assert!(state.players.is_empty());
-    assert_eq!(h.health(WORLD_SERVICE).await, ServingStatus::Serving);
+    assert_eq!(h.health(WORLD_SERVICE_NAME).await, ServingStatus::Serving);
     assert_eq!(h.health("").await, ServingStatus::Serving);
 }
 
@@ -361,14 +360,17 @@ async fn step_is_unavailable_until_persistence_answers_then_recovers() {
 
     let status = h.step(Vec::new()).await.unwrap_err();
     assert_eq!(status.code(), Code::Unavailable);
-    assert_eq!(h.health(WORLD_SERVICE).await, ServingStatus::NotServing);
+    assert_eq!(
+        h.health(WORLD_SERVICE_NAME).await,
+        ServingStatus::NotServing
+    );
     assert_eq!(h.health("").await, ServingStatus::NotServing);
 
     *h.persistence.mode.lock().unwrap() = LoadMode::NotFound;
     let response = h.first_step().await;
     assert_eq!(response.tick, 1);
     assert_eq!(response.restored_tick, 0);
-    assert_eq!(h.health(WORLD_SERVICE).await, ServingStatus::Serving);
+    assert_eq!(h.health(WORLD_SERVICE_NAME).await, ServingStatus::Serving);
 }
 
 #[tokio::test]
