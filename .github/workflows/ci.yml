@@ -1,5 +1,5 @@
 # CI común. El job `proto` es una comprobación obligatoria en dev y main.
-# Los jobs de cada servicio se añadirán con filtros `paths`.
+# Cada servicio tiene su job, con un filtro de rutas dentro del job.
 name: ci
 
 on:
@@ -66,3 +66,77 @@ jobs:
       # Comprueba que la generación funciona; el resultado no se guarda.
       - name: buf generate
         run: buf generate --template proto/buf.gen.yaml
+
+  # Persistencia (Python). El filtro de rutas va dentro del job, no en
+  # `on.paths`: sin cambios en sus rutas los pasos se saltan y el job termina
+  # en verde, así puede ser una comprobación obligatoria.
+  persistence:
+    name: persistence
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Base desechable del CI; esta clave no protege nada real.
+          POSTGRES_USER: hydrovalley
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: hydrovalley_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hydrovalley -d hydrovalley_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v4
+        id: changes
+        with:
+          filters: |
+            persistence:
+              - 'src/persistence/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en la persistencia
+        if: steps.changes.outputs.persistence != 'true'
+        run: echo "Sin cambios en src/persistence, proto ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@v1
+        if: steps.changes.outputs.persistence == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      - name: buf generate
+        if: steps.changes.outputs.persistence == 'true'
+        run: buf generate --template proto/buf.gen.yaml
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        if: steps.changes.outputs.persistence == 'true'
+        with:
+          version: 0.12.3
+          working-directory: src/persistence
+
+      - name: Instalar dependencias
+        if: steps.changes.outputs.persistence == 'true'
+        working-directory: src/persistence
+        run: uv sync --frozen
+
+      - name: Pruebas unitarias
+        if: steps.changes.outputs.persistence == 'true'
+        working-directory: src/persistence
+        run: uv run pytest -v -m "not integration"
+
+      - name: Pruebas de integración (PostgreSQL 16)
+        if: steps.changes.outputs.persistence == 'true'
+        working-directory: src/persistence
+        env:
+          TEST_DATABASE_URL: postgresql://hydrovalley:ci-only@127.0.0.1:5432/hydrovalley_test
+        run: uv run pytest -v -m integration
