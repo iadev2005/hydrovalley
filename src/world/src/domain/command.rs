@@ -42,6 +42,9 @@ pub enum RejectReason {
     InvalidCommand,
     /// Tipo de comando que el simulador todavía no implementa.
     Unsupported,
+    /// El mundo ya tiene `MAX_PLAYERS` jugadores y el comando daría de alta
+    /// a uno nuevo.
+    WorldFull,
 }
 
 /// Resultado de un comando, en el mismo orden que la petición.

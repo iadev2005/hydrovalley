@@ -4,7 +4,7 @@
 //! No conoce gRPC más allá del puerto [`SnapshotStore`]: la capa de red
 //! (`crate::grpc`) traduce las peticiones y llama aquí.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -63,7 +63,14 @@ pub struct Simulator<S> {
     state: Mutex<State>,
     /// Hay un guardado en curso (como mucho uno).
     saving: Arc<AtomicBool>,
+    /// Tick de la última instantánea que está en la persistencia (la
+    /// cargada al arrancar o la última guardada con éxito).
+    saved_tick: Arc<AtomicU64>,
 }
+
+/// Cada cuánto se comprueba, durante la parada, si terminó el guardado en
+/// curso.
+const SAVE_POLL: Duration = Duration::from_millis(10);
 
 impl<S: SnapshotStore> Simulator<S> {
     pub fn new(rules: Rules, store: Arc<S>) -> Self {
@@ -73,6 +80,7 @@ impl<S: SnapshotStore> Simulator<S> {
             store,
             state: Mutex::new(State::Loading),
             saving: Arc::new(AtomicBool::new(false)),
+            saved_tick: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -126,6 +134,7 @@ impl<S: SnapshotStore> Simulator<S> {
         };
         let mut state = self.lock();
         if matches!(*state, State::Loading) {
+            self.saved_tick.store(restored_tick, Ordering::Release);
             *state = State::Ready {
                 world,
                 restored_tick,
@@ -161,8 +170,18 @@ impl<S: SnapshotStore> Simulator<S> {
     /// Copia el mundo y lo guarda desde una tarea en segundo plano: Step
     /// nunca espera a la persistencia. Si el guardado anterior sigue en
     /// curso, esta instantánea se salta.
+    ///
+    /// La tarea se lanza en el runtime de Tokio actual, si lo hay. Fuera de
+    /// un runtime (p. ej. una prueba síncrona) no hay dónde lanzarla: la
+    /// instantánea se salta con un error en el registro en lugar de entrar
+    /// en pánico con el mundo bloqueado, y el siguiente tick de instantánea
+    /// lo vuelve a intentar.
     fn schedule_snapshot(&self, world: &World) {
         let tick = world.tick();
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            tracing::error!(tick, "sin runtime de Tokio: se salta la instantánea");
+            return;
+        };
         if self.saving.swap(true, Ordering::AcqRel) {
             tracing::warn!(tick, "guardado anterior en curso: se salta la instantánea");
             return;
@@ -170,15 +189,58 @@ impl<S: SnapshotStore> Simulator<S> {
         let copy = world.clone();
         let store = Arc::clone(&self.store);
         let saving = Arc::clone(&self.saving);
-        tokio::spawn(async move {
+        let saved_tick = Arc::clone(&self.saved_tick);
+        runtime.spawn(async move {
             // Libera el turno al terminar, también si la tarea entra en pánico.
             let _turn = SavingTurn(saving);
-            let snapshot = codec::encode_snapshot(&copy);
-            match store.save(snapshot).await {
-                Ok(()) => tracing::debug!(tick, "instantánea guardada"),
-                Err(error) => tracing::error!(tick, %error, "SaveSnapshot falló"),
-            }
+            save_copy(store.as_ref(), &saved_tick, &copy).await;
         });
+    }
+
+    /// Parada ordenada, cuando el servidor ya no acepta peticiones: espera
+    /// al guardado en curso y, si el mundo está cargado y el tick avanzó
+    /// desde la última instantánea guardada, envía una instantánea final
+    /// del tick actual (aunque no sea múltiplo de 50). Todo con un plazo
+    /// total de `timeout`; devuelve `false` si se agotó.
+    pub async fn shutdown(&self, timeout: Duration) -> bool {
+        let finished = tokio::time::timeout(timeout, self.final_snapshot())
+            .await
+            .is_ok();
+        if !finished {
+            tracing::error!(?timeout, "la instantánea final no terminó a tiempo");
+        }
+        finished
+    }
+
+    async fn final_snapshot(&self) {
+        // Espera a que quede libre el turno de guardado y lo toma.
+        while self.saving.swap(true, Ordering::AcqRel) {
+            tokio::time::sleep(SAVE_POLL).await;
+        }
+        let _turn = SavingTurn(Arc::clone(&self.saving));
+        let copy = match &*self.lock() {
+            State::Ready { world, .. }
+                if world.tick() > self.saved_tick.load(Ordering::Acquire) =>
+            {
+                world.clone()
+            }
+            _ => return,
+        };
+        tracing::info!(tick = copy.tick(), "instantánea final antes de parar");
+        save_copy(self.store.as_ref(), &self.saved_tick, &copy).await;
+    }
+}
+
+/// Serializa la copia del mundo, la guarda y, si sale bien, anota su tick.
+async fn save_copy<S: SnapshotStore>(store: &S, saved_tick: &AtomicU64, copy: &World) {
+    let tick = copy.tick();
+    let snapshot = codec::encode_snapshot(copy);
+    match store.save(snapshot).await {
+        Ok(()) => {
+            saved_tick.fetch_max(tick, Ordering::AcqRel);
+            tracing::debug!(tick, "instantánea guardada");
+        }
+        Err(error) => tracing::error!(tick, %error, "SaveSnapshot falló"),
     }
 }
 
@@ -450,5 +512,77 @@ mod tests {
         steps(&simulator, 50);
         eventually("segundo intento", || store.saved_ticks() == vec![100]).await;
         assert_eq!(simulator.step(&[], |_| ()).unwrap().outcome.tick, 101);
+    }
+
+    #[test]
+    fn step_outside_a_tokio_runtime_skips_the_snapshot_without_panicking() {
+        let store = Arc::new(FakeStore::default());
+        let simulator = Simulator::new(Rules::initial(), store.clone());
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(simulator.load(fast()));
+        steps(&simulator, 50); // tick 50 sin runtime: no hay dónde lanzar el guardado.
+        assert!(!simulator.saving.load(Ordering::SeqCst));
+        assert_eq!(store.save_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(simulator.step(&[], |_| ()).unwrap().outcome.tick, 51);
+    }
+
+    #[tokio::test]
+    async fn shutdown_waits_for_the_save_in_flight_and_saves_the_last_tick() {
+        let store = FakeStore {
+            gate: Some(Semaphore::new(0)),
+            ..FakeStore::default()
+        };
+        let (simulator, store) = ready(store).await;
+        steps(&simulator, 50);
+        eventually("guardado del tick 50 en curso", || {
+            store.save_calls.load(Ordering::SeqCst) == 1
+        })
+        .await;
+        steps(&simulator, 20); // tick 70
+        let release = async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            assert!(store.saved_ticks().is_empty(), "shutdown must wait");
+            store.gate.as_ref().unwrap().add_permits(10);
+        };
+        let (finished, ()) = tokio::join!(simulator.shutdown(Duration::from_secs(5)), release);
+        assert!(finished);
+        assert_eq!(store.saved_ticks(), vec![50, 70]);
+    }
+
+    #[tokio::test]
+    async fn shutdown_saves_nothing_when_the_tick_did_not_advance() {
+        let (simulator, store) = ready(FakeStore::default()).await;
+        steps(&simulator, 50);
+        eventually("guardado del tick 50", || store.saved_ticks() == vec![50]).await;
+        assert!(simulator.shutdown(Duration::from_secs(5)).await);
+        assert_eq!(store.save_calls.load(Ordering::SeqCst), 1);
+
+        // Recién restaurado, sin pasos: la instantánea cargada ya es la última.
+        let (restored, store) =
+            ready(FakeStore::with_loads(vec![Ok(Some(snapshot_at(150)))])).await;
+        assert!(restored.shutdown(Duration::from_secs(5)).await);
+        assert_eq!(store.save_calls.load(Ordering::SeqCst), 0);
+
+        // Sin mundo cargado no hay nada que guardar.
+        let store = Arc::new(FakeStore::default());
+        let loading = Simulator::new(Rules::initial(), store.clone());
+        assert!(loading.shutdown(Duration::from_secs(5)).await);
+        assert_eq!(store.save_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_bounded_when_the_save_never_finishes() {
+        let store = FakeStore {
+            gate: Some(Semaphore::new(0)),
+            ..FakeStore::default()
+        };
+        let (simulator, _store) = ready(store).await;
+        steps(&simulator, 51);
+        let started = std::time::Instant::now();
+        assert!(!simulator.shutdown(Duration::from_millis(50)).await);
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

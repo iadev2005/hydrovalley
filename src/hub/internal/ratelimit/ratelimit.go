@@ -27,18 +27,40 @@ func NewSlidingWindow(limit int, window time.Duration) *SlidingWindow {
 }
 
 // Allow registra un intento en `now` y dice si se admite. Los intentos
-// rechazados no ocupan hueco en la ventana.
+// rechazados no ocupan hueco en la ventana. Equivale a Permits seguido de
+// Record cuando Permits es cierto.
 func (w *SlidingWindow) Allow(now time.Time) bool {
+	if !w.Permits(now) {
+		return false
+	}
+	w.Record(now)
+	return true
+}
+
+// Permits dice si un evento en `now` cabría en la ventana, sin registrarlo.
+// Sirve para aplicar las demás comprobaciones antes de ocupar un hueco.
+func (w *SlidingWindow) Permits(now time.Time) bool {
+	return w.count < len(w.times) || now.Sub(w.times[w.next]) >= w.window
+}
+
+// Record registra un evento en `now`. Solo debe llamarse cuando Permits es
+// cierto; si la ventana está llena, sustituye al instante más antiguo.
+func (w *SlidingWindow) Record(now time.Time) {
 	if w.count < len(w.times) {
 		w.times[(w.next+w.count)%len(w.times)] = now
 		w.count++
-		return true
-	}
-	oldest := w.times[w.next]
-	if now.Sub(oldest) < w.window {
-		return false
+		return
 	}
 	w.times[w.next] = now
 	w.next = (w.next + 1) % len(w.times)
-	return true
+}
+
+// Active dice si la ventana tiene algún evento de los últimos `window`
+// respecto a `now`. Mientras lo tenga, olvidarla reiniciaría el límite.
+func (w *SlidingWindow) Active(now time.Time) bool {
+	if w.count == 0 {
+		return false
+	}
+	newest := w.times[(w.next+w.count-1)%len(w.times)]
+	return now.Sub(newest) < w.window
 }

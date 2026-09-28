@@ -93,7 +93,9 @@ struct Harness {
     world: WorldServiceClient<Channel>,
     health: HealthClient<Channel>,
     persistence: Arc<FakePersistence>,
-    _stop: Vec<oneshot::Sender<()>>,
+    stop_world: oneshot::Sender<()>,
+    server: tokio::task::JoinHandle<()>,
+    _stop_fake: oneshot::Sender<()>,
 }
 
 async fn listener() -> (TcpListener, SocketAddr) {
@@ -129,8 +131,9 @@ async fn start(mode: LoadMode) -> Harness {
             initial: Duration::from_millis(10),
             max: Duration::from_millis(50),
         },
+        shutdown_timeout: Duration::from_secs(5),
     };
-    tokio::spawn(async move {
+    let server = tokio::spawn(async move {
         serve(settings, world_listener, async {
             world_stopped.await.ok();
         })
@@ -147,7 +150,9 @@ async fn start(mode: LoadMode) -> Harness {
         world: WorldServiceClient::new(channel.clone()),
         health: HealthClient::new(channel),
         persistence,
-        _stop: vec![stop_fake, stop_world],
+        stop_world,
+        server,
+        _stop_fake: stop_fake,
     }
 }
 
@@ -159,18 +164,45 @@ impl Harness {
             .map(Response::into_inner)
     }
 
-    /// Primer Step correcto, esperando a que el simulador cargue el mundo.
+    /// Primer Step correcto: espera a que la salud diga SERVING (el mundo
+    /// ya está cargado) y solo entonces llama a Step, que debe responder.
+    /// Así las comprobaciones de salud posteriores no compiten con la tarea
+    /// que la actualiza.
     async fn first_step(&mut self) -> pb::StepResponse {
+        self.wait_serving().await;
+        self.step(Vec::new())
+            .await
+            .expect("Step debe responder con la salud en SERVING")
+    }
+
+    async fn wait_serving(&mut self) {
         for _ in 0..400 {
-            match self.step(Vec::new()).await {
-                Ok(response) => return response,
-                Err(status) if status.code() == Code::Unavailable => {
-                    tokio::time::sleep(Duration::from_millis(5)).await;
-                }
-                Err(status) => panic!("Step inesperado: {status:?}"),
+            if self.health(WORLD_SERVICE).await == ServingStatus::Serving
+                && self.health("").await == ServingStatus::Serving
+            {
+                return;
             }
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        panic!("el simulador nunca quedó listo");
+        panic!("la salud nunca llegó a SERVING");
+    }
+
+    /// Envía la señal de parada, cierra los clientes y espera a que
+    /// `serve` termine.
+    async fn stop(self) {
+        let Harness {
+            world,
+            health,
+            stop_world,
+            server,
+            ..
+        } = self;
+        drop((world, health));
+        stop_world.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .expect("serve debe terminar")
+            .unwrap();
     }
 
     async fn health(&mut self, service: &str) -> ServingStatus {
@@ -337,4 +369,20 @@ async fn step_is_unavailable_until_persistence_answers_then_recovers() {
     assert_eq!(response.tick, 1);
     assert_eq!(response.restored_tick, 0);
     assert_eq!(h.health(WORLD_SERVICE).await, ServingStatus::Serving);
+}
+
+#[tokio::test]
+async fn shutdown_saves_a_final_snapshot_of_the_last_tick() {
+    let mut h = start(LoadMode::NotFound).await;
+    h.first_step().await; // tick 1
+    h.step(vec![drop_command(1, 2, 2)]).await.unwrap(); // tick 2
+    h.step(Vec::new()).await.unwrap(); // tick 3
+    assert!(h.persistence.saved_ticks().is_empty());
+
+    let persistence = h.persistence.clone();
+    h.stop().await;
+    assert_eq!(persistence.saved_ticks(), vec![3]);
+    let saved = persistence.saved.lock().unwrap()[0].clone();
+    let inner = pb::WorldSnapshot::decode(saved.world_state.as_slice()).unwrap();
+    assert_eq!(inner.humidity_contributed, 25);
 }

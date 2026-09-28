@@ -104,6 +104,8 @@ const (
 	RejectedNoSession
 )
 
+// String da un nombre legible para los registros. No es un valor del
+// protocolo: para eso está WireStatus.
 func (o Outcome) String() string {
 	switch o {
 	case Admitted:
@@ -111,15 +113,31 @@ func (o Outcome) String() string {
 	case IgnoredPending:
 		return "ignored_pending"
 	case RejectedDuplicate:
-		return frames.StatusDuplicate
+		return "rejected_duplicate"
 	case RejectedRateLimited:
-		return frames.StatusRateLimited
+		return "rejected_rate_limited"
 	case RejectedPaused:
-		return frames.StatusPaused
+		return "rejected_paused"
 	case RejectedNoSession:
 		return "no_session"
 	default:
 		return "unknown"
+	}
+}
+
+// WireStatus traduce un rechazo inmediato de la admisión al valor de
+// ResultMessage.status de play.proto. ok es falso para los resultados que no
+// se responden al jugador (admitido, ya pendiente o sin sesión).
+func WireStatus(o Outcome) (status string, ok bool) {
+	switch o {
+	case RejectedDuplicate:
+		return frames.StatusDuplicate, true
+	case RejectedRateLimited:
+		return frames.StatusRateLimited, true
+	case RejectedPaused:
+		return frames.StatusPaused, true
+	default:
+		return "", false
 	}
 }
 
@@ -134,6 +152,10 @@ type Status struct {
 type queued struct {
 	cmd        *worldv1.Command
 	admittedAt time.Time
+	// inFailedStep: el comando ya viajó en un Step fallido (plazo vencido,
+	// error o respuesta inválida). Rust pudo haberlo aplicado sin que el hub
+	// lo supiera, así que su DUPLICATE en el reintento cuenta como APPLIED.
+	inFailedStep bool
 }
 
 type confirmEntry struct {
@@ -151,8 +173,11 @@ type player struct {
 	limiter   *ratelimit.SlidingWindow
 }
 
-func (p *player) idle() bool {
-	return len(p.sessions) == 0 && len(p.pending) == 0 && len(p.confirmed) == 0
+// idle dice si el registro del jugador se puede borrar: sin conexiones, sin
+// acciones en pending o confirmed y sin gotas en su ventana del último
+// segundo (borrarla permitiría saltarse el límite reconectándose).
+func (p *player) idle(now time.Time) bool {
+	return len(p.sessions) == 0 && len(p.pending) == 0 && len(p.confirmed) == 0 && !p.limiter.Active(now)
 }
 
 // Hub guarda todo el estado compartido tras un único candado. El candado
@@ -249,9 +274,7 @@ func (h *Hub) Disconnect(s *Session) {
 		return
 	}
 	delete(p.sessions, s)
-	if p.idle() {
-		delete(h.players, s.playerID)
-	}
+	h.dropIfIdleLocked(s.playerID, p)
 }
 
 func (h *Hub) playerLocked(id string) *player {
@@ -271,7 +294,9 @@ func (h *Hub) playerLocked(id string) *player {
 // SubmitDrop aplica el filtro de la Capa 1 a una gota ya decodificada, en
 // este orden: sesión, action_id en pending (se ignora) o en confirmed
 // ("duplicate"), límite de gotas ("rate_limited") y cola llena ("paused").
-// Los rechazos se responden al instante por el buzón de la sesión.
+// Los rechazos se responden al instante por el buzón de la sesión. La gota
+// solo ocupa hueco en la ventana del límite cuando se admite: el límite se
+// consulta sin registrar y se registra después de todas las comprobaciones.
 func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -290,15 +315,18 @@ func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
 	switch {
 	case hasKey(p.confirmed, d.ActionID):
 		outcome = RejectedDuplicate
-	case !p.limiter.Allow(now):
+	case !p.limiter.Permits(now):
 		outcome = RejectedRateLimited
 	case len(h.queue) >= h.cfg.QueueCap:
 		outcome = RejectedPaused
 	}
 	if outcome != Admitted {
-		s.Send(frames.Result(d.ActionID, outcome.String(), worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
+		if status, ok := WireStatus(outcome); ok {
+			s.Send(frames.Result(d.ActionID, status, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
+		}
 		return outcome
 	}
+	p.limiter.Record(now)
 	p.pending[d.ActionID] = struct{}{}
 	h.queue = append(h.queue, queued{
 		cmd: &worldv1.Command{

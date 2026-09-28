@@ -25,6 +25,7 @@ func (h *Hub) Tick(ctx context.Context) {
 	h.mu.Lock()
 	h.expireLocked()
 	if !h.breaker.Allow(h.clock.Now()) {
+		h.sweepIdlePlayersLocked()
 		h.maybeBroadcastLocked()
 		h.mu.Unlock()
 		return
@@ -50,8 +51,9 @@ func (h *Hub) Tick(ctx context.Context) {
 	if err != nil {
 		h.stepFailedLocked(batch, err)
 	} else {
-		h.stepSucceededLocked(resp)
+		h.stepSucceededLocked(batch, resp)
 	}
+	h.sweepIdlePlayersLocked()
 	h.maybeBroadcastLocked()
 }
 
@@ -97,6 +99,9 @@ func (h *Hub) expireLocked() {
 // stepFailedLocked devuelve el lote al frente de la cola (sigue en pending)
 // y pausa el valle desde el primer fallo.
 func (h *Hub) stepFailedLocked(batch []queued, err error) {
+	for i := range batch {
+		batch[i].inFailedStep = true
+	}
 	h.queue = append(batch, h.queue...)
 	h.paused = true
 	opened := h.breaker.Failure(h.clock.Now())
@@ -110,7 +115,19 @@ func (h *Hub) stepFailedLocked(batch []queued, err error) {
 	}
 }
 
-func (h *Hub) stepSucceededLocked(resp *worldv1.StepResponse) {
+// stepSucceededLocked reparte los resultados de un Step correcto. batch es
+// el lote enviado; validateResponse ya comprobó que resp trae un resultado
+// por comando y en el mismo orden.
+//
+// Regla del DUPLICATE tras un plazo vencido: si Step falla después de que
+// Rust aplicara el lote (p. ej. vence el plazo de 200 ms), el reintento
+// vuelve como DUPLICATE. Si el comando viajó en un Step fallido y el hub no
+// lo tenía en confirmed, esa es su primera confirmación: se trata como
+// APPLIED (el jugador recibe "applied", entra en confirmed con el tick de
+// esta respuesta y se cuenta en las gotas aceptadas de ese tick). Un
+// DUPLICATE de un comando que nunca estuvo en un Step fallido, o que el hub
+// ya tenía en confirmed, sigue siendo "duplicate" y no se cuenta.
+func (h *Hub) stepSucceededLocked(batch []queued, resp *worldv1.StepResponse) {
 	if h.breaker.State() != breaker.Closed {
 		h.log.Info("circuit breaker closed", "tick", resp.GetTick())
 	}
@@ -121,9 +138,13 @@ func (h *Hub) stepSucceededLocked(resp *worldv1.StepResponse) {
 	h.tick = resp.GetTick()
 	h.world0 = resp.GetState()
 
-	for _, r := range resp.GetResults() {
+	for i, r := range resp.GetResults() {
 		playerID, actionID := r.GetPlayerId(), r.GetActionId()
-		switch r.GetStatus() {
+		status := r.GetStatus()
+		if status == worldv1.CommandStatus_COMMAND_STATUS_DUPLICATE && batch[i].inFailedStep && !h.confirmedLocked(playerID, actionID) {
+			status = worldv1.CommandStatus_COMMAND_STATUS_APPLIED
+		}
+		switch status {
 		case worldv1.CommandStatus_COMMAND_STATUS_APPLIED:
 			h.confirmLocked(playerID, actionID, h.tick)
 			h.ledger[h.tick]++
@@ -182,6 +203,11 @@ func (h *Hub) observeBootLocked(bootID string, restored uint64) {
 		"confirmed_pruned", pruned, "accepted_drops_lost", lost)
 }
 
+func (h *Hub) confirmedLocked(playerID, actionID string) bool {
+	p, ok := h.players[playerID]
+	return ok && hasKey(p.confirmed, actionID)
+}
+
 func (h *Hub) confirmLocked(playerID, actionID string, tick uint64) {
 	p := h.playerLocked(playerID)
 	p.confirmed[actionID] = tick
@@ -229,8 +255,19 @@ func (h *Hub) pruneWindowsLocked() {
 }
 
 func (h *Hub) dropIfIdleLocked(id string, p *player) {
-	if p.idle() {
+	if p.idle(h.clock.Now()) {
 		delete(h.players, id)
+	}
+}
+
+// sweepIdlePlayersLocked borra los registros que quedaron inactivos solo
+// porque su ventana del límite se vació con el paso del tiempo.
+func (h *Hub) sweepIdlePlayersLocked() {
+	now := h.clock.Now()
+	for id, p := range h.players {
+		if p.idle(now) {
+			delete(h.players, id)
+		}
 	}
 }
 

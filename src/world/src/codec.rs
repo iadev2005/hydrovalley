@@ -89,6 +89,9 @@ fn reject_reason(reason: RejectReason) -> pb::RejectReason {
         // El contrato no tiene un motivo "todavía no soportado"; el más
         // cercano es INVALID_COMMAND (el simulador no sabe aplicarlo).
         RejectReason::Unsupported => pb::RejectReason::InvalidCommand,
+        // Tampoco hay uno para «mundo lleno»: INVALID_COMMAND es el más
+        // cercano (el comando no se puede aplicar tal como llega).
+        RejectReason::WorldFull => pb::RejectReason::InvalidCommand,
     }
 }
 
@@ -469,6 +472,11 @@ mod tests {
             // El contrato no tiene un motivo "no soportado": se usa el más cercano.
             (
                 CommandOutcome::Rejected(RejectReason::Unsupported),
+                pb::CommandStatus::Rejected,
+                pb::RejectReason::InvalidCommand,
+            ),
+            (
+                CommandOutcome::Rejected(RejectReason::WorldFull),
                 pb::CommandStatus::Rejected,
                 pb::RejectReason::InvalidCommand,
             ),

@@ -18,6 +18,9 @@ class InMemorySnapshotRepository:
         # Interruptores para simular fallos en las pruebas.
         self.available = True
         self.fail_prune = False
+        # Si existen, save o load_latest lanzan esta excepción.
+        self.save_error: Exception | None = None
+        self.load_error: Exception | None = None
 
     def _check_available(self) -> None:
         if not self.available:
@@ -25,6 +28,8 @@ class InMemorySnapshotRepository:
 
     def save(self, snapshot: Snapshot) -> SaveOutcome:
         self._check_available()
+        if self.save_error is not None:
+            raise self.save_error
         with self._lock:
             existing = self._rows.get(snapshot.tick)
             if existing is None:
@@ -40,6 +45,8 @@ class InMemorySnapshotRepository:
 
     def load_latest(self) -> Snapshot | None:
         self._check_available()
+        if self.load_error is not None:
+            raise self.load_error
         with self._lock:
             return self._rows[max(self._rows)] if self._rows else None
 

@@ -33,3 +33,14 @@ class SnapshotConflictError(Exception):
 
 class RepositoryUnavailableError(Exception):
     """La base de datos no está disponible todavía (o se perdió la conexión)."""
+
+
+class InvalidSnapshotError(Exception):
+    """Los datos de la instantánea no caben en el esquema (valor fuera de
+    rango, carácter no admitido, restricción violada)."""
+
+
+class ConcurrentSnapshotChangeError(Exception):
+    """La fila de ese tick cambió a la vez que se guardaba (p. ej. la poda de
+    retención la borró entre el INSERT y la lectura) y el reintento tampoco
+    pudo resolverlo."""

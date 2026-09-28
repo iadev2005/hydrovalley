@@ -14,6 +14,13 @@ use super::tile::Tile;
 /// Cada cuántos ticks se toma una instantánea (Capa 5).
 pub const SNAPSHOT_INTERVAL_TICKS: u64 = 50;
 
+/// Jugadores que puede tener el mundo como mucho. Acota la memoria del
+/// simulador y el tamaño de la instantánea y del `WorldState` que se envía
+/// en cada tick; con un valle de 32 × 32 casillas, 10.000 jugadores ya es
+/// mucho más de lo que el juego puede aprovechar. Un jugador nuevo que
+/// llegue con el mundo lleno recibe `RejectReason::WorldFull`.
+pub const MAX_PLAYERS: usize = 10_000;
+
 /// `true` si tras calcular `tick` toca enviar una instantánea.
 pub fn is_snapshot_tick(tick: u64) -> bool {
     tick != 0 && tick.is_multiple_of(SNAPSHOT_INTERVAL_TICKS)
@@ -197,8 +204,11 @@ impl World {
         if !is_uuid(&command.action_id) || !is_uuid(&command.player_id) {
             return CommandOutcome::Rejected(RejectReason::InvalidCommand);
         }
-        let slot = self.player_slot(&command.player_id);
-        if slot.recent_ids.contains(&command.action_id) {
+        let already_applied = self
+            .players
+            .get(&command.player_id)
+            .is_some_and(|slot| slot.recent_ids.contains(&command.action_id));
+        if already_applied {
             return CommandOutcome::Duplicate;
         }
         let outcome = match &command.kind {
@@ -214,6 +224,7 @@ impl World {
             ) => CommandOutcome::Rejected(RejectReason::Unsupported),
         };
         if outcome == CommandOutcome::Applied {
+            // El comando aplicado ya dio de alta al jugador si era nuevo.
             let slot = self.player_slot(&command.player_id);
             slot.record.last_action_tick = tick;
             slot.record.recent_actions.push(AppliedAction {
@@ -238,10 +249,15 @@ impl World {
         } else {
             (self.rules.drop_humidity, self.rules.drop_water_cost)
         };
-        let player = &mut self.player_slot(player_id).record;
-        if player.water < cost {
+        let known = self.players.get(player_id).map(|slot| slot.record.water);
+        if known.is_none() && self.players.len() >= MAX_PLAYERS {
+            return CommandOutcome::Rejected(RejectReason::WorldFull);
+        }
+        if known.unwrap_or(self.rules.initial_water) < cost {
             return CommandOutcome::Rejected(RejectReason::InsufficientWater);
         }
+        // Solo aquí, con la gota ya aceptada, entra un jugador nuevo.
+        let player = &mut self.player_slot(player_id).record;
         player.water -= cost;
         player.water_spent = player.water_spent.saturating_add(cost);
 
@@ -251,8 +267,9 @@ impl World {
         CommandOutcome::Applied
     }
 
-    /// Un jugador entra en el mundo con su primer comando, con los valores
-    /// iniciales del catálogo.
+    /// Devuelve el jugador y lo da de alta si no existía, con los valores
+    /// iniciales del catálogo. Solo se llama al aplicar un comando: los
+    /// rechazados, mal formados o no soportados no crean jugadores.
     fn player_slot(&mut self, player_id: &str) -> &mut PlayerSlot {
         let rules = &self.rules;
         self.players
@@ -466,11 +483,10 @@ mod tests {
                 CommandOutcome::Rejected(RejectReason::OutOfBounds),
             ]
         );
-        let ana = w
-            .player(ANA)
-            .expect("the first command brings the player in");
-        assert_eq!(ana.water, 20);
-        assert!(ana.recent_actions.is_empty());
+        assert!(
+            w.player(ANA).is_none(),
+            "a rejected command does not bring the player in"
+        );
         assert_eq!(w.humidity_contributed(), 0);
     }
 
@@ -613,8 +629,8 @@ mod tests {
         );
         assert!(w.player("not-a-uuid").is_none());
         assert!(
-            w.player(ANA).is_some(),
-            "a well-formed command without kind still brings the player in"
+            w.player(ANA).is_none(),
+            "a command without kind does not bring the player in"
         );
         assert_eq!(w.humidity_contributed(), 0);
     }
@@ -643,7 +659,53 @@ mod tests {
             vec![CommandOutcome::Rejected(RejectReason::Unsupported); 4]
         );
         assert!(!w.demo_mode());
-        assert_eq!(w.player(ANA).unwrap().water, 20);
+        assert!(w.player(ANA).is_none());
+    }
+
+    #[test]
+    fn a_player_enters_the_world_with_the_first_applied_command() {
+        let mut w = world();
+        w.step(&[drop_cmd(&action(1), ANA, 40, 0)]);
+        assert!(w.player(ANA).is_none());
+        let out = w.step(&[drop_cmd(&action(2), ANA, 1, 1)]);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
+        assert_eq!(w.player(ANA).unwrap().water, 19);
+    }
+
+    #[test]
+    fn new_players_beyond_the_cap_are_rejected() {
+        let mut w = world();
+        let fill: Vec<Command> = (0..MAX_PLAYERS as u32)
+            .map(|n| {
+                drop_cmd(
+                    &action(n),
+                    &format!("00000000-0000-4000-9000-{n:012}"),
+                    0,
+                    0,
+                )
+            })
+            .collect();
+        let out = w.step(&fill);
+        assert!(
+            out.results
+                .iter()
+                .all(|r| r.outcome == CommandOutcome::Applied)
+        );
+        assert_eq!(w.players().count(), MAX_PLAYERS);
+
+        let out = w.step(&[
+            drop_cmd(&action(1), ANA, 1, 1),
+            drop_cmd(&action(2), "00000000-0000-4000-9000-000000000000", 1, 1),
+        ]);
+        assert_eq!(
+            outcomes(&out),
+            vec![
+                CommandOutcome::Rejected(RejectReason::WorldFull),
+                CommandOutcome::Applied
+            ]
+        );
+        assert!(w.player(ANA).is_none());
+        assert_eq!(w.players().count(), MAX_PLAYERS);
     }
 
     #[test]
