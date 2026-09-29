@@ -1,12 +1,39 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"log/slog"
+	"strings"
 	"testing"
 )
 
+var testPub, testPubPEM = func() (ed25519.PublicKey, string) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		panic(err)
+	}
+	return pub, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}()
+
+// env devuelve un getenv con una TOKEN_PUBLIC_KEY válida, salvo que el mapa
+// la defina (también vacía).
 func env(values map[string]string) func(string) string {
-	return func(k string) string { return values[k] }
+	return func(k string) string {
+		if v, ok := values[k]; ok {
+			return v
+		}
+		if k == "TOKEN_PUBLIC_KEY" {
+			return testPubPEM
+		}
+		return ""
+	}
 }
 
 func TestDefaults(t *testing.T) {
@@ -54,5 +81,29 @@ func TestOriginPatterns(t *testing.T) {
 	cfg, _ = Load(env(map[string]string{"WORLD_ADDR": "world:50051"}))
 	if len(cfg.OriginPatterns) != 0 {
 		t.Fatalf("default OriginPatterns = %q, want none (same origin only)", cfg.OriginPatterns)
+	}
+}
+
+func TestTokenPublicKeyIsLoaded(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"WORLD_ADDR": "world:50051"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.TokenKey.Equal(testPub) {
+		t.Fatal("TokenKey differs from TOKEN_PUBLIC_KEY")
+	}
+}
+
+func TestTokenPublicKeyIsRequiredAndNamedInTheError(t *testing.T) {
+	for name, v := range map[string]string{"missing": "", "blank": "  ", "garbage": "not-a-key", "private key": "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----"} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(env(map[string]string{"WORLD_ADDR": "world:50051", "TOKEN_PUBLIC_KEY": v}))
+			if err == nil || !strings.Contains(err.Error(), "TOKEN_PUBLIC_KEY") {
+				t.Fatalf("err = %v, want an error naming TOKEN_PUBLIC_KEY", err)
+			}
+			if v = strings.TrimSpace(v); v != "" && strings.Contains(err.Error(), v) {
+				t.Fatalf("error repeats the value: %v", err)
+			}
+		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/breaker"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/ratelimit"
@@ -106,6 +107,9 @@ const (
 	RejectedRateLimited
 	// RejectedPaused: cola llena; "paused".
 	RejectedPaused
+	// RejectedForbidden: comando de administración sin role = admin;
+	// "forbidden". Nunca entra en pending ni en la cola.
+	RejectedForbidden
 	// RejectedNoSession: la conexión ya no está registrada; no se responde.
 	RejectedNoSession
 )
@@ -124,6 +128,8 @@ func (o Outcome) String() string {
 		return "rejected_rate_limited"
 	case RejectedPaused:
 		return "rejected_paused"
+	case RejectedForbidden:
+		return "rejected_forbidden"
 	case RejectedNoSession:
 		return "no_session"
 	default:
@@ -142,6 +148,8 @@ func WireStatus(o Outcome) (status string, ok bool) {
 		return frames.StatusRateLimited, true
 	case RejectedPaused:
 		return frames.StatusPaused, true
+	case RejectedForbidden:
+		return frames.StatusForbidden, true
 	default:
 		return "", false
 	}
@@ -237,6 +245,7 @@ func New(world WorldClient, clock Clock, cfg Config, log *slog.Logger) *Hub {
 // Session es una conexión WebSocket registrada en el hub.
 type Session struct {
 	playerID string
+	role     auth.Role
 	withMap  bool
 	out      chan proto.Message
 	kicked   chan struct{}
@@ -245,6 +254,9 @@ type Session struct {
 
 // PlayerID devuelve el jugador de la conexión.
 func (s *Session) PlayerID() string { return s.playerID }
+
+// Role devuelve el rol del token con el que se abrió la conexión.
+func (s *Session) Role() auth.Role { return s.role }
 
 // Outbox es el buzón de mensajes que la conexión tiene que escribir.
 func (s *Session) Outbox() <-chan proto.Message { return s.out }
@@ -262,11 +274,13 @@ func (s *Session) Send(m proto.Message) {
 	}
 }
 
-// Connect registra una conexión del jugador. withMap = false (map=false)
-// omite el mapa en la difusión.
-func (h *Hub) Connect(playerID string, withMap bool) *Session {
+// Connect registra una conexión del jugador con el rol de su token (solo
+// role = admin puede enviar comandos de administración). withMap = false
+// (map=false) omite el mapa en la difusión.
+func (h *Hub) Connect(playerID string, role auth.Role, withMap bool) *Session {
 	s := &Session{
 		playerID: playerID,
+		role:     role,
 		withMap:  withMap,
 		out:      make(chan proto.Message, h.cfg.OutboxSize),
 		kicked:   make(chan struct{}),
@@ -312,6 +326,44 @@ func (h *Hub) playerLocked(id string) *player {
 // solo ocupa hueco en la ventana del límite cuando se admite: el límite se
 // consulta sin registrar y se registra después de todas las comprobaciones.
 func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
+	return h.submit(s, d.ActionID, true, &worldv1.Command{
+		Kind: &worldv1.Command_Drop{Drop: &worldv1.DropCommand{X: d.X, Y: d.Y}},
+	})
+}
+
+// SubmitAdmin filtra un comando de administración (RF-31). Sin role = admin
+// responde "forbidden" al instante y no deja rastro (ni pending, ni cola).
+// Con ese rol pasa por la misma admisión que la gota (pending, confirmed y
+// cola llena), sin el límite de gotas, y viaja a Step como cualquier comando.
+func (h *Hub) SubmitAdmin(s *Session, a frames.Admin) Outcome {
+	if s.role != auth.RoleAdmin {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		p, ok := h.players[s.playerID]
+		if !ok {
+			return RejectedNoSession
+		}
+		if _, ok := p.sessions[s]; !ok {
+			return RejectedNoSession
+		}
+		s.Send(frames.Result(a.ActionID, frames.StatusForbidden, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
+		return RejectedForbidden
+	}
+	cmd := &worldv1.Command{}
+	switch a.Kind {
+	case frames.AdminSetDemoMode:
+		cmd.Kind = &worldv1.Command_SetDemoMode{SetDemoMode: &worldv1.SetDemoModeCommand{Enabled: a.Enabled}}
+	case frames.AdminResetValley:
+		cmd.Kind = &worldv1.Command_ResetValley{ResetValley: &worldv1.ResetValleyCommand{}}
+	default:
+		return RejectedNoSession
+	}
+	return h.submit(s, a.ActionID, false, cmd)
+}
+
+// submit es la admisión común. cmd trae el tipo; aquí se le pone el
+// action_id y el jugador de la sesión (nunca los del mensaje).
+func (h *Hub) submit(s *Session, actionID string, isDrop bool, cmd *worldv1.Command) Outcome {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	p, ok := h.players[s.playerID]
@@ -321,35 +373,32 @@ func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
 	if _, ok := p.sessions[s]; !ok {
 		return RejectedNoSession
 	}
-	if _, ok := p.pending[d.ActionID]; ok {
+	if _, ok := p.pending[actionID]; ok {
 		return IgnoredPending
 	}
 	now := h.clock.Now()
 	outcome := Admitted
 	switch {
-	case hasKey(p.confirmed, d.ActionID):
+	case hasKey(p.confirmed, actionID):
 		outcome = RejectedDuplicate
-	case !p.limiter.Permits(now):
+	case isDrop && !p.limiter.Permits(now):
 		outcome = RejectedRateLimited
 	case len(h.queue) >= h.cfg.QueueCap:
 		outcome = RejectedPaused
 	}
 	if outcome != Admitted {
 		if status, ok := WireStatus(outcome); ok {
-			s.Send(frames.Result(d.ActionID, status, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
+			s.Send(frames.Result(actionID, status, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
 		}
 		return outcome
 	}
-	p.limiter.Record(now)
-	p.pending[d.ActionID] = struct{}{}
-	h.queue = append(h.queue, queued{
-		cmd: &worldv1.Command{
-			ActionId: d.ActionID,
-			PlayerId: s.playerID,
-			Kind:     &worldv1.Command_Drop{Drop: &worldv1.DropCommand{X: d.X, Y: d.Y}},
-		},
-		admittedAt: now,
-	})
+	if isDrop {
+		p.limiter.Record(now)
+	}
+	p.pending[actionID] = struct{}{}
+	cmd.ActionId = actionID
+	cmd.PlayerId = s.playerID
+	h.queue = append(h.queue, queued{cmd: cmd, admittedAt: now})
 	return Admitted
 }
 

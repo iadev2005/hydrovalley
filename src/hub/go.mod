@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/iadev2005/hydrovalley/gen/go v0.0.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12

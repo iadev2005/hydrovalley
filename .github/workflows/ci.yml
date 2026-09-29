@@ -400,6 +400,7 @@ jobs:
           # bake interpreta compose.yml y exige las variables obligatorias, pero
           # solo construye: la clave real la genera tests/e2e/run.sh al arrancar.
           TOKEN_PRIVATE_KEY: bake-only-placeholder
+          TOKEN_PUBLIC_KEY: bake-only-placeholder
         with:
           source: .
           files: deploy/compose.yml

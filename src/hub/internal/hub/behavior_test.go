@@ -6,6 +6,7 @@ import (
 	"time"
 
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
 )
 
@@ -14,7 +15,7 @@ import (
 // que el jugador recibe "applied" y la gota se cuenta.
 func TestRequeuedDuplicateCountsAsApplied(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.hub.SubmitDrop(s, drop(1))
 	h.world.set(func(w *fakeWorld) { w.fail = true })
 	h.tick() // Step fallido (Rust lo aplicó, pero el hub no lo sabe)
@@ -45,7 +46,7 @@ func TestRequeuedDuplicateCountsAsApplied(t *testing.T) {
 // "duplicate" y no se cuenta.
 func TestFirstAttemptDuplicateIsNotCountedEvenAfterAnotherFailure(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.hub.SubmitDrop(s, drop(1))
 	h.world.set(func(w *fakeWorld) { w.fail = true })
 	h.tick()
@@ -67,7 +68,7 @@ func TestFirstAttemptDuplicateIsNotCountedEvenAfterAnotherFailure(t *testing.T) 
 // Una gota rechazada por la cola llena no ocupa hueco en la ventana de 15/s.
 func TestPausedDropsDoNotConsumeRateWindow(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.QueueCap = 1 })
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.hub.SubmitDrop(s, drop(0))
 	for i := 1; i <= 20; i++ {
 		if got := h.hub.SubmitDrop(s, drop(i)); got != RejectedPaused {
@@ -88,14 +89,14 @@ func TestPausedDropsDoNotConsumeRateWindow(t *testing.T) {
 // tenga gotas del último segundo: reconectarse no reinicia el límite.
 func TestPlayerRecordKeepsRateWindowAcrossReconnect(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	for i := range 15 {
 		h.world.set(func(w *fakeWorld) { w.statuses[uuidN(i)] = worldv1.CommandStatus_COMMAND_STATUS_REJECTED })
 		h.hub.SubmitDrop(s, drop(i))
 	}
 	h.tick() // todas rechazadas: pending y confirmed quedan vacíos
 	h.hub.Disconnect(s)
-	again := h.hub.Connect(ana, true)
+	again := h.hub.Connect(ana, auth.RolePlayer, true)
 	if got := h.hub.SubmitDrop(again, drop(15)); got != RejectedRateLimited {
 		t.Fatalf("outcome after reconnect = %v, want rate_limited", got)
 	}
@@ -162,7 +163,7 @@ func playerKept(h *harness, id string) bool {
 // SweepInterval.
 func TestIdleSweepRunsAtMostOncePerInterval(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.SweepInterval = 5 * time.Second })
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.world.set(func(w *fakeWorld) { w.statuses[uuidN(1)] = worldv1.CommandStatus_COMMAND_STATUS_REJECTED })
 	h.hub.SubmitDrop(s, drop(1))
 	h.tick() // primer barrido: la ventana del límite sigue activa

@@ -26,6 +26,11 @@ if [[ -z "${TOKEN_PRIVATE_KEY:-}" ]]; then
   TOKEN_PRIVATE_KEY="$(openssl genpkey -algorithm ed25519 | base64 | tr -d '\n')"
   export TOKEN_PRIVATE_KEY
 fi
+# La pública sale de la privada, para el hub (base64 del PEM, una línea).
+if [[ -z "${TOKEN_PUBLIC_KEY:-}" ]]; then
+  TOKEN_PUBLIC_KEY="$(printf '%s' "${TOKEN_PRIVATE_KEY}" | base64 --decode | openssl pkey -pubout | base64 | tr -d '\n')"
+  export TOKEN_PUBLIC_KEY
+fi
 
 cleanup() {
   local status=$?

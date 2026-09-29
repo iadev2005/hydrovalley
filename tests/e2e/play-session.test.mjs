@@ -104,3 +104,14 @@ describe("PlaySession with an unparseable frame", () => {
     assert.equal((await pending).tick, "4");
   });
 });
+
+describe("PlaySession.closed", () => {
+  it("resolves with the close code and reason chosen by the server", async () => {
+    const { session, socket } = newSession();
+    const event = new Event("close");
+    event.code = 4401;
+    event.reason = "invalid or expired token";
+    socket.dispatchEvent(event);
+    assert.deepEqual(await session.closed, { code: 4401, reason: "invalid or expired token" });
+  });
+});

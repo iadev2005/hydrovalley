@@ -4,7 +4,7 @@
 //
 // Uso:
 //
-//	WORLD_ADDR=world:50051 hub          # servidor
+//	WORLD_ADDR=world:50051 TOKEN_PUBLIC_KEY=... hub   # servidor
 //	hub healthcheck                      # comprobación para Docker (sale 0 si /healthz responde 200)
 package main
 
@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/config"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/hub"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/transport"
@@ -69,8 +70,11 @@ func run() error {
 	}()
 
 	srv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           transport.NewHandler(ctx, h, log, transport.Options{OriginPatterns: cfg.OriginPatterns}),
+		Addr: cfg.Listen,
+		Handler: transport.NewHandler(ctx, h, log, transport.Options{
+			OriginPatterns: cfg.OriginPatterns,
+			Verifier:       auth.NewVerifier(cfg.TokenKey, time.Now),
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	serveErr := make(chan error, 1)

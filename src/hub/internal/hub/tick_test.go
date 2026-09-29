@@ -8,6 +8,7 @@ import (
 	"time"
 
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/breaker"
 )
 
@@ -32,7 +33,7 @@ func TestEmptyTickStillCallsStep(t *testing.T) {
 
 func TestDrainsInBatchesOf500InAdmissionOrder(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.DropsPerSecond = 2000 })
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	var want []string
 	for i := range 1200 {
 		h.hub.SubmitDrop(s, drop(i))
@@ -76,7 +77,7 @@ func TestStepHasA200msDeadline(t *testing.T) {
 
 func TestFailedStepRequeuesAtFrontAndPauses(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.hub.SubmitDrop(s, drop(1))
 	h.world.set(func(w *fakeWorld) {
 		w.fail = true
@@ -112,7 +113,7 @@ func TestFailedStepRequeuesAtFrontAndPauses(t *testing.T) {
 
 func TestInvalidStepResponseCountsAsFailure(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.hub.SubmitDrop(s, drop(1))
 	h.world.set(func(w *fakeWorld) { w.mangle = func(r *worldv1.StepResponse) { r.Results = nil } })
 	h.tick()
@@ -123,7 +124,7 @@ func TestInvalidStepResponseCountsAsFailure(t *testing.T) {
 
 func TestExpiresCommandsOlderThan30Seconds(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.world.set(func(w *fakeWorld) { w.fail = true })
 	h.hub.SubmitDrop(s, drop(1))
 	h.clock.Advance(15 * time.Second)
@@ -149,7 +150,7 @@ func TestExpiresCommandsOlderThan30Seconds(t *testing.T) {
 
 func TestExpiresWhileTheBreakerIsOpen(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.world.set(func(w *fakeWorld) { w.fail = true })
 	for range 3 {
 		h.tick()
@@ -164,7 +165,7 @@ func TestExpiresWhileTheBreakerIsOpen(t *testing.T) {
 
 func TestCircuitBreakerOpensProbesAndCloses(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.tick() // primer Step correcto
 	drain(s)
 	h.world.set(func(w *fakeWorld) { w.fail = true })
@@ -232,7 +233,7 @@ func TestReadyOnlyAfterASuccessfulStep(t *testing.T) {
 
 func TestBootIDChangePrunesConfirmedAndAcceptedDrops(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	// Primer boot_id: línea base, sin poda aunque restored_tick = 0.
 	h.hub.SubmitDrop(s, drop(1))
 	h.tick() // tick 1
@@ -279,7 +280,7 @@ func TestBootIDChangePrunesConfirmedAndAcceptedDrops(t *testing.T) {
 
 func TestAcceptedDropsLedgerKeeps600Ticks(t *testing.T) {
 	h := newHarness(t)
-	s := h.hub.Connect(ana, true)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
 	h.hub.SubmitDrop(s, drop(1))
 	h.tick() // tick 1
 	for range 700 {
@@ -299,8 +300,8 @@ func TestBroadcastsStateOncePerSecond(t *testing.T) {
 	h.world.set(func(w *fakeWorld) {
 		w.players = []*worldv1.PlayerState{{PlayerId: ana, Water: 19, TankCapacity: 20}}
 	})
-	withMap := h.hub.Connect(ana, true)
-	noMap := h.hub.Connect(bob, false)
+	withMap := h.hub.Connect(ana, auth.RolePlayer, true)
+	noMap := h.hub.Connect(bob, auth.RolePlayer, false)
 	for range 20 {
 		h.tick()
 	}
