@@ -8,9 +8,6 @@
  */
 export const GRID_SIZE = 32;
 
-const PLAYER_ID_KEY = "hydrovalley.player_id";
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * UUID v4 a partir de bytes aleatorios. Usa `crypto.getRandomValues`, que
  * también existe fuera de un contexto seguro (http://10.68.17.x:8080), a
@@ -26,42 +23,31 @@ export function newUuid(fill = (bytes) => globalThis.crypto.getRandomValues(byte
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** @param {unknown} value */
-export function isUuid(value) {
-  return typeof value === "string" && UUID_RE.test(value);
-}
+/**
+ * Código con el que el hub cierra `/play` cuando el token es inválido o
+ * caducó (diagrama 09). Está en el rango privado del WebSocket.
+ */
+export const AUTH_CLOSE_CODE = 4401;
 
 /**
- * Identidad provisional del jugador: un UUID guardado en `localStorage`.
- * TODO(PR de acceso): se sustituye por el token firmado de la API.
- * @param {{getItem(k: string): string | null, setItem(k: string, v: string): void}} storage
- * @param {() => string} [create]
+ * Si conviene reintentar tras un cierre. Con 4401 no: hace falta un token
+ * nuevo y reintentar con el mismo solo repetiría el rechazo.
+ * @param {number} code código de cierre del WebSocket
  */
-export function loadOrCreatePlayerId(storage, create = newUuid) {
-  try {
-    const stored = storage.getItem(PLAYER_ID_KEY);
-    if (isUuid(stored)) return stored;
-  } catch {
-    // Almacenamiento bloqueado: se usa una identidad nueva en cada visita.
-  }
-  const id = create();
-  try {
-    storage.setItem(PLAYER_ID_KEY, id);
-  } catch {
-    // Igual que arriba: no se puede recordar.
-  }
-  return id;
+export function shouldReconnect(code) {
+  return code !== AUTH_CLOSE_CODE;
 }
 
 /**
  * Dirección del WebSocket en el mismo origen que la página (nginx la
- * reenvía al hub). Sin mapa: esta página no dibuja el valle.
+ * reenvía al hub). La identidad sale solo del token firmado. Sin mapa:
+ * esta página no dibuja el valle.
  * @param {{protocol: string, host: string}} location
- * @param {string} playerId
+ * @param {string} token
  */
-export function buildPlayUrl(location, playerId) {
+export function buildPlayUrl(location, token) {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  const query = new URLSearchParams({ player_id: playerId, map: "false" });
+  const query = new URLSearchParams({ token, map: "false" });
   return `${scheme}//${location.host}/play?${query.toString()}`;
 }
 

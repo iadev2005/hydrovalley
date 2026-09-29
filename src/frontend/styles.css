@@ -23,6 +23,21 @@ form {
 input {
   width: 4rem;
 }
+#auth-form input {
+  width: 10rem;
+}
+.error {
+  color: #b00020;
+  margin: 0.25rem 0;
+}
+@media (prefers-color-scheme: dark) {
+  .error {
+    color: #ff8a80;
+  }
+}
+[hidden] {
+  display: none !important;
+}
 #log {
   font-family: ui-monospace, monospace;
   font-size: 0.85rem;
