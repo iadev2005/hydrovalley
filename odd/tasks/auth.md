@@ -51,4 +51,4 @@ Fuera de alcance: TLS en nginx, `GetRanking`/`GetReport`, React y Phaser.
 
 ## Progreso
 
-- T1 en `feature/auth-persistence` (ruta delegada: migración, servicio, pruebas y README en varios archivos).
+- T1 en `feature/auth-persistence` (ruta delegada: migración, servicio, pruebas y README en varios archivos). Commits `9807910` (revisión de 4 enfoques: aprobada) y `884d483` (ajustes de la revisión: detalles de error fijos, prueba de siembra; evaluación: riesgo medio, `under_budget`, pendiente en el tramo). Unitarias 122 passed; con PostgreSQL real 143 passed.
