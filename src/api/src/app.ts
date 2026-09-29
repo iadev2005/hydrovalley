@@ -3,6 +3,7 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import { type AuthDeps, authRoutes } from "./auth-routes.js";
 
 const healthSchema = {
   summary: "Estado del proceso",
@@ -20,8 +21,10 @@ const healthSchema = {
 
 export async function buildApp(
   options: FastifyServerOptions = {},
+  auth?: AuthDeps,
 ): Promise<FastifyInstance> {
-  const app = Fastify(options);
+  // Sin coerción de tipos: un número no se acepta como nombre de usuario.
+  const app = Fastify({ ajv: { customOptions: { coerceTypes: false } }, ...options });
 
   await app.register(swagger, {
     openapi: {
@@ -29,18 +32,24 @@ export async function buildApp(
       info: {
         title: "hydrovalley API",
         description:
-          "Registro, acceso, catálogo, ranking y reportes. Por ahora solo expone la salud del servicio.",
+          "Registro, acceso, catálogo, ranking y reportes. Por ahora expone la salud del servicio, el registro y el acceso.",
         version: "0.1.0",
       },
-      tags: [{ name: "system", description: "Operación del servicio" }],
+      tags: [
+        { name: "system", description: "Operación del servicio" },
+        { name: "auth", description: "Registro y acceso con token firmado" },
+      ],
     },
   });
   await app.register(swaggerUi, { routePrefix: "/api/docs" });
 
   app.get("/api/health", { schema: healthSchema }, () => ({ status: "ok" as const }));
 
-  // TODO(PR de acceso): registro y acceso con AccountService por gRPC
-  // (PERSISTENCE_ADDR), token Ed25519 y el resto de rutas REST.
+  if (auth) {
+    await app.register(authRoutes, auth);
+  }
+
+  // TODO: catálogo, ranking y reportes.
 
   return app;
 }

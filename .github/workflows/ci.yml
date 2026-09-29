@@ -279,11 +279,12 @@ jobs:
           filters: |
             api:
               - 'src/api/**'
+              - 'proto/**'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en la API
         if: steps.changes.outputs.api != 'true'
-        run: echo "Sin cambios en src/api ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/api, proto ni el workflow; no hay nada que probar."
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         if: steps.changes.outputs.api == 'true'
@@ -296,6 +297,23 @@ jobs:
         if: steps.changes.outputs.api == 'true'
         working-directory: src/api
         run: npm ci --ignore-scripts
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.api == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El cliente gRPC de AccountService importa el código de proto/.
+      - name: buf generate
+        if: steps.changes.outputs.api == 'true'
+        run: buf generate --template proto/buf.gen.yaml
+
+      # Copia gen/ts a src/gen para que resuelva @bufbuild/protobuf.
+      - name: Copiar el código generado
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm run gen
 
       - name: ESLint
         if: steps.changes.outputs.api == 'true'

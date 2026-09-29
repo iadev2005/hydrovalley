@@ -20,6 +20,13 @@ export COMPOSE_ENV_FILES="${repo_root}/deploy/.env.example"
 export HV_HTTP_PORT="${HV_HTTP_PORT:-8080}"
 export HV_BASE_URL="http://localhost:${HV_HTTP_PORT}"
 
+# Clave Ed25519 efímera para la prueba: se genera en cada ejecución y nunca
+# se guarda (RNF-13). Si ya viene definida en el entorno, se respeta.
+if [[ -z "${TOKEN_PRIVATE_KEY:-}" ]]; then
+  TOKEN_PRIVATE_KEY="$(openssl genpkey -algorithm ed25519 | base64 | tr -d '\n')"
+  export TOKEN_PRIVATE_KEY
+fi
+
 cleanup() {
   local status=$?
   if [[ "${E2E_KEEP:-0}" == "1" ]]; then
