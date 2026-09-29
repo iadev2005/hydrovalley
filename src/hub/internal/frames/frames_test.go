@@ -11,22 +11,57 @@ import (
 const actionID = "0b7c9a52-5f3e-4f5b-9d7e-2a1f3c4d5e6f"
 
 func TestDecodeDrop(t *testing.T) {
-	drop, errMsg := DecodeClient([]byte(`{"type":"drop","action_id":"` + actionID + `","x":14,"y":9}`))
-	if errMsg != nil {
-		t.Fatalf("unexpected error frame: %v", errMsg)
+	cmd, errMsg := DecodeClient([]byte(`{"type":"drop","action_id":"` + actionID + `","x":14,"y":9}`))
+	if errMsg != nil || cmd.Drop == nil || cmd.Admin != nil {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
 	}
+	drop := cmd.Drop
 	if drop.ActionID != actionID || drop.X != 14 || drop.Y != 9 {
 		t.Fatalf("drop = %+v", drop)
 	}
 }
 
 func TestDecodeDropWithZeroCoordinatesOmitted(t *testing.T) {
-	drop, errMsg := DecodeClient([]byte(`{"type":"drop","action_id":"` + actionID + `"}`))
-	if errMsg != nil {
-		t.Fatalf("unexpected error frame: %v", errMsg)
+	cmd, errMsg := DecodeClient([]byte(`{"type":"drop","action_id":"` + actionID + `"}`))
+	if errMsg != nil || cmd.Drop == nil {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
 	}
+	drop := cmd.Drop
 	if drop.X != 0 || drop.Y != 0 {
 		t.Fatalf("absent coordinates must read as 0, got %+v", drop)
+	}
+}
+
+func TestDecodeAdminCommands(t *testing.T) {
+	cmd, errMsg := DecodeClient([]byte(`{"type":"set_demo_mode","action_id":"` + actionID + `","enabled":true}`))
+	if errMsg != nil || cmd.Admin == nil || cmd.Drop != nil {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
+	}
+	if a := cmd.Admin; a.Kind != AdminSetDemoMode || a.ActionID != actionID || !a.Enabled {
+		t.Fatalf("admin = %+v", a)
+	}
+	// `enabled` ausente se lee como false (protojson omite los ceros).
+	cmd, errMsg = DecodeClient([]byte(`{"type":"set_demo_mode","action_id":"` + actionID + `"}`))
+	if errMsg != nil || cmd.Admin.Enabled {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
+	}
+	cmd, errMsg = DecodeClient([]byte(`{"type":"reset_valley","action_id":"` + actionID + `"}`))
+	if errMsg != nil || cmd.Admin == nil || cmd.Admin.Kind != AdminResetValley || cmd.Admin.ActionID != actionID {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
+	}
+}
+
+func TestDecodeAdminErrors(t *testing.T) {
+	for _, data := range []string{
+		`{"type":"set_demo_mode","enabled":true}`,
+		`{"type":"set_demo_mode","action_id":"nope","enabled":true}`,
+		`{"type":"set_demo_mode","action_id":"` + actionID + `","enabled":"yes"}`,
+		`{"type":"reset_valley","action_id":"` + actionID + `","force":true}`,
+	} {
+		cmd, errMsg := DecodeClient([]byte(data))
+		if cmd.Admin != nil || errMsg == nil || errMsg.GetCode() != CodeInvalidMessage {
+			t.Errorf("%s → %+v, %v; want invalid_message", data, cmd, errMsg)
+		}
 	}
 }
 
@@ -52,9 +87,9 @@ func TestDecodeErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			drop, errMsg := DecodeClient([]byte(tc.data))
-			if drop != nil || errMsg == nil {
-				t.Fatalf("got drop %+v, want error frame", drop)
+			cmd, errMsg := DecodeClient([]byte(tc.data))
+			if cmd.Drop != nil || cmd.Admin != nil || errMsg == nil {
+				t.Fatalf("got command %+v, want error frame", cmd)
 			}
 			if errMsg.GetType() != TypeError || errMsg.GetCode() != tc.wantCode || errMsg.GetActionId() != tc.wantActionID {
 				t.Fatalf("error frame = %v, want code %q action_id %q", errMsg, tc.wantCode, tc.wantActionID)

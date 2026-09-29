@@ -72,6 +72,9 @@ services:
       WORLD_ADDR: world:50051
       HUB_LISTEN: :8081
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Clave pública Ed25519 (PEM o su base64) con la que el hub verifica el
+      # token de /play. Es la pareja de TOKEN_PRIVATE_KEY; va en deploy/.env.
+      TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?define TOKEN_PUBLIC_KEY en deploy/.env}
 
   api:
     <<: *service

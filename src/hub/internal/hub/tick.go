@@ -148,8 +148,10 @@ func (h *Hub) stepSucceededLocked(batch []queued, resp *worldv1.StepResponse) {
 		switch status {
 		case worldv1.CommandStatus_COMMAND_STATUS_APPLIED:
 			h.confirmLocked(playerID, actionID, h.tick)
-			h.ledger[h.tick]++
-			h.acceptedDrops++
+			if batch[i].isDrop() { // los comandos de administración no son gotas
+				h.ledger[h.tick]++
+				h.acceptedDrops++
+			}
 			h.finishLocked(playerID, actionID, frames.StatusApplied, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED)
 		case worldv1.CommandStatus_COMMAND_STATUS_DUPLICATE:
 			h.confirmLocked(playerID, actionID, h.tick)

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/hub"
 )
@@ -35,7 +36,15 @@ type Options struct {
 	// /play además del mismo origen. Los clientes sin cabecera Origin (bots)
 	// siempre pueden.
 	OriginPatterns []string
+	// Verifier comprueba el token de /play. Sin él (nil) todo intento se
+	// cierra con 4401: nunca se abre /play sin verificar.
+	Verifier *auth.Verifier
 }
+
+// closeUnauthorized es el código de cierre de /play con un token ausente,
+// inválido o vencido (diagrama 09). Está en el rango 4000-4999 de uso
+// privado del protocolo WebSocket y remeda al 401 de HTTP.
+const closeUnauthorized websocket.StatusCode = 4401
 
 // NewHandler monta las rutas. ctx es la vida del servidor: al cancelarlo se
 // cierran todas las conexiones WebSocket con StatusGoingAway.
@@ -70,19 +79,17 @@ type playHandler struct {
 	opts Options
 }
 
-// ServeHTTP atiende GET /play?player_id=<uuid>[&map=false].
+// ServeHTTP atiende GET /play?token=<jwt>[&map=false].
 //
-// TODO(diagrama 09): player_id en la consulta es provisional. El hub debe
-// verificar el token firmado (Ed25519, clave pública por variable de
-// entorno) al abrir /play y tomar de él player_id y role; entonces este
-// parámetro desaparece.
+// El token se comprueba una sola vez, al abrir (diagrama 09): firma,
+// vencimiento y rol. Con un token ausente o inválido se completa el upgrade
+// y se cierra con el código 4401, porque un navegador no puede leer el estado
+// HTTP de un upgrade fallido y sin el código no distinguiría «vuelve a
+// entrar» de una caída de red. La identidad de la sesión (player_id,
+// username y rol) sale solo del token: no hay más parámetro `player_id`. Si
+// el token vence con la conexión abierta, no se corta.
 func (p *playHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	playerID := q.Get("player_id")
-	if !frames.IsUUID(playerID) {
-		http.Error(w, "player_id must be a UUID", http.StatusBadRequest)
-		return
-	}
 	withMap := true
 	if v := q.Get("map"); v != "" {
 		b, err := strconv.ParseBool(v)
@@ -101,9 +108,17 @@ func (p *playHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer conn.CloseNow()
 	conn.SetReadLimit(readLimit)
 
-	session := p.hub.Connect(playerID, withMap)
+	id, err := p.authenticate(q.Get("token"))
+	if err != nil {
+		// Solo el motivo, nunca el token: acaba en registros y en la consulta.
+		p.log.Info("/play refused", "reason", err)
+		_ = conn.Close(closeUnauthorized, "invalid or expired token")
+		return
+	}
+
+	session := p.hub.Connect(id.PlayerID, id.Role, withMap)
 	defer p.hub.Disconnect(session)
-	log := p.log.With("player_id", playerID)
+	log := p.log.With("player_id", id.PlayerID, "role", id.Role)
 	log.Debug("player connected", "map", withMap)
 
 	// Al apagar el servidor se cierra la conexión con StatusGoingAway; la
@@ -126,6 +141,13 @@ func (p *playHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Debug("player disconnected")
 }
 
+func (p *playHandler) authenticate(token string) (auth.Identity, error) {
+	if p.opts.Verifier == nil {
+		return auth.Identity{}, errors.New("no token verifier configured")
+	}
+	return p.opts.Verifier.Verify(token)
+}
+
 // readLoop es la goroutine del jugador (Capa 1): procesa sus mensajes en
 // fila, uno detrás de otro.
 func (p *playHandler) readLoop(ctx context.Context, conn *websocket.Conn, s *hub.Session, log *slog.Logger) {
@@ -141,12 +163,18 @@ func (p *playHandler) readLoop(ctx context.Context, conn *websocket.Conn, s *hub
 			s.Send(frames.Error(frames.CodeInvalidMessage, ""))
 			continue
 		}
-		drop, errMsg := frames.DecodeClient(data)
+		cmd, errMsg := frames.DecodeClient(data)
 		if errMsg != nil {
 			s.Send(errMsg)
 			continue
 		}
-		if outcome := p.hub.SubmitDrop(s, *drop); outcome == hub.RejectedNoSession {
+		var outcome hub.Outcome
+		if cmd.Admin != nil {
+			outcome = p.hub.SubmitAdmin(s, *cmd.Admin)
+		} else {
+			outcome = p.hub.SubmitDrop(s, *cmd.Drop)
+		}
+		if outcome == hub.RejectedNoSession {
 			return
 		}
 	}

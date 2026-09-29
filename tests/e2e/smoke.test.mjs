@@ -1,8 +1,10 @@
 // CP-01-lite: el esqueleto camina de punta a punta.
 //
-// Contra un stack ya levantado (run.sh lo levanta y lo baja): una gota que
-// entra por nginx llega al hub, pasa por Step en Rust y vuelve como
-// "applied"; y el mundo llega a PostgreSQL por la persistencia en el tick 50.
+// Contra un stack ya levantado (run.sh lo levanta y lo baja): un jugador se
+// registra por nginx y la API, abre /play con el token que recibe, y su gota
+// llega al hub, pasa por Step en Rust y vuelve como "applied"; con un token
+// inválido /play se cierra con el código 4401; y el mundo llega a PostgreSQL
+// por la persistencia en el tick 50.
 //
 // Variables:
 //   HV_BASE_URL          raíz de nginx (por defecto http://localhost:8080)
@@ -57,8 +59,34 @@ async function snapshotRows() {
   return { count, maxTick };
 }
 
+// Los servicios arrancan sin esperar a sus dependencias (RNF-09), así que la
+// API puede estar lista antes de que la persistencia conecte con PostgreSQL y
+// responder 503. No se reintenta el registro, porque tiene un límite de
+// intentos por IP: se espera a que el healthcheck de la persistencia (SERVING
+// solo con la base de datos conectada) la marque como sana.
+async function persistenceHealthy() {
+  const { stdout } = await run("docker", ["compose", "ps", "--format", "{{.Health}}", "persistence"]);
+  return stdout.trim() === "healthy";
+}
+
+// Registra una cuenta nueva (cada ejecución usa un nombre distinto) y devuelve
+// lo que responde la API: el token firmado y el player_id.
+async function registerPlayer() {
+  await eventually("persistence healthy", 120_000, persistenceHealthy);
+  const username = `e2e-${randomUUID().slice(0, 8)}`;
+  const res = await fetch(`${BASE_URL}/api/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username, password: "e2e-password-1" }),
+  });
+  assert.equal(res.status, 201, `register ${username}: ${res.status}`);
+  const body = await res.json();
+  assert.equal(typeof body.token, "string");
+  return { ...body, username };
+}
+
 describe("walking skeleton (CP-01-lite)", () => {
-  const playerId = randomUUID();
+  let account;
   let session;
 
   before(async () => {
@@ -83,11 +111,34 @@ describe("walking skeleton (CP-01-lite)", () => {
     assert.equal(chat.status, 503);
   });
 
+  it("closes /play with 4401 when the token is missing or not valid", async () => {
+    const { token } = await registerPlayer();
+    const tampered = `${token.slice(0, -20)}${token.at(-20) === "A" ? "B" : "A"}${token.slice(-19)}`;
+    const cases = {
+      "no token": "map=false",
+      "garbage token": "token=abc.def.ghi&map=false",
+      "tampered signature": `token=${tampered}&map=false`,
+    };
+    for (const [name, query] of Object.entries(cases)) {
+      const rejected = new PlaySession(`${WS_BASE}/play?${query}`);
+      const closed = await Promise.race([
+        rejected.closed,
+        sleep(5000).then(() => {
+          rejected.close();
+          return { code: "timeout" };
+        }),
+      ]);
+      assert.equal(closed.code, 4401, `${name}: ${JSON.stringify(closed)}`);
+      assert.equal(rejected.frames.length, 0, `${name}: no frame may reach an unauthenticated socket`);
+    }
+  });
+
   it("applies a drop sent through nginx and the hub", async () => {
+    account = await registerPlayer();
     // El hub está listo cuando difunde un estado sin pausa: Step ya responde,
     // o sea, el simulador cargó su instantánea desde la persistencia.
     session = await eventually("a running valley on /play", READY_TIMEOUT_MS, async () => {
-      const candidate = new PlaySession(`${WS_BASE}/play?player_id=${playerId}&map=false`);
+      const candidate = new PlaySession(`${WS_BASE}/play?token=${account.token}&map=false`);
       try {
         await candidate.opened;
         await candidate.first("a state frame without pause", (f) => f.type === "state" && !f.paused, 3000);
@@ -117,6 +168,7 @@ describe("walking skeleton (CP-01-lite)", () => {
     );
     assert.equal(state.player.water, "19");
     assert.equal(state.player.tank_capacity, "20");
+    assert.ok(account.player_id, "the API returns the player_id of the token");
   });
 
   it("snapshots the world to PostgreSQL through the persistence", async () => {

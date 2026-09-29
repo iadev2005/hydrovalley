@@ -21,6 +21,13 @@ export class PlaySession {
         once: true,
       });
     });
+    // Quien no espera `opened` (una prueba que solo mira el cierre) no debe
+    // provocar un rechazo sin manejar.
+    this.opened.catch(() => {});
+    /** Código y motivo con los que se cerró la conexión (p. ej. 4401). */
+    this.closed = new Promise((resolve) => {
+      this.ws.addEventListener("close", (e) => resolve({ code: e.code, reason: e.reason }), { once: true });
+    });
     this.ws.addEventListener("message", (event) => this.#onMessage(String(event.data)));
   }
 
