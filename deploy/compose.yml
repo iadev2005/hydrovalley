@@ -49,6 +49,11 @@ services:
       # o codificados.
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PERSISTENCE_LISTEN: 0.0.0.0:50051
+      # Cuenta de administrador (RF-31): se siembra al arrancar si están las dos
+      # variables; vacías, no se crea ninguna. El hash Argon2id va entre
+      # comillas simples en deploy/.env (lleva `$`).
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
   world:
@@ -89,6 +94,8 @@ services:
       # Clave privada Ed25519 (PEM o su base64) con la que la API firma los
       # tokens. Nunca en el repositorio: va en deploy/.env (RNF-13).
       TOKEN_PRIVATE_KEY: ${TOKEN_PRIVATE_KEY:?define TOKEN_PRIVATE_KEY en deploy/.env}
+      # Vigencia del token en segundos (12 h por defecto; máximo 7 días).
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-43200}
       # nginx es el único proxy delante de la API: la IP del cliente sale de
       # X-Forwarded-For (límite de intentos de acceso).
       TRUST_PROXY: "true"

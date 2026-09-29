@@ -4,6 +4,11 @@ import type { KeyObject } from "node:crypto";
 import { SignJWT } from "jose";
 import type { AccountRole } from "./account-directory.js";
 
+/** Emisor (`iss`) de los tokens; el hub lo exige al verificar. */
+export const TOKEN_ISSUER = "hydrovalley-api";
+/** Audiencia (`aud`) de los tokens: el hub (`/play`); el hub la exige al verificar. */
+export const TOKEN_AUDIENCE = "hydrovalley-play";
+
 export interface TokenClaims {
   playerId: string;
   username: string;
@@ -39,6 +44,8 @@ export function createTokenService(options: TokenServiceOptions): TokenService {
       };
       const token = await new SignJWT({ player_id: playerId, username, role })
         .setProtectedHeader(header)
+        .setIssuer(TOKEN_ISSUER)
+        .setAudience(TOKEN_AUDIENCE)
         .setSubject(playerId)
         .setIssuedAt(iat)
         .setExpirationTime(exp)

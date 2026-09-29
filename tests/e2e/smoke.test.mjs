@@ -69,6 +69,8 @@ async function persistenceHealthy() {
   return stdout.trim() === "healthy";
 }
 
+const PASSWORD = "e2e-password-1";
+
 // Registra una cuenta nueva (cada ejecución usa un nombre distinto) y devuelve
 // lo que responde la API: el token firmado y el player_id.
 async function registerPlayer() {
@@ -77,7 +79,7 @@ async function registerPlayer() {
   const res = await fetch(`${BASE_URL}/api/auth/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username, password: "e2e-password-1" }),
+    body: JSON.stringify({ username, password: PASSWORD }),
   });
   assert.equal(res.status, 201, `register ${username}: ${res.status}`);
   const body = await res.json();
@@ -169,6 +171,54 @@ describe("walking skeleton (CP-01-lite)", () => {
     assert.equal(state.player.water, "19");
     assert.equal(state.player.tank_capacity, "20");
     assert.ok(account.player_id, "the API returns the player_id of the token");
+  });
+
+  it("logs in with the account just registered and the token opens /play", async () => {
+    const { username, player_id: playerId } = await registerPlayer();
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password: PASSWORD }),
+    });
+    assert.equal(res.status, 200, `login ${username}: ${res.status}`);
+    const body = await res.json();
+    assert.equal(typeof body.token, "string");
+    assert.ok(!Number.isNaN(Date.parse(body.expires_at)), "expires_at is an ISO 8601 date");
+
+    const wrong = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password: "not-the-password" }),
+    });
+    assert.equal(wrong.status, 401);
+
+    const login = new PlaySession(`${WS_BASE}/play?token=${body.token}&map=false`);
+    try {
+      await login.opened;
+      const state = await login.first("a state frame for the logged-in player", (f) => f.type === "state", 15_000);
+      assert.ok(state, "the login token is accepted by /play");
+      assert.ok(playerId, "register returned the player_id the login token carries");
+    } finally {
+      login.close();
+    }
+  });
+
+  it("answers forbidden to set_demo_mode from a non-admin player (RF-31)", async () => {
+    const { token } = await registerPlayer();
+    const player = new PlaySession(`${WS_BASE}/play?token=${token}&map=false`);
+    try {
+      await player.opened;
+      const actionId = randomUUID();
+      player.send({ type: "set_demo_mode", action_id: actionId, enabled: true });
+      const result = await player.first(
+        `the result of ${actionId}`,
+        (f) => f.type === "result" && f.action_id === actionId,
+        10_000,
+      );
+      assert.equal(result.status, "forbidden", JSON.stringify(result));
+    } finally {
+      player.close();
+    }
   });
 
   it("snapshots the world to PostgreSQL through the persistence", async () => {

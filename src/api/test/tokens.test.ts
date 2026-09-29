@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { decodeProtectedHeader, jwtVerify } from "jose";
 import { describe, expect, it } from "vitest";
-import { createTokenService } from "../src/tokens.js";
+import { createTokenService, TOKEN_AUDIENCE, TOKEN_ISSUER } from "../src/tokens.js";
 
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const PLAYER_ID = "0b6f2d3c-6f5e-4c53-9d0e-3f6f5f4d9a11";
@@ -27,6 +27,8 @@ describe("token service", () => {
     });
     expect(protectedHeader.alg).toBe("EdDSA");
     expect(payload).toEqual({
+      iss: "hydrovalley-api",
+      aud: "hydrovalley-play",
       sub: PLAYER_ID,
       player_id: PLAYER_ID,
       username: "ana",
@@ -35,6 +37,11 @@ describe("token service", () => {
       exp: now / 1000 + 43200,
     });
     expect(expiresAt.toISOString()).toBe("2026-10-02T00:00:00.000Z");
+  });
+
+  it("exposes the issuer and audience as named constants", () => {
+    expect(TOKEN_ISSUER).toBe("hydrovalley-api");
+    expect(TOKEN_AUDIENCE).toBe("hydrovalley-play");
   });
 
   it("rejects the token after it expires", async () => {

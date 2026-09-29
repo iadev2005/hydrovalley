@@ -103,6 +103,7 @@ func (e *env) tokenExpiring(playerID string, role auth.Role, exp time.Time) stri
 	e.t.Helper()
 	return e.sign(e.priv, jwt.MapClaims{
 		"sub": playerID, "player_id": playerID, "username": "user", "role": string(role),
+		"iss": auth.Issuer, "aud": auth.Audience,
 		"iat": e.now().Unix(), "exp": exp.Unix(),
 	})
 }

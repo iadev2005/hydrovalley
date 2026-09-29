@@ -6,6 +6,7 @@ import {
   loadSession,
   login,
   register,
+  retryDelayMs,
   saveSession,
   SESSION_KEY,
 } from "../js/auth.js";
@@ -64,7 +65,6 @@ describe("register", () => {
       token: OK.token,
       expiresAt: Date.parse(OK.expires_at),
       username: "Ana",
-      playerId: OK.player_id,
     });
   });
 
@@ -98,17 +98,28 @@ describe("login", () => {
     assert.equal(f.calls[0].url, "/api/auth/login");
   });
 
-  it("completes username and playerId from the token when the body omits them", async () => {
+  it("completes the username from the token when the body omits it (login)", async () => {
     const token = jwt({ player_id: OK.player_id, username: "Ana", role: "player" });
     const s = await login(fakeFetch(200, { token, expires_at: OK.expires_at }), creds);
     assert.equal(s.username, "Ana");
-    assert.equal(s.playerId, OK.player_id);
+  });
+
+  it("does not expose a playerId in the session", async () => {
+    const token = jwt({ player_id: OK.player_id, username: "Ana", role: "player" });
+    const s = await login(fakeFetch(200, { token, expires_at: OK.expires_at }), creds);
+    assert.ok(!("playerId" in s));
+    assert.ok(!("playerId" in (await register(fakeFetch(201, OK), creds))));
+  });
+
+  it("does not decode the token when the response already has the username", async () => {
+    const token = jwt({ username: "FromToken" });
+    const s = await register(fakeFetch(201, { ...OK, token }), creds);
+    assert.equal(s.username, "Ana");
   });
 
   it("falls back to the typed username when nothing else is available", async () => {
     const s = await login(fakeFetch(200, { token: "opaque", expires_at: OK.expires_at }), creds);
     assert.equal(s.username, "ana");
-    assert.equal(s.playerId, "");
   });
 
   it("maps 401", async () => {
@@ -164,11 +175,24 @@ describe("login", () => {
 });
 
 describe("session storage", () => {
-  const session = { token: "t", expiresAt: 2_000, username: "Ana", playerId: "pid" };
+  const session = { token: "t", expiresAt: 2_000, username: "Ana" };
 
   it("saves and loads a session that has not expired", () => {
     const storage = memoryStorage();
     saveSession(storage, session);
+    assert.deepEqual(loadSession(storage, 1_000), session);
+  });
+
+  it("never stores a playerId", () => {
+    const storage = memoryStorage();
+    saveSession(storage, { ...session, playerId: "pid" });
+    assert.ok(!storage.getItem(SESSION_KEY).includes("pid"));
+  });
+
+  it("still loads a session saved by an older version (with playerId)", () => {
+    const storage = memoryStorage({
+      [SESSION_KEY]: JSON.stringify({ ...session, playerId: "pid" }),
+    });
     assert.deepEqual(loadSession(storage, 1_000), session);
   });
 
@@ -223,5 +247,25 @@ describe("session storage", () => {
     assert.equal(loadSession(blocked, 0), null);
     assert.doesNotThrow(() => saveSession(blocked, session));
     assert.doesNotThrow(() => clearSession(blocked));
+  });
+});
+
+describe("retryDelayMs", () => {
+  it("uses the Retry-After seconds of a 429, in milliseconds", () => {
+    assert.equal(retryDelayMs(new AuthError("x", 429, 42)), 42_000);
+  });
+
+  it("uses a short default for a 429 without Retry-After", () => {
+    assert.equal(retryDelayMs(new AuthError("x", 429)), 5_000);
+  });
+
+  it("is 0 for other errors and for non-AuthError values", () => {
+    assert.equal(retryDelayMs(new AuthError("x", 401)), 0);
+    assert.equal(retryDelayMs(new Error("boom")), 0);
+    assert.equal(retryDelayMs(undefined), 0);
+  });
+
+  it("caps an absurd Retry-After", () => {
+    assert.equal(retryDelayMs(new AuthError("x", 429, 86_400)), 600_000);
   });
 });

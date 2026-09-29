@@ -51,7 +51,7 @@ Frontera Go/Rust: **Go decide si un comando es admisible; Rust decide qué produ
 - Identificadores: UUID en texto. Fechas: ISO 8601 en UTC. Tiempos: segundos.
 - Errores: códigos estándar de gRPC.
 - Comandos de administración (modo demo, reiniciar valle; RF-31): por el WebSocket `/play`, solo con rol de administrador en el token, y entran en la cola del tick como cualquier comando. Reiniciar el valle no reinicia el tick.
-- Token: Ed25519, `{player_id, username, role, exp}`, 12 h (el chat toma de ahí el `username`; el ranking lo completa la API con `AccountService.GetUsernames`). Firma la API (clave privada); el hub verifica con la pública al abrir `/play`. Claves por variables de entorno.
+- Token: Ed25519, `{player_id, username, role, iss, aud, exp}` (`iss` = `hydrovalley-api`, `aud` = `hydrovalley-play`; el hub verifica ambos), 12 h (el chat toma de ahí el `username`; el ranking lo completa la API con `AccountService.GetUsernames`). Firma la API (clave privada); el hub verifica con la pública al abrir `/play`. Claves por variables de entorno.
 - Contraseñas: TLS termina en nginx; la API calcula y verifica el hash Argon2id; la persistencia solo guarda el hash. El gRPC interno va sin cifrar dentro de la red del laboratorio: la contraseña nunca viaja por él, pero el hash Argon2id sí (entre la API y la persistencia); es un riesgo aceptado porque la red del laboratorio es cerrada.
 - Coordenadas: casilla `(x, y)` desde la esquina superior izquierda, empezando en 0. El servidor no sabe cómo se dibuja el valle.
 - Dentro de cada servicio, la estructura oficial de su lenguaje: Go con `cmd/` + `internal/`; Rust con la lógica en `src/lib.rs` y el servidor en `src/main.rs`.

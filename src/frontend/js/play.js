@@ -39,6 +39,24 @@ export function shouldReconnect(code) {
 }
 
 /**
+ * Qué hacer cuando se cierra el WebSocket de la sesión:
+ * - `ignore`: el cierre es de un socket que ya no es el actual (salida o
+ *   sustitución por otra sesión): no hay nada que hacer;
+ * - `show_access`: el hub rechazó el token (4401): volver a entrar;
+ * - `expired`: la sesión guardada ya venció, así que reconectar solo
+ *   repetiría el rechazo: volver a entrar;
+ * - `reconnect`: caída de red con sesión vigente: reintentar con espera.
+ * @param {{code: number, current: boolean, expiresAt: number, now: number}} close
+ * @returns {"ignore" | "show_access" | "expired" | "reconnect"}
+ */
+export function decideOnClose({ code, current, expiresAt, now }) {
+  if (!current) return "ignore";
+  if (!shouldReconnect(code)) return "show_access";
+  if (expiresAt <= now) return "expired";
+  return "reconnect";
+}
+
+/**
  * Dirección del WebSocket en el mismo origen que la página (nginx la
  * reenvía al hub). La identidad sale solo del token firmado. Sin mapa:
  * esta página no dibuja el valle.
