@@ -9,7 +9,11 @@ const PLAYER_ID = "0b6f2d3c-6f5e-4c53-9d0e-3f6f5f4d9a11";
 describe("token service", () => {
   it("signs an EdDSA JWT that the public key verifies, with the agreed claims", async () => {
     const now = Date.UTC(2026, 9, 1, 12, 0, 0);
-    const tokens = createTokenService({ privateKey, ttlSeconds: 43200, now: () => now });
+    const tokens = createTokenService({
+      privateKey,
+      ttlSeconds: 43200,
+      now: () => now,
+    });
 
     const { token, expiresAt } = await tokens.issue({
       playerId: PLAYER_ID,
@@ -35,8 +39,16 @@ describe("token service", () => {
 
   it("rejects the token after it expires", async () => {
     const now = Date.UTC(2026, 9, 1, 12, 0, 0);
-    const tokens = createTokenService({ privateKey, ttlSeconds: 60, now: () => now });
-    const { token } = await tokens.issue({ playerId: PLAYER_ID, username: "ana", role: "admin" });
+    const tokens = createTokenService({
+      privateKey,
+      ttlSeconds: 60,
+      now: () => now,
+    });
+    const { token } = await tokens.issue({
+      playerId: PLAYER_ID,
+      username: "ana",
+      role: "admin",
+    });
 
     await expect(
       jwtVerify(token, publicKey, { currentDate: new Date(now + 61_000) }),
@@ -45,15 +57,25 @@ describe("token service", () => {
 
   it("puts the key id in the header only when configured", async () => {
     const plain = createTokenService({ privateKey, ttlSeconds: 60 });
-    const withKid = createTokenService({ privateKey, ttlSeconds: 60, keyId: "k1" });
-    const claims = { playerId: PLAYER_ID, username: "ana", role: "player" } as const;
+    const withKid = createTokenService({
+      privateKey,
+      ttlSeconds: 60,
+      keyId: "k1",
+    });
+    const claims = {
+      playerId: PLAYER_ID,
+      username: "ana",
+      role: "player",
+    } as const;
 
     expect(decodeProtectedHeader((await plain.issue(claims)).token).kid).toBeUndefined();
     expect(decodeProtectedHeader((await withKid.issue(claims)).token).kid).toBe("k1");
   });
 
   it("rejects a key that is not Ed25519", () => {
-    const { privateKey: rsa } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { privateKey: rsa } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+    });
 
     expect(() => createTokenService({ privateKey: rsa, ttlSeconds: 60 })).toThrow(/Ed25519/);
   });

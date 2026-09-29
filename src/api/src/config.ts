@@ -1,6 +1,7 @@
 // Configuración de la API a partir de variables de entorno (regla 1 de
 // portabilidad: ninguna dirección en el código).
 import { createPrivateKey, type KeyObject } from "node:crypto";
+import { MAX_TOKEN_TTL_SECONDS } from "./limits.js";
 
 /** Lo que necesita el proceso para escuchar (también lo usa el HEALTHCHECK). */
 export interface ListenConfig {
@@ -21,8 +22,11 @@ export interface Config extends ListenConfig {
   tokenKeyId?: string | undefined;
   /** Vigencia del token en segundos (12 h por defecto). */
   tokenTtlSeconds: number;
-  /** Si es verdadero, la IP del cliente sale de `X-Forwarded-For` (nginx). */
-  trustProxy: boolean;
+  /**
+   * Saltos de proxy de confianza para la IP del cliente (`X-Forwarded-For`):
+   * `false` ninguno; `1` solo nginx.
+   */
+  trustProxy: false | number;
 }
 
 /** Niveles que acepta pino, del más grave al más detallado. */
@@ -40,6 +44,7 @@ const DEFAULT_LISTEN = "0.0.0.0:3000";
 type Env = Readonly<Record<string, string | undefined>>;
 
 const DEFAULT_TOKEN_TTL_SECONDS = 43200;
+const MAX_TRUST_PROXY_HOPS = 10;
 
 /**
  * Lee `API_LISTEN` (`host:puerto`, `:puerto` o `[ipv6]:puerto`; por defecto
@@ -109,7 +114,7 @@ function required(env: Env, name: string): string {
 /**
  * Configuración completa: lo de `loadListenConfig` más `PERSISTENCE_ADDR`
  * (obligatoria, sin valor por defecto), `TOKEN_PRIVATE_KEY` (obligatoria),
- * `TOKEN_TTL_SECONDS` (por defecto 43200), `TOKEN_KEY_ID` y `TRUST_PROXY`.
+ * `TOKEN_TTL_SECONDS` (por defecto 43200, máximo 604800), `TOKEN_KEY_ID` y `TRUST_PROXY`.
  */
 export function loadConfig(env: Env): Config {
   const listen = loadListenConfig(env);
@@ -120,16 +125,33 @@ export function loadConfig(env: Env): Config {
   if (ttl !== undefined && !/^[1-9]\d*$/.test(ttl)) {
     throw new Error(`TOKEN_TTL_SECONDS must be a positive integer, got "${ttl}"`);
   }
+  if (ttl !== undefined && Number(ttl) > MAX_TOKEN_TTL_SECONDS) {
+    throw new Error(
+      `TOKEN_TTL_SECONDS must be at most ${String(MAX_TOKEN_TTL_SECONDS)} (7 days), got "${ttl}"`,
+    );
+  }
   const trust = env.TRUST_PROXY;
-  if (trust !== undefined && trust !== "true" && trust !== "false") {
-    throw new Error(`TRUST_PROXY must be "true" or "false", got "${trust}"`);
+  let trustProxy: false | number = false;
+  if (trust === "true") {
+    // Un solo salto: nginx sobrescribe X-Forwarded-For con $remote_addr, así
+    // que una entrada previa del cliente no se toma en cuenta.
+    trustProxy = 1;
+  } else if (trust !== undefined && trust !== "false") {
+    const hops = /^[1-9]\d*$/.test(trust) ? Number(trust) : 0;
+    if (hops < 1 || hops > MAX_TRUST_PROXY_HOPS) {
+      throw new Error(
+        `TRUST_PROXY must be "true", "false" or a hop count from 1 to ${String(MAX_TRUST_PROXY_HOPS)}, got "${trust}"`,
+      );
+    }
+    trustProxy = hops;
   }
   return {
     ...listen,
     persistenceAddr,
     tokenPrivateKey,
-    tokenKeyId: env.TOKEN_KEY_ID === undefined || env.TOKEN_KEY_ID === "" ? undefined : env.TOKEN_KEY_ID,
+    tokenKeyId:
+      env.TOKEN_KEY_ID === undefined || env.TOKEN_KEY_ID === "" ? undefined : env.TOKEN_KEY_ID,
     tokenTtlSeconds: ttl === undefined ? DEFAULT_TOKEN_TTL_SECONDS : Number(ttl),
-    trustProxy: trust === "true",
+    trustProxy,
   };
 }

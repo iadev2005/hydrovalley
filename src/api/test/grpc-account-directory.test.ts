@@ -31,6 +31,7 @@ describe("gRPC account directory", () => {
 
   afterEach(async () => {
     sleeps.length = 0;
+    clockOffset = 0;
     await stop();
   });
 
@@ -48,14 +49,23 @@ describe("gRPC account directory", () => {
     return `127.0.0.1:${String((created.address() as AddressInfo).port)}`;
   }
 
-  const directory = (address: string, timeoutMs = 2000) =>
+  let clockOffset = 0;
+  const directory = (
+    address: string,
+    timeoutMs = 2000,
+    extra: Partial<Parameters<typeof createGrpcAccountDirectory>[0]> = {},
+  ) =>
     createGrpcAccountDirectory({
       address,
       timeoutMs,
+      random: () => 0,
+      now: () => Date.now() + clockOffset,
       sleep: (ms) => {
         sleeps.push(ms);
+        clockOffset += ms;
         return Promise.resolve();
       },
+      ...extra,
     });
 
   it("registers an account and maps the response", async () => {
@@ -63,13 +73,19 @@ describe("gRPC account directory", () => {
     const address = await start({
       register: (req) => {
         seen.push({ username: req.username, hash: req.passwordHash });
-        return { accountId: "11111111-1111-4111-8111-111111111111", role: Role.PLAYER };
+        return {
+          accountId: "11111111-1111-4111-8111-111111111111",
+          role: Role.PLAYER,
+        };
       },
     });
 
     const result = await directory(address).register("ana", "$argon2id$hash");
 
-    expect(result).toEqual({ playerId: "11111111-1111-4111-8111-111111111111", role: "player" });
+    expect(result).toEqual({
+      playerId: "11111111-1111-4111-8111-111111111111",
+      role: "player",
+    });
     expect(seen).toEqual([{ username: "ana", hash: "$argon2id$hash" }]);
   });
 
@@ -106,7 +122,11 @@ describe("gRPC account directory", () => {
 
   it("returns the account from GetAccount, mapping the admin role", async () => {
     const address = await start({
-      getAccount: () => ({ accountId: "id-1", passwordHash: "$argon2id$h", role: Role.ADMIN }),
+      getAccount: () => ({
+        accountId: "id-1",
+        passwordHash: "$argon2id$h",
+        role: Role.ADMIN,
+      }),
     });
 
     expect(await directory(address).getAccount("root")).toEqual({
@@ -135,7 +155,11 @@ describe("gRPC account directory", () => {
       getAccount: () => {
         calls++;
         if (calls < 4) throw new ConnectError("down", Code.Unavailable);
-        return { accountId: "id-1", passwordHash: "$argon2id$h", role: Role.PLAYER };
+        return {
+          accountId: "id-1",
+          passwordHash: "$argon2id$h",
+          role: Role.PLAYER,
+        };
       },
     });
 
@@ -211,5 +235,61 @@ describe("gRPC account directory", () => {
       ["a", "user-a"],
       ["b", "user-b"],
     ]);
+  });
+
+  it("adds up to 25% of jitter to each backoff", async () => {
+    const address = await start({
+      getAccount: () => {
+        throw new ConnectError("down", Code.Unavailable);
+      },
+    });
+
+    await expect(
+      directory(address, 2000, {
+        random: () => 1,
+        budgetMs: 10_000,
+      }).getAccount("ana"),
+    ).rejects.toBeInstanceOf(DirectoryUnavailableError);
+    expect(sleeps).toEqual([125, 250, 500]);
+  });
+
+  it("stops retrying when the next backoff would exceed the overall budget", async () => {
+    let calls = 0;
+    const address = await start({
+      getAccount: () => {
+        calls++;
+        throw new ConnectError("down", Code.Unavailable);
+      },
+    });
+
+    await expect(
+      directory(address, 2000, { budgetMs: 250 }).getAccount("ana"),
+    ).rejects.toBeInstanceOf(DirectoryUnavailableError);
+    // 100 ms de espera caben; los 200 ms siguientes (100 + 200 > 250) no.
+    expect(calls).toBe(2);
+    expect(sleeps).toEqual([100]);
+  });
+
+  it("caps each attempt's deadline by the remaining budget", async () => {
+    let calls = 0;
+    const address = await start({
+      getAccount: async () => {
+        calls++;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        return {
+          accountId: "id",
+          passwordHash: "$argon2id$h",
+          role: Role.PLAYER,
+        };
+      },
+    });
+
+    const started = Date.now();
+    await expect(
+      directory(address, 2000, { budgetMs: 200 }).getAccount("ana"),
+    ).rejects.toBeInstanceOf(DirectoryUnavailableError);
+
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(calls).toBe(1);
   });
 });

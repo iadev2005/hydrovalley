@@ -19,7 +19,8 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | `src/grpc-account-directory.ts` | Adaptador gRPC de `AccountService`: plazo de 2 s y reintentos acotados |
 | `src/passwords.ts` | Argon2id (`@node-rs/argon2`) y hash de relleno |
 | `src/tokens.ts` | Firma del JWT EdDSA con `jose` |
-| `src/rate-limit.ts` | Límite de intentos de acceso en memoria |
+| `src/rate-limit.ts` | Limitador de intentos en memoria (ventana fija) |
+| `src/limits.ts` | Constantes de los límites (acceso, registro, vigencia máxima del token); las usan `main.ts`, OpenAPI y este README |
 | `src/gen/` | Copia local del código generado desde `proto/` (no se versiona; ver [Código generado](#código-generado)) |
 | `src/main.ts` | Proceso: escucha y se detiene con SIGINT o SIGTERM |
 | `src/healthcheck.ts` | Comprobación del `HEALTHCHECK` de Docker (la imagen no trae curl) |
@@ -33,9 +34,9 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | `API_LISTEN` | No | `0.0.0.0:3000` | Dirección y puerto del HTTP (`host:puerto`, `:puerto` o `[ipv6]:puerto`) |
 | `PERSISTENCE_ADDR` | Sí | — | `host:puerto` del gRPC de la persistencia (plan B: `persistence:50051`; plan A: `10.68.17.x:50051`). Sin valor por defecto: ninguna dirección va en el código |
 | `TOKEN_PRIVATE_KEY` | Sí | — | Clave privada Ed25519 en PKCS#8 con la que se firman los tokens. Se admite el PEM tal cual, con los saltos de línea escritos como `\n`, o **el base64 del PEM completo** (una sola línea, a salvo de las comillas de un `.env`). Si falta o no es Ed25519, el arranque se detiene con un mensaje que nombra la variable, sin repetir el valor |
-| `TOKEN_TTL_SECONDS` | No | `43200` (12 h) | Vigencia del token, en segundos (entero positivo) |
+| `TOKEN_TTL_SECONDS` | No | `43200` (12 h) | Vigencia del token, en segundos: entero positivo de como máximo `604800` (7 días); un valor mayor detiene el arranque |
 | `TOKEN_KEY_ID` | No | — | Se escribe como `kid` en la cabecera del token |
-| `TRUST_PROXY` | No | `false` | Con `true`, la IP del cliente sale de `X-Forwarded-For` (detrás de nginx). Con `false`, el límite de intentos vería siempre la IP del proxy |
+| `TRUST_PROXY` | No | `false` | `true` confía en **un solo salto** de proxy (nginx): la IP del cliente es la última entrada de `X-Forwarded-For`, porque nginx la sobrescribe con `$remote_addr` y una entrada anterior inventada por el cliente se ignora. También admite un número de saltos (1 a 10). Con `false`, el límite de intentos vería siempre la IP del proxy. `deploy/compose.yml` lo activa |
 | `LOG_LEVEL` | No | `info` | Nivel de registro de pino (`fatal`, `error`, `warn`, `info`, `debug`, `trace` o `silent`). Un valor distinto detiene el arranque con un mensaje que nombra la variable y los valores admitidos |
 
 ## Claves del token
@@ -74,12 +75,14 @@ Todas cuelgan de `/api` porque nginx reenvía `/api/` sin reescribir la ruta. Lo
 
 - Busca la cuenta con `GetAccount`. Si no existe, la contraseña se verifica contra un **hash de relleno** (mismos parámetros, calculado una vez al arrancar) y se responde el mismo `401` que para una contraseña incorrecta, de modo que ni el mensaje ni el tiempo delatan si el usuario existe.
 - Token: JWT con `alg: EdDSA` (Ed25519) y, si se define, `kid`. Campos: `sub` y `player_id` (el UUID de la cuenta), `username` (con la grafía del registro, que se pide a `GetUsernames` porque `GetAccount` no la devuelve), `role` (`player` o `admin`), `iat` y `exp` (12 h por defecto). `expires_at` es el `exp` en ISO 8601.
-- **Límite de intentos:** 10 por minuto por usuario (sin distinguir mayúsculas) e IP; el undécimo recibe `429` con `Retry-After`. Es una ventana fija **en memoria y por instancia**: se pierde al reiniciar y, con varias réplicas, cada una cuenta aparte. Guarda como mucho 10.000 claves y expulsa la más antigua. Cuenta todos los intentos, correctos o no.
+- **Límites de intentos** (429 con `Retry-After`; valores en `src/limits.ts`, que es la única fuente): acceso, 10 por minuto por usuario (sin distinguir mayúsculas) e IP y 30 por minuto por IP entre todos los usuarios; registro, 5 cada 10 minutos por IP. Son ventanas fijas **en memoria y por instancia**: se pierden al reiniciar y, con varias réplicas, cada una cuenta aparte. Cada limitador guarda hasta 10.000 claves: al llenarse solo se descartan las ventanas caducadas, nunca una clave bloqueada o dentro de su ventana, y si sigue lleno las claves nuevas reciben 429 (falla cerrado) hasta que caduque la más antigua.
+- Si `GetUsernames` falla después de verificar la contraseña, el acceso no se rechaza: el token lleva el nombre que escribió el jugador y se registra un aviso.
+- **Validación:** el registro aplica las reglas de nombre y contraseña; el acceso solo exige usuario (1 a 64 caracteres) y contraseña (1 a 128), a propósito, para que un nombre que nunca pudo registrarse reciba el mismo 401 que uno inexistente.
 - Ni las contraseñas ni los hashes se escriben en el registro ni se devuelven; las respuestas solo llevan los campos declarados en su esquema.
 
 ### Llamadas a la persistencia
 
-Plazo de 2 s por llamada. `GetAccount` y `GetUsernames` (idempotentes) se reintentan hasta 3 veces, con esperas de 100, 200 y 400 ms, solo ante `UNAVAILABLE` o plazo agotado. `ALREADY_EXISTS` → `409`, `INVALID_ARGUMENT` → `400`, `UNAVAILABLE` o plazo agotado → `503`; cualquier otro error → `500` con un mensaje genérico.
+Plazo de 2 s por intento, dentro de un presupuesto total de 3 s por llamada: el plazo de cada intento se recorta a lo que queda y no se empieza una espera que lo agotaría. `GetAccount` y `GetUsernames` (idempotentes) se reintentan hasta 3 veces, con esperas de 100, 200 y 400 ms más hasta un 25 % de azar, solo ante `UNAVAILABLE` o plazo agotado. `ALREADY_EXISTS` → `409`, `INVALID_ARGUMENT` → `400`, `UNAVAILABLE` o plazo agotado → `503`; cualquier otro error → `500` con un mensaje genérico.
 
 ## Código generado
 
@@ -91,6 +94,8 @@ cd src/api && npm run gen
 ```
 
 Sin ese paso, `typecheck`, `test` y `build` no encuentran los módulos. La imagen de Docker lo genera sola desde `proto/`.
+
+Tanto la imagen como el CI (y `scripts/gen-proto.sh`) generan con plugins **remotos** de buf (`buf.build/...`), así que necesitan red. La versión de buf (1.73.0) está fijada en **tres sitios que deben coincidir**: `scripts/gen-proto.sh`, la etapa `proto` de `src/api/Dockerfile` (y las de los demás servicios) y el job `api` de `.github/workflows/ci.yml`. Al subirla, se cambian los tres.
 
 ## Pruebas
 

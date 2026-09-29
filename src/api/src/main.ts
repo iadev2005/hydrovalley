@@ -1,11 +1,21 @@
 // Proceso de la API: lee la configuración, escucha y se detiene con SIGINT
 // o SIGTERM.
-import { buildApp } from "./app.js";
+import { buildApp, trustHops } from "./app.js";
 import { type Config, loadConfig } from "./config.js";
 import { createGrpcAccountDirectory } from "./grpc-account-directory.js";
 import { createPasswordService } from "./passwords.js";
+import {
+  LIMITER_MAX_KEYS,
+  LOGIN_LIMIT_PER_IP,
+  LOGIN_LIMIT_PER_USER_IP,
+  REGISTER_LIMIT_PER_IP,
+  type RateLimit,
+} from "./limits.js";
 import { createAttemptLimiter } from "./rate-limit.js";
 import { createTokenService } from "./tokens.js";
+
+const limiter = ({ limit, windowMs }: RateLimit) =>
+  createAttemptLimiter({ limit, windowMs, maxKeys: LIMITER_MAX_KEYS });
 
 let config: Config;
 try {
@@ -16,7 +26,10 @@ try {
   process.exit(1);
 }
 const app = await buildApp(
-  { logger: { level: config.logLevel }, trustProxy: config.trustProxy },
+  {
+    logger: { level: config.logLevel },
+    trustProxy: config.trustProxy === false ? false : trustHops(config.trustProxy),
+  },
   {
     accounts: createGrpcAccountDirectory({ address: config.persistenceAddr }),
     // Calcula el hash de relleno una sola vez, antes de escuchar.
@@ -26,8 +39,10 @@ const app = await buildApp(
       ttlSeconds: config.tokenTtlSeconds,
       keyId: config.tokenKeyId,
     }),
-    // 10 intentos por minuto por usuario e IP; por instancia.
-    loginLimiter: createAttemptLimiter({ limit: 10, windowMs: 60_000 }),
+    // Límites de limits.ts; en memoria y por instancia.
+    loginLimiter: limiter(LOGIN_LIMIT_PER_USER_IP),
+    loginIpLimiter: limiter(LOGIN_LIMIT_PER_IP),
+    registerIpLimiter: limiter(REGISTER_LIMIT_PER_IP),
   },
 );
 

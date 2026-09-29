@@ -4,11 +4,18 @@ import { loadConfig, loadListenConfig } from "../src/config.js";
 import { makeKeyPair } from "./support/keys.js";
 
 const { pem } = makeKeyPair();
-const REQUIRED = { PERSISTENCE_ADDR: "persistence:50051", TOKEN_PRIVATE_KEY: pem };
+const REQUIRED = {
+  PERSISTENCE_ADDR: "persistence:50051",
+  TOKEN_PRIVATE_KEY: pem,
+};
 
 describe("loadConfig", () => {
   it("uses 0.0.0.0:3000 when API_LISTEN is not set", () => {
-    expect(loadConfig(REQUIRED)).toMatchObject({ host: "0.0.0.0", port: 3000, logLevel: "info" });
+    expect(loadConfig(REQUIRED)).toMatchObject({
+      host: "0.0.0.0",
+      port: 3000,
+      logLevel: "info",
+    });
   });
 
   it("reads host and port from API_LISTEN", () => {
@@ -84,7 +91,9 @@ describe("loadConfig PERSISTENCE_ADDR", () => {
   it.each(["persistence", "host:", ":50051", "host:0", "host:70000", "http://host:50051", "a b:1"])(
     "rejects the invalid value %j",
     (value) => {
-      expect(() => loadConfig({ ...REQUIRED, PERSISTENCE_ADDR: value })).toThrow(/PERSISTENCE_ADDR/);
+      expect(() => loadConfig({ ...REQUIRED, PERSISTENCE_ADDR: value })).toThrow(
+        /PERSISTENCE_ADDR/,
+      );
     },
   );
 });
@@ -143,7 +152,9 @@ describe("loadConfig TOKEN_TTL_SECONDS and extras", () => {
   });
 
   it.each(["0", "-5", "abc", "1.5", ""])("rejects %j", (value) => {
-    expect(() => loadConfig({ ...REQUIRED, TOKEN_TTL_SECONDS: value })).toThrow(/TOKEN_TTL_SECONDS/);
+    expect(() => loadConfig({ ...REQUIRED, TOKEN_TTL_SECONDS: value })).toThrow(
+      /TOKEN_TTL_SECONDS/,
+    );
   });
 
   it("reads the optional key id", () => {
@@ -151,9 +162,24 @@ describe("loadConfig TOKEN_TTL_SECONDS and extras", () => {
     expect(loadConfig({ ...REQUIRED, TOKEN_KEY_ID: "k1" }).tokenKeyId).toBe("k1");
   });
 
-  it("trusts the proxy only when TRUST_PROXY=true", () => {
+  it("trusts no proxy by default and exactly one hop when TRUST_PROXY=true", () => {
     expect(loadConfig(REQUIRED).trustProxy).toBe(false);
-    expect(loadConfig({ ...REQUIRED, TRUST_PROXY: "true" }).trustProxy).toBe(true);
-    expect(() => loadConfig({ ...REQUIRED, TRUST_PROXY: "yes" })).toThrow(/TRUST_PROXY/);
+    expect(loadConfig({ ...REQUIRED, TRUST_PROXY: "false" }).trustProxy).toBe(false);
+    expect(loadConfig({ ...REQUIRED, TRUST_PROXY: "true" }).trustProxy).toBe(1);
+  });
+
+  it("accepts a hop count for TRUST_PROXY", () => {
+    expect(loadConfig({ ...REQUIRED, TRUST_PROXY: "2" }).trustProxy).toBe(2);
+  });
+
+  it.each(["yes", "0", "-1", "1.5", "", "11"])("rejects TRUST_PROXY=%j", (value) => {
+    expect(() => loadConfig({ ...REQUIRED, TRUST_PROXY: value })).toThrow(/TRUST_PROXY/);
+  });
+
+  it("rejects a TTL above 7 days with a clear error", () => {
+    expect(loadConfig({ ...REQUIRED, TOKEN_TTL_SECONDS: "604800" }).tokenTtlSeconds).toBe(604800);
+    expect(() => loadConfig({ ...REQUIRED, TOKEN_TTL_SECONDS: "604801" })).toThrow(
+      /TOKEN_TTL_SECONDS.*604800/,
+    );
   });
 });

@@ -20,7 +20,12 @@ export interface PasswordService {
 // `Algorithm` es un `const enum` ambiental: con isolatedModules no se puede
 // usar por nombre, así que se pasa su valor (Argon2id = 2).
 const ARGON2ID = 2 as Algorithm.Argon2id;
-const PARAMS = { algorithm: ARGON2ID, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
+const PARAMS = {
+  algorithm: ARGON2ID,
+  memoryCost: 19456,
+  timeCost: 2,
+  parallelism: 1,
+} as const;
 
 export async function createPasswordService(): Promise<PasswordService> {
   const dummyHash = await argonHash(randomBytes(32).toString("hex"), PARAMS);

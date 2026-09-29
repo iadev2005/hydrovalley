@@ -16,6 +16,7 @@ export class FakeAccountDirectory implements AccountDirectory {
   readonly calls = { register: 0, getAccount: 0, getUsernames: 0 };
   registerError: Error | undefined;
   getAccountError: Error | undefined;
+  getUsernamesError: Error | undefined;
   lastRegisteredHash: string | undefined;
   private nextId = 1;
 
@@ -49,6 +50,7 @@ export class FakeAccountDirectory implements AccountDirectory {
 
   getUsernames(playerIds: readonly string[]) {
     this.calls.getUsernames++;
+    if (this.getUsernamesError) return Promise.reject(this.getUsernamesError);
     const result = new Map<string, string>();
     for (const account of this.accounts.values()) {
       if (playerIds.includes(account.playerId)) result.set(account.playerId, account.username);
