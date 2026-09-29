@@ -396,6 +396,10 @@ jobs:
       # desde deploy/: se fija la raíz del repositorio a mano.
       - name: Construir las imágenes
         uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        env:
+          # bake interpreta compose.yml y exige las variables obligatorias, pero
+          # solo construye: la clave real la genera tests/e2e/run.sh al arrancar.
+          TOKEN_PRIVATE_KEY: bake-only-placeholder
         with:
           source: .
           files: deploy/compose.yml

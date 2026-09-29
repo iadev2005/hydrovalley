@@ -1,4 +1,4 @@
-import { createServer, type Http2Server } from "node:http2";
+import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import type { AddressInfo } from "node:net";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
@@ -15,12 +15,17 @@ type Handlers = Partial<ServiceImpl<typeof AccountService>>;
 
 describe("gRPC account directory", () => {
   let server: Http2Server | undefined;
+  const sessions = new Set<ServerHttp2Session>();
   const sleeps: number[] = [];
 
+  // close() espera a que terminen las sesiones HTTP/2 abiertas y el cliente las
+  // mantiene vivas: se destruyen primero para que la limpieza no se cuelgue.
   async function stop() {
     const s = server;
     server = undefined;
     if (s) {
+      for (const session of sessions) session.destroy();
+      sessions.clear();
       await new Promise<void>((resolve) => {
         s.close(() => {
           resolve();
@@ -44,6 +49,10 @@ describe("gRPC account directory", () => {
         },
       }),
     );
+    created.on("session", (session) => {
+      sessions.add(session);
+      session.on("close", () => sessions.delete(session));
+    });
     server = created;
     await new Promise<void>((resolve) => created.listen(0, "127.0.0.1", resolve));
     return `127.0.0.1:${String((created.address() as AddressInfo).port)}`;
