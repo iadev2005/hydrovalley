@@ -14,7 +14,7 @@ from hydrovalley.persistence.v1 import account_pb2 as pb
 from hydrovalley.persistence.v1 import account_pb2_grpc as pb_grpc
 from persistence.adapters.memory import InMemoryAccountRepository, InMemorySnapshotRepository
 from persistence.account_servicer import MAX_USERNAMES_PER_REQUEST
-from persistence.domain import InvalidAccountError
+from persistence.domain import InvalidAccountError, RepositoryUnavailableError
 from persistence.server import ACCOUNT_SERVICE_NAME, create_server, set_serving
 
 HASH = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$aGFzaGhhc2hoYXNo"
@@ -192,6 +192,41 @@ def test_unexpected_errors_are_internal_never_unknown(stub, accounts):
     assert status_of(lambda: register(stub)) == grpc.StatusCode.INTERNAL
     assert status_of(lambda: get_account(stub)) == grpc.StatusCode.INTERNAL
     assert status_of(lambda: get_usernames(stub, [])) == grpc.StatusCode.INTERNAL
+
+
+LEAK = "SECRET-SQL-TEXT password_hash=$argon2id$leak"
+
+
+def detail_of(call) -> str:
+    with pytest.raises(grpc.RpcError) as error:
+        call()
+    return error.value.details()
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (RuntimeError(LEAK), "error interno"),
+        (InvalidAccountError(LEAK), "los datos de la cuenta no son válidos"),
+        (RepositoryUnavailableError(LEAK), "base de datos no disponible"),
+    ],
+)
+def test_error_details_are_fixed_and_never_echo_the_exception(stub, accounts, failure, expected):
+    accounts.error = failure
+    calls = [
+        lambda: register(stub),
+        lambda: get_account(stub),
+        lambda: get_usernames(stub, []),
+    ]
+    for call in calls:
+        detail = detail_of(call)
+        assert detail == expected
+        assert "SECRET" not in detail
+
+
+def test_already_exists_detail_does_not_echo_the_username(stub):
+    register(stub, "ana")
+    assert detail_of(lambda: register(stub, "ana")) == "el nombre de usuario ya existe"
 
 
 # --- Salud ------------------------------------------------------------------------

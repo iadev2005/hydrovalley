@@ -43,6 +43,16 @@ def _status_for(error: Exception) -> grpc.StatusCode:
     return grpc.StatusCode.INTERNAL
 
 
+# Detalle fijo por código: nunca se envía el texto de la excepción, que puede
+# citar SQL, datos del controlador o de la cuenta.
+_DETAIL = {
+    grpc.StatusCode.UNAVAILABLE: "base de datos no disponible",
+    grpc.StatusCode.ALREADY_EXISTS: "el nombre de usuario ya existe",
+    grpc.StatusCode.INVALID_ARGUMENT: "los datos de la cuenta no son válidos",
+    grpc.StatusCode.INTERNAL: "error interno",
+}
+
+
 class AccountServicer(pb_grpc.AccountServiceServicer):
     def __init__(self, repository: AccountRepository) -> None:
         self._repository = repository
@@ -58,7 +68,7 @@ class AccountServicer(pb_grpc.AccountServiceServicer):
         try:
             account = self._repository.register(request.username, request.password_hash)
         except Exception as error:
-            code, detail = self._log_failure("Register", error), str(error)
+            code, detail = self._status_and_detail_for("Register", error)
         else:
             return pb.RegisterResponse(
                 account_id=str(account.id), role=_ROLE_TO_PROTO[account.role]
@@ -73,7 +83,7 @@ class AccountServicer(pb_grpc.AccountServiceServicer):
         try:
             account = self._repository.get_by_username(request.username)
         except Exception as error:
-            code, detail = self._log_failure("GetAccount", error), str(error)
+            code, detail = self._status_and_detail_for("GetAccount", error)
         else:
             if account is None:
                 context.abort(grpc.StatusCode.NOT_FOUND, "la cuenta no existe")
@@ -97,7 +107,7 @@ class AccountServicer(pb_grpc.AccountServiceServicer):
         try:
             names = self._repository.get_usernames(ids)
         except Exception as error:
-            code, detail = self._log_failure("GetUsernames", error), str(error)
+            code, detail = self._status_and_detail_for("GetUsernames", error)
         else:
             # Las claves salen en la forma canónica del UUID (minúsculas).
             return pb.GetUsernamesResponse(
@@ -106,11 +116,12 @@ class AccountServicer(pb_grpc.AccountServiceServicer):
         context.abort(code, detail)
 
     @staticmethod
-    def _log_failure(method: str, error: Exception) -> grpc.StatusCode:
+    def _status_and_detail_for(method: str, error: Exception) -> tuple[grpc.StatusCode, str]:
+        """Traduce la excepción a su código y su detalle fijo, y la registra."""
         code = _status_for(error)
         if code is grpc.StatusCode.INTERNAL:
             log.error("%s: error inesperado", method, exc_info=error)
         elif code is not grpc.StatusCode.UNAVAILABLE:
             # Sin el detalle de la excepción: puede citar datos de la cuenta.
             log.warning("%s rechazado (%s)", method, code.name)
-        return code
+        return code, _DETAIL[code]

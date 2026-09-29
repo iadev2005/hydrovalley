@@ -24,16 +24,17 @@ def main() -> int:
         log.error("%s", error)
         return 2
 
-    repository = PostgresSnapshotRepository(
+    # Un mismo adaptador de PostgreSQL sirve los dos puertos (instantáneas y cuentas).
+    store = PostgresSnapshotRepository(
         settings.database_url, admin_seed=settings.admin_seed
     )
-    server, port, health = create_server(repository, settings.listen, accounts=repository)
-    repository.on_ready_change = lambda ready: set_serving(health, ready)
+    server, port, health = create_server(store, settings.listen, accounts=store)
+    store.on_ready_change = lambda ready: set_serving(health, ready)
 
     # El servidor gRPC atiende desde el principio; la base de datos se
     # conecta en segundo plano y, mientras tanto, se responde UNAVAILABLE.
     server.start()
-    repository.start()
+    store.start()
     log.info("persistencia escuchando en %s (puerto %d)", settings.listen, port)
 
     stop = threading.Event()
@@ -44,7 +45,7 @@ def main() -> int:
     log.info("deteniendo la persistencia")
     set_serving(health, False)
     server.stop(grace=5).wait()
-    repository.stop()
+    store.stop()
     return 0
 
 

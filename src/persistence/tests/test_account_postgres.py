@@ -4,6 +4,7 @@ Las de integración reutilizan los fixtures de test_postgres y solo corren
 con TEST_DATABASE_URL (base de datos desechable).
 """
 
+import time
 import uuid
 
 import psycopg
@@ -49,18 +50,58 @@ def test_data_errors_on_accounts_become_invalid_account(error):
         repository.get_usernames([uuid.uuid4()])
 
 
-def test_a_failing_admin_seed_fails_the_connection_attempt(monkeypatch):
+class SeedFailingConnection(FakeConnection):
+    """Falla solo en el INSERT de la siembra; cualquier otra sentencia pasa."""
+
+    def execute(self, sql, params=None):
+        if "INSERT INTO accounts" in sql:
+            self.statements.append(sql)
+            raise psycopg.OperationalError("caída")
+        return super().execute(sql, params)
+
+
+def test_a_failing_admin_seed_fails_the_attempt_after_migrations_and_is_retried(monkeypatch):
     # Si la siembra falla, la conexión no se publica: el hilo reintenta.
-    conn = FakeConnection(error=psycopg.OperationalError("caída"))
-    monkeypatch.setattr(psycopg, "connect", lambda *a, **k: conn)
-    monkeypatch.setattr("persistence.adapters.postgres.apply_migrations", lambda *a, **k: [])
+    events: list[str] = []
+    connections: list[SeedFailingConnection] = []
+
+    def connect(*args, **kwargs):
+        events.append("connect")
+        connections.append(SeedFailingConnection())
+        return connections[-1]
+
+    def migrate(*args, **kwargs):
+        events.append("migrate")
+        return []
+
+    monkeypatch.setattr(psycopg, "connect", connect)
+    monkeypatch.setattr("persistence.adapters.postgres.apply_migrations", migrate)
     repository = PostgresSnapshotRepository(
         "postgresql://nobody@127.0.0.1:1/none",
         admin_seed=AdminSeed("root", HASH),
+        backoff_initial_s=0.01,
+        backoff_max_s=0.02,
+        liveness_interval_s=60,
     )
+    # Una sola tentativa: falla en la siembra, con las migraciones ya aplicadas.
     with pytest.raises(psycopg.OperationalError):
         repository._open_connection()
-    assert conn.closed
+    assert events == ["connect", "migrate"]
+    assert any("INSERT INTO accounts" in sql for sql in connections[0].statements)
+    assert connections[0].closed
+
+    # Con el hilo en marcha, el intento se repite y el servicio no queda listo.
+    repository.start()
+    try:
+        deadline = time.monotonic() + 5
+        while len(connections) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(connections) >= 3
+        assert events[2:4] == ["connect", "migrate"]
+        assert not repository.wait_ready(timeout_s=0.05)
+        assert all(conn.closed for conn in connections[:-1])
+    finally:
+        repository.stop()
 
 
 # --- Con PostgreSQL real ----------------------------------------------------

@@ -15,7 +15,9 @@ from persistence.adapters.memory import InMemoryAccountRepository, InMemorySnaps
 from persistence.domain import (
     ConcurrentSnapshotChangeError,
     InvalidSnapshotError,
+    RepositoryUnavailableError,
     Snapshot,
+    SnapshotConflictError,
 )
 from persistence.retention import TICKS_PER_HOUR
 from persistence.server import SERVICE_NAME, create_server, set_serving
@@ -197,3 +199,28 @@ def test_unexpected_errors_are_internal_never_unknown(stub, repository):
     assert status_of(lambda: save(stub, snapshot_msg(50))) == grpc.StatusCode.INTERNAL
     code = status_of(lambda: stub.LoadSnapshot(pb.LoadSnapshotRequest(), timeout=2))
     assert code == grpc.StatusCode.INTERNAL
+
+
+LEAK = "SECRET-SQL-TEXT tick=99"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (RuntimeError(LEAK), "error interno"),
+        (InvalidSnapshotError(LEAK), "los datos de la instantánea no son válidos"),
+        (SnapshotConflictError(LEAK), "el tick ya existe con otro contenido"),
+        (ConcurrentSnapshotChangeError(LEAK), "cambio concurrente; se puede reintentar"),
+        (RepositoryUnavailableError(LEAK), "base de datos no disponible"),
+    ],
+)
+def test_error_details_are_fixed_and_never_echo_the_exception(stub, repository, failure, expected):
+    repository.save_error = failure
+    repository.load_error = failure
+    for call in (
+        lambda: save(stub, snapshot_msg(50)),
+        lambda: stub.LoadSnapshot(pb.LoadSnapshotRequest(), timeout=2),
+    ):
+        with pytest.raises(grpc.RpcError) as error:
+            call()
+        assert error.value.details() == expected
