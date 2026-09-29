@@ -1,16 +1,24 @@
 // Página mínima: acceso (registro y entrada), abre /play con el token,
 // suelta gotas y muestra lo que llega del hub. La lógica vive en auth.js y
 // play.js (probadas con node:test); aquí solo hay DOM y WebSocket.
-import { AuthError, clearSession, loadSession, login, register, saveSession } from "./auth.js";
+import {
+  AuthError,
+  clearSession,
+  loadSession,
+  login,
+  register,
+  retryDelayMs,
+  saveSession,
+} from "./auth.js";
 import {
   buildDropFrame,
   buildPlayUrl,
   createReconnectBackoff,
+  decideOnClose,
   describeFrame,
   GRID_SIZE,
   newUuid,
   parseFrame,
-  shouldReconnect,
 } from "./play.js";
 
 const MAX_LOG_LINES = 100;
@@ -84,11 +92,17 @@ function connect(session) {
     log(line);
   });
   ws.addEventListener("close", (event) => {
-    if (socket !== ws) return; // cierre provocado por «Salir» o por un 4401 ya tratado
+    const action = decideOnClose({
+      code: event.code,
+      current: socket === ws, // «Salir» o una sesión nueva ya soltaron este socket
+      expiresAt: session.expiresAt,
+      now: Date.now(),
+    });
+    if (action === "ignore") return;
     backoff.closed();
     $("drop").disabled = true;
-    if (!shouldReconnect(event.code)) {
-      // Token inválido o caducado: no se reintenta, hay que volver a entrar.
+    if (action !== "reconnect") {
+      // Token inválido o sesión vencida: no se reintenta, hay que volver a entrar.
       socket = null;
       clearSession(window.localStorage);
       $("conn").textContent = "desconectado";
@@ -110,23 +124,36 @@ function start(session) {
   connect(session);
 }
 
+let accessTimer = null;
+
+function setAccessDisabled(disabled) {
+  $("register").disabled = disabled;
+  $("login").disabled = disabled;
+}
+
 async function submitAccess(action) {
+  if ($("login").disabled) return; // solicitud en curso o espera tras un 429
   const username = $("username").value.trim();
   const password = $("password").value;
   if (username === "" || password === "") {
     showError("escribe el usuario y la contraseña");
     return;
   }
-  $("register").disabled = true;
-  $("login").disabled = true;
+  setAccessDisabled(true);
+  let waitMs = 0;
   try {
     start(await action(window.fetch.bind(window), { username, password }));
     $("password").value = "";
   } catch (err) {
     showError(err instanceof AuthError ? err.message : "no se pudo completar la solicitud");
-  } finally {
-    $("register").disabled = false;
-    $("login").disabled = false;
+    waitMs = retryDelayMs(err);
+  }
+  // Tras un 429 los botones siguen desactivados hasta que pase el Retry-After.
+  if (waitMs > 0) {
+    clearTimeout(accessTimer);
+    accessTimer = setTimeout(() => setAccessDisabled(false), waitMs);
+  } else {
+    setAccessDisabled(false);
   }
 }
 

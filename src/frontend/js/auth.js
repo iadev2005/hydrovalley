@@ -56,15 +56,31 @@ function failure(response, body) {
   }
 }
 
-/** Lee la carga útil (sin verificar la firma: eso lo hace el hub) de un JWT. */
-function tokenClaims(token) {
+/** Espera por defecto tras un 429 sin `Retry-After`. */
+const DEFAULT_RETRY_MS = 5_000;
+/** Tope de la espera: un `Retry-After` desmesurado no deja la página inservible. */
+const MAX_RETRY_MS = 600_000;
+
+/**
+ * Milisegundos que hay que esperar antes de volver a enviar el formulario:
+ * los del `Retry-After` de un 429, o 0 si el error no pide espera.
+ * @param {unknown} err
+ */
+export function retryDelayMs(err) {
+  if (!(err instanceof AuthError) || err.status !== 429) return 0;
+  if (err.retryAfter === undefined) return DEFAULT_RETRY_MS;
+  return Math.min(err.retryAfter * 1000, MAX_RETRY_MS);
+}
+
+/** Lee el `username` de la carga útil de un JWT (sin verificar la firma: eso lo hace el hub). */
+function tokenUsername(token) {
   try {
     const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
     const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
     const claims = JSON.parse(new TextDecoder().decode(bytes));
-    return claims && typeof claims === "object" ? claims : {};
+    return typeof claims?.username === "string" ? claims.username : "";
   } catch {
-    return {};
+    return "";
   }
 }
 
@@ -86,14 +102,13 @@ async function authenticate(fetchFn, path, { username, password }) {
   if (typeof body?.token !== "string" || body.token === "" || Number.isNaN(expiresAt)) {
     throw new AuthError("respuesta no válida del servidor", response.status);
   }
-  // El login solo devuelve `token` y `expires_at`: el resto sale del token.
-  const claims = tokenClaims(body.token);
-  const text = (...values) => values.find((v) => typeof v === "string" && v !== "") ?? "";
+  // El registro devuelve `username`; el login solo `token` y `expires_at`, y
+  // entonces el nombre sale del token (solo se lee ese campo).
+  const fromBody = typeof body.username === "string" ? body.username : "";
   return {
     token: body.token,
     expiresAt,
-    username: text(body.username, claims.username, username),
-    playerId: text(body.player_id, claims.player_id),
+    username: fromBody || tokenUsername(body.token) || username,
   };
 }
 
@@ -116,13 +131,13 @@ export function login(fetchFn, credentials) {
 }
 
 /**
- * Guarda la sesión. Solo se persisten cuatro campos, nunca la contraseña.
+ * Guarda la sesión. Solo se persisten tres campos, nunca la contraseña.
  * @param {{setItem(k: string, v: string): void}} storage
- * @param {{token: string, expiresAt: number, username: string, playerId: string}} session
+ * @param {{token: string, expiresAt: number, username: string}} session
  */
-export function saveSession(storage, { token, expiresAt, username, playerId }) {
+export function saveSession(storage, { token, expiresAt, username }) {
   try {
-    storage.setItem(SESSION_KEY, JSON.stringify({ token, expiresAt, username, playerId }));
+    storage.setItem(SESSION_KEY, JSON.stringify({ token, expiresAt, username }));
   } catch {
     // Almacenamiento bloqueado: la sesión dura solo lo que dure la página.
   }
@@ -161,10 +176,9 @@ export function loadSession(storage, now) {
       s.token !== "" &&
       Number.isFinite(s.expiresAt) &&
       s.expiresAt > now &&
-      typeof s.username === "string" &&
-      typeof s.playerId === "string"
+      typeof s.username === "string"
     ) {
-      return { token: s.token, expiresAt: s.expiresAt, username: s.username, playerId: s.playerId };
+      return { token: s.token, expiresAt: s.expiresAt, username: s.username };
     }
   } catch {
     // Datos corruptos: se descartan abajo.

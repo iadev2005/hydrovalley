@@ -39,6 +39,7 @@ func newFixture(t *testing.T) fixture {
 func claims() jwt.MapClaims {
 	return jwt.MapClaims{
 		"sub": ana, "player_id": ana, "username": "Ana", "role": "player",
+		"iss": Issuer, "aud": Audience,
 		"iat": now.Unix(), "exp": now.Add(12 * time.Hour).Unix(),
 	}
 }
@@ -106,6 +107,11 @@ func TestVerifyRejects(t *testing.T) {
 		{"player_id not a uuid", sign(t, jwt.SigningMethodEdDSA, f.priv, with("player_id", "ana"))},
 		{"missing username", sign(t, jwt.SigningMethodEdDSA, f.priv, with("username", nil))},
 		{"blank username", sign(t, jwt.SigningMethodEdDSA, f.priv, with("username", "  "))},
+		{"missing iss", sign(t, jwt.SigningMethodEdDSA, f.priv, with("iss", nil))},
+		{"wrong iss", sign(t, jwt.SigningMethodEdDSA, f.priv, with("iss", "someone-else"))},
+		{"missing aud", sign(t, jwt.SigningMethodEdDSA, f.priv, with("aud", nil))},
+		{"wrong aud", sign(t, jwt.SigningMethodEdDSA, f.priv, with("aud", "hydrovalley-chat"))},
+		{"aud list without play", sign(t, jwt.SigningMethodEdDSA, f.priv, with("aud", []string{"hydrovalley-chat"}))},
 		{"unknown role", sign(t, jwt.SigningMethodEdDSA, f.priv, with("role", "root"))},
 		{"missing role", sign(t, jwt.SigningMethodEdDSA, f.priv, with("role", nil))},
 	}

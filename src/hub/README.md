@@ -74,12 +74,12 @@ Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`
 
 ## Token y roles
 
-- **Formato** (el que firma la API, `src/api/src/tokens.ts`): JWT con cabecera `alg: EdDSA` y los campos `sub` y `player_id` (el mismo UUID), `username`, `role` (`player` o `admin`), `iat` y `exp`.
+- **Formato** (el que firma la API, `src/api/src/tokens.ts`): JWT con cabecera `alg: EdDSA` y los campos `sub` y `player_id` (el mismo UUID), `username`, `role` (`player` o `admin`), `iss` (`hydrovalley-api`), `aud` (`hydrovalley-play`), `iat` y `exp`. El hub exige `iss` y `aud` (`auth.Issuer`, `auth.Audience`): un token sin ellos, de otro emisor o para otra audiencia se rechaza con 4401.
 - **Verificación** (`internal/auth`): solo `EdDSA` con la clave pública; `none` y los HMAC se descartan antes de mirar la firma (con `github.com/golang-jwt/jwt/v5`, que está mantenida y cuya validación de algoritmos es cerrada, en vez de reescribir el análisis del JWT a mano). Además: `exp` obligatorio y en el futuro (con 30 s de margen de reloj), `player_id` un UUID igual a `sub`, `role` en `{player, admin}` y `username` no vacío. No llama a nadie: la persistencia caída no afecta a quien abre `/play` (diagrama 09).
 - **Token inválido**: se completa el upgrade y se cierra con el código **4401** (rango privado del WebSocket) y el motivo `invalid or expired token`, como en el diagrama 09; un navegador no puede leer el estado HTTP de un upgrade rechazado, y sin el código no distinguiría «vuelve a entrar» de una caída de red. No se registra ninguna sesión ni se lee un solo mensaje. El motivo detallado va solo al registro, nunca el token.
 - **Vencimiento**: el token se comprueba únicamente al abrir. Si vence con la conexión abierta, no se corta; para reconectarse hace falta uno vigente.
 - **Rol**: se guarda en la sesión. Solo `admin` puede enviar `set_demo_mode` y `reset_valley` (RF-31); los demás reciben `forbidden` al instante (regla 2 de CLAUDE.md) y el comando no entra en `pending` ni en la cola. Los comandos de administración no cuentan como gotas aceptadas ni consumen el límite de 15 gotas por segundo.
-- **Aviso**: el token viaja en la consulta de la URL, así que aparece en los registros de acceso de nginx. Es un riesgo aceptado en la red cerrada del laboratorio; el token dura 12 h y no da acceso a la contraseña.
+- **Aviso**: el token viaja en la consulta de la URL. nginx no lo escribe en su registro de acceso (usa `$uri`, la ruta sin consulta; ver `deploy/README.md`), pero sigue visible en el historial del navegador y en cualquier otro proxy intermedio. El token dura 12 h y no da acceso a la contraseña.
 
 ## Comportamiento
 

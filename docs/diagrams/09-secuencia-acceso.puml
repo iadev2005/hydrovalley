@@ -39,7 +39,7 @@ Persistence --> Api : id, password_hash, role\n(o NOT_FOUND)
 Api -> Api : verificar la contraseña contra el hash Argon2id\n(si NOT_FOUND, contra un hash de relleno:\nmismo tiempo de respuesta)
 
 alt credenciales correctas
-  Api -> Api : firmar el token con la clave privada Ed25519\n{player_id, username, role, exp = ahora + 12 h}
+  Api -> Api : firmar el token con la clave privada Ed25519\n{player_id, username, role,\niss = hydrovalley-api, aud = hydrovalley-play,\nexp = ahora + 12 h}
   Api --> Browser : 200 {"token": "…", "expires_at": "ISO 8601 en UTC"}
   Browser -> Browser : guardar el token
 else usuario inexistente o contraseña incorrecta
@@ -64,6 +64,7 @@ end note
 Browser -> Proxy : WSS /play?token=…
 Proxy -> Hub : reenvía /play (upgrade a WebSocket)
 Hub -> Hub : verificar la firma del token
+Hub -> Hub : comprobar el emisor y la audiencia\n(iss = hydrovalley-api, aud = hydrovalley-play)
 Hub -> Hub : comprobar que no ha vencido (exp)
 Hub -> Hub : comprobar el rol: player | admin
 
@@ -80,7 +81,7 @@ alt token válido
     con la conexión abierta, no se corta; dura hasta
     que se cierra.
   end note
-else firma inválida, token vencido o rol desconocido
+else firma inválida, emisor o audiencia incorrectos,\ntoken vencido o rol desconocido
   Hub --> Browser : cierra la conexión (código 4401)
   Browser -> Player : «La sesión ha vencido. Vuelve a entrar.»
 end

@@ -7,6 +7,7 @@ import {
   describeFrame,
   GRID_SIZE,
   AUTH_CLOSE_CODE,
+  decideOnClose,
   shouldReconnect,
   newUuid,
   parseFrame,
@@ -244,5 +245,32 @@ describe("createReconnectBackoff", () => {
     const backoff = createReconnectBackoff({ random: () => 0, now: () => 0 });
     backoff.closed();
     assert.equal(backoff.nextDelay(), 0);
+  });
+});
+
+describe("decideOnClose", () => {
+  const base = { code: 1006, current: true, expiresAt: 10_000, now: 1_000 };
+
+  it("reconnects after a network drop with a live session", () => {
+    assert.equal(decideOnClose(base), "reconnect");
+    assert.equal(decideOnClose({ ...base, code: 1001 }), "reconnect");
+  });
+
+  it("shows the access panel on 4401", () => {
+    assert.equal(decideOnClose({ ...base, code: 4401 }), "show_access");
+  });
+
+  it("ignores the close of a socket that is no longer the current one (logout)", () => {
+    assert.equal(decideOnClose({ ...base, current: false }), "ignore");
+    assert.equal(decideOnClose({ ...base, current: false, code: 4401 }), "ignore");
+  });
+
+  it("stops when the stored session has already expired", () => {
+    assert.equal(decideOnClose({ ...base, now: 10_000 }), "expired");
+    assert.equal(decideOnClose({ ...base, now: 20_000 }), "expired");
+  });
+
+  it("prefers 4401 over expiry (same outcome for the user, one clear reason)", () => {
+    assert.equal(decideOnClose({ ...base, code: 4401, now: 20_000 }), "show_access");
   });
 });

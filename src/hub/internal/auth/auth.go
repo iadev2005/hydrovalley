@@ -34,6 +34,14 @@ const (
 	RoleAdmin  Role = "admin"
 )
 
+// Emisor y audiencia del token: los mismos que firma la API
+// (src/api/src/tokens.ts). Un token de otro emisor o para otro servicio
+// (p. ej. el chat) no abre /play.
+const (
+	Issuer   = "hydrovalley-api"
+	Audience = "hydrovalley-play"
+)
+
 // clockSkew es la tolerancia con el reloj de la API al comprobar `exp`.
 const clockSkew = 30 * time.Second
 
@@ -67,13 +75,16 @@ func NewVerifier(key ed25519.PublicKey, now func() time.Time) *Verifier {
 		parser: jwt.NewParser(
 			jwt.WithValidMethods([]string{jwt.SigningMethodEdDSA.Alg()}),
 			jwt.WithExpirationRequired(),
+			jwt.WithIssuer(Issuer),
+			jwt.WithAudience(Audience),
 			jwt.WithLeeway(clockSkew),
 			jwt.WithTimeFunc(now),
 		),
 	}
 }
 
-// Verify comprueba la firma (solo EdDSA), que `exp` siga en el futuro (con
+// Verify comprueba la firma (solo EdDSA), el emisor (`iss`) y la audiencia
+// (`aud`), que `exp` siga en el futuro (con
 // 30 s de margen), que `player_id` sea un UUID igual a `sub`, que `role` sea
 // player o admin y que haya `username`. El error nunca incluye el token.
 func (v *Verifier) Verify(token string) (Identity, error) {
