@@ -1,9 +1,14 @@
-"""Repositorio en memoria: doble de pruebas del puerto SnapshotRepository."""
+"""Repositorios en memoria: dobles de pruebas de los puertos SnapshotRepository
+y AccountRepository."""
 
 import threading
+import uuid
 
 from persistence.domain import (
+    Account,
+    AccountAlreadyExistsError,
     RepositoryUnavailableError,
+    Role,
     SaveOutcome,
     Snapshot,
     SnapshotConflictError,
@@ -63,3 +68,49 @@ class InMemorySnapshotRepository:
     def ticks(self) -> list[int]:
         with self._lock:
             return sorted(self._rows)
+
+
+class InMemoryAccountRepository:
+    """Doble de pruebas del puerto AccountRepository."""
+
+    def __init__(self) -> None:
+        self._accounts: dict[str, Account] = {}  # clave: nombre en minúsculas
+        self._lock = threading.Lock()
+        # Interruptores para simular fallos en las pruebas.
+        self.available = True
+        # Si existe, cada operación lanza esta excepción.
+        self.error: Exception | None = None
+
+    def _check(self) -> None:
+        if not self.available:
+            raise RepositoryUnavailableError("repositorio en memoria desactivado")
+        if self.error is not None:
+            raise self.error
+
+    def register(self, username: str, password_hash: str) -> Account:
+        return self._insert(username, password_hash, Role.PLAYER)
+
+    def add_admin(self, username: str, password_hash: str) -> Account:
+        """Siembra una cuenta de administrador (solo para las pruebas)."""
+        return self._insert(username, password_hash, Role.ADMIN)
+
+    def _insert(self, username: str, password_hash: str, role: Role) -> Account:
+        self._check()
+        with self._lock:
+            key = username.lower()
+            if key in self._accounts:
+                raise AccountAlreadyExistsError(f"la cuenta {username} ya existe")
+            account = Account(uuid.uuid4(), username, password_hash, role)
+            self._accounts[key] = account
+            return account
+
+    def get_by_username(self, username: str) -> Account | None:
+        self._check()
+        with self._lock:
+            return self._accounts.get(username.lower())
+
+    def get_usernames(self, player_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        self._check()
+        wanted = set(player_ids)
+        with self._lock:
+            return {a.id: a.username for a in self._accounts.values() if a.id in wanted}

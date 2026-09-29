@@ -59,6 +59,17 @@ def _status_for(error: Exception) -> grpc.StatusCode:
     return grpc.StatusCode.INTERNAL
 
 
+# Detalle fijo por código: nunca se envía el texto de la excepción, que puede
+# citar SQL o datos del controlador.
+_DETAIL = {
+    grpc.StatusCode.UNAVAILABLE: "base de datos no disponible",
+    grpc.StatusCode.ALREADY_EXISTS: "el tick ya existe con otro contenido",
+    grpc.StatusCode.INVALID_ARGUMENT: "los datos de la instantánea no son válidos",
+    grpc.StatusCode.ABORTED: "cambio concurrente; se puede reintentar",
+    grpc.StatusCode.INTERNAL: "error interno",
+}
+
+
 class PersistenceServicer(pb_grpc.PersistenceServiceServicer):
     def __init__(self, repository: SnapshotRepository) -> None:
         self._repository = repository
@@ -81,7 +92,7 @@ class PersistenceServicer(pb_grpc.PersistenceServiceServicer):
         try:
             outcome = self._repository.save(snapshot)
         except Exception as error:
-            code, detail = self._log_failure("SaveSnapshot", error), str(error)
+            code, detail = self._status_and_detail_for("SaveSnapshot", error)
         else:
             if outcome is SaveOutcome.INSERTED:
                 self._prune()
@@ -92,7 +103,7 @@ class PersistenceServicer(pb_grpc.PersistenceServiceServicer):
         try:
             snapshot = self._repository.load_latest()
         except Exception as error:
-            code, detail = self._log_failure("LoadSnapshot", error), str(error)
+            code, detail = self._status_and_detail_for("LoadSnapshot", error)
         else:
             if snapshot is None:
                 context.abort(grpc.StatusCode.NOT_FOUND, "no hay ninguna instantánea")
@@ -107,13 +118,14 @@ class PersistenceServicer(pb_grpc.PersistenceServiceServicer):
         context.abort(code, detail)
 
     @staticmethod
-    def _log_failure(method: str, error: Exception) -> grpc.StatusCode:
+    def _status_and_detail_for(method: str, error: Exception) -> tuple[grpc.StatusCode, str]:
+        """Traduce la excepción a su código y su detalle fijo, y la registra."""
         code = _status_for(error)
         if code is grpc.StatusCode.INTERNAL:
             log.error("%s: error inesperado", method, exc_info=error)
         elif code is not grpc.StatusCode.UNAVAILABLE:
             log.error("%s rechazado (%s): %s", method, code.name, error)
-        return code
+        return code, _DETAIL[code]
 
     def _prune(self) -> None:
         # La poda va en otra transacción y su fallo no invalida el guardado:

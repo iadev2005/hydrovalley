@@ -1,4 +1,5 @@
-"""Adaptador de PostgreSQL del puerto SnapshotRepository.
+"""Adaptador de PostgreSQL de los puertos SnapshotRepository y AccountRepository
+(una sola conexión y un solo ciclo de vida para los dos).
 
 El servicio arranca aunque PostgreSQL no esté (portabilidad, regla 5): un
 hilo en segundo plano se conecta con esperas crecientes, aplica las
@@ -25,6 +26,7 @@ pool.
 import logging
 import threading
 from collections.abc import Callable
+import uuid
 from decimal import Decimal
 from pathlib import Path
 from typing import TypeVar
@@ -32,9 +34,14 @@ from typing import TypeVar
 import psycopg
 
 from persistence.domain import (
+    Account,
+    AccountAlreadyExistsError,
+    AdminSeed,
+    InvalidAccountError,
     ConcurrentSnapshotChangeError,
     InvalidSnapshotError,
     RepositoryUnavailableError,
+    Role,
     SaveOutcome,
     Snapshot,
     SnapshotConflictError,
@@ -67,8 +74,11 @@ class PostgresSnapshotRepository:
         backoff_max_s: float = 5.0,
         tcp_user_timeout_ms: int = 5000,
         liveness_interval_s: float = 5.0,
+        admin_seed: AdminSeed | None = None,
     ) -> None:
         self._dsn = dsn
+        # Cuenta de administrador que se crea, si no existe, tras migrar.
+        self._admin_seed = admin_seed
         self._migrations_dir = migrations_dir
         self.on_ready_change = on_ready_change
         self._connect_timeout_s = connect_timeout_s
@@ -169,7 +179,40 @@ class PostgresSnapshotRepository:
             raise
         if applied:
             log.info("migraciones aplicadas: %s", ", ".join(applied))
+        # La siembra va antes de publicar la conexión: la salud solo pasa a
+        # SERVING con el administrador ya creado y, si falla, se reintenta
+        # con el resto de la conexión.
+        try:
+            if self._admin_seed is not None:
+                self._seed_admin(conn, self._admin_seed)
+        except BaseException:
+            conn.close()
+            raise
         return conn
+
+    @staticmethod
+    def _seed_admin(conn: psycopg.Connection, seed: AdminSeed) -> None:
+        """Crea la cuenta de administrador si no existe. Idempotente: nunca
+        modifica una cuenta existente. No registra el hash."""
+        with conn.transaction():
+            inserted = conn.execute(
+                "INSERT INTO accounts (id, username, password_hash, role)"
+                " VALUES (%s, %s, %s, 'admin') ON CONFLICT DO NOTHING RETURNING id",
+                (uuid.uuid4(), seed.username, seed.password_hash),
+            ).fetchone()
+            if inserted is not None:
+                log.info("cuenta de administrador %r creada", seed.username)
+                return
+            row = conn.execute(
+                "SELECT role FROM accounts WHERE lower(username) = lower(%s)",
+                (seed.username,),
+            ).fetchone()
+        if row is not None and row[0] != Role.ADMIN.value:
+            log.warning(
+                "la cuenta %r ya existe con el rol %s: no se modifica", seed.username, row[0]
+            )
+        else:
+            log.info("cuenta de administrador %r ya existía", seed.username)
 
     def _publish_readiness(self) -> None:
         """Avisa del estado vigente si cambió desde el último aviso.
@@ -220,8 +263,16 @@ class PostgresSnapshotRepository:
                 self._drop_connection_locked(conn)
         self._connection_lost()
 
-    def _call(self, work: Callable[[psycopg.Connection], T]) -> T:
-        """Ejecuta work en una transacción con la conexión compartida."""
+    def _call(
+        self,
+        work: Callable[[psycopg.Connection], T],
+        invalid: type[Exception] = InvalidSnapshotError,
+    ) -> T:
+        """Ejecuta work en una transacción con la conexión compartida.
+
+        invalid es la excepción del dominio en la que se convierten los datos
+        que el esquema no admite (según la operación: instantánea o cuenta).
+        """
         lost: RepositoryUnavailableError | None = None
         with self._lock:
             conn = self._conn
@@ -242,7 +293,7 @@ class PostgresSnapshotRepository:
             except (psycopg.DataError, psycopg.IntegrityError) as error:
                 # Datos que el esquema no admite: la transacción se deshizo y
                 # la conexión sigue sana.
-                raise InvalidSnapshotError(str(error)) from error
+                raise invalid(str(error)) from error
         # Caída: se avisa y se despierta al hilo que reconecta fuera del
         # cerrojo, y solo entonces se informa del error a quien llamó.
         assert lost is not None  # solo se llega aquí tras una caída
@@ -323,3 +374,46 @@ class PostgresSnapshotRepository:
             return len(doomed)
 
         return self._call(work)
+
+    # --- Puerto AccountRepository -------------------------------------------
+
+    def register(self, username: str, password_hash: str) -> Account:
+        account_id = uuid.uuid4()
+
+        def work(conn: psycopg.Connection) -> Account:
+            # Sin objetivo en ON CONFLICT: cubre el índice único de
+            # lower(username) y, en teoría, el de la clave primaria.
+            inserted = conn.execute(
+                "INSERT INTO accounts (id, username, password_hash, role)"
+                " VALUES (%s, %s, %s, 'player') ON CONFLICT DO NOTHING RETURNING id",
+                (account_id, username, password_hash),
+            ).fetchone()
+            if inserted is None:
+                raise AccountAlreadyExistsError(f"la cuenta {username} ya existe")
+            return Account(account_id, username, password_hash, Role.PLAYER)
+
+        return self._call(work, invalid=InvalidAccountError)
+
+    def get_by_username(self, username: str) -> Account | None:
+        def work(conn: psycopg.Connection) -> Account | None:
+            row = conn.execute(
+                "SELECT id, username, password_hash, role FROM accounts"
+                " WHERE lower(username) = lower(%s)",
+                (username,),
+            ).fetchone()
+            if row is None:
+                return None
+            account_id, stored_username, password_hash, role = row
+            return Account(account_id, stored_username, password_hash, Role(role))
+
+        return self._call(work, invalid=InvalidAccountError)
+
+    def get_usernames(self, player_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        def work(conn: psycopg.Connection) -> dict[uuid.UUID, str]:
+            rows = conn.execute(
+                "SELECT id, username FROM accounts WHERE id = ANY(%s)",
+                (list(set(player_ids)),),
+            ).fetchall()
+            return {account_id: username for account_id, username in rows}
+
+        return self._call(work, invalid=InvalidAccountError)
