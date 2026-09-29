@@ -8,7 +8,7 @@ skinparam ranksep 60
 entity "accounts" as accounts {
   * id : UUID <<PK>>
   --
-  * username : TEXT <<UNIQUE>>
+  * username : TEXT <<UNIQUE lower(username)>>
   * password_hash : TEXT
   * role : TEXT <<CHECK role IN ('player', 'admin')>>
   * created_at : TIMESTAMPTZ

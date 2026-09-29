@@ -11,7 +11,7 @@ from grpc_health.v1 import health_pb2, health_pb2_grpc
 
 from hydrovalley.persistence.v1 import persistence_pb2 as pb
 from hydrovalley.persistence.v1 import persistence_pb2_grpc as pb_grpc
-from persistence.adapters.memory import InMemorySnapshotRepository
+from persistence.adapters.memory import InMemoryAccountRepository, InMemorySnapshotRepository
 from persistence.domain import (
     ConcurrentSnapshotChangeError,
     InvalidSnapshotError,
@@ -29,7 +29,9 @@ def repository():
 
 @pytest.fixture
 def running(repository):
-    server, port, health = create_server(repository, "127.0.0.1:0")
+    server, port, health = create_server(
+        repository, "127.0.0.1:0", accounts=InMemoryAccountRepository()
+    )
     server.start()
     channel = grpc.insecure_channel(f"127.0.0.1:{port}")
     yield pb_grpc.PersistenceServiceStub(channel), channel, health

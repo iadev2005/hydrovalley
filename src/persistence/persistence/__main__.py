@@ -24,8 +24,10 @@ def main() -> int:
         log.error("%s", error)
         return 2
 
-    repository = PostgresSnapshotRepository(settings.database_url)
-    server, port, health = create_server(repository, settings.listen)
+    repository = PostgresSnapshotRepository(
+        settings.database_url, admin_seed=settings.admin_seed
+    )
+    server, port, health = create_server(repository, settings.listen, accounts=repository)
     repository.on_ready_change = lambda ready: set_serving(health, ready)
 
     # El servidor gRPC atiende desde el principio; la base de datos se

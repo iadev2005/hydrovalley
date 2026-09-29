@@ -1,17 +1,18 @@
 # Persistencia
 
-Servicio en Python que es la única puerta a PostgreSQL (regla 5 de `CLAUDE.md`). Por ahora sirve solo `PersistenceService` (`SaveSnapshot` y `LoadSnapshot`, Capa 5) y el servicio estándar de salud `grpc.health.v1.Health`. `AccountService`, `CatalogService` y `ReportService` llegarán en otros pull requests: todavía no se registran, así que gRPC responde `UNIMPLEMENTED` a sus métodos.
+Servicio en Python que es la única puerta a PostgreSQL (regla 5 de `CLAUDE.md`). Por ahora sirve `PersistenceService` (`SaveSnapshot` y `LoadSnapshot`, Capa 5), `AccountService` (`Register`, `GetAccount` y `GetUsernames`) y el servicio estándar de salud `grpc.health.v1.Health`. `CatalogService` y `ReportService` llegarán en otros pull requests: todavía no se registran, así que gRPC responde `UNIMPLEMENTED` a sus métodos.
 
 ## Estructura
 
 | Ruta | Qué contiene |
 | --- | --- |
 | `persistence/domain.py` | `Snapshot`, resultados y errores del dominio |
-| `persistence/ports.py` | Puerto `SnapshotRepository` |
+| `persistence/ports.py` | Puertos `SnapshotRepository` y `AccountRepository` |
 | `persistence/retention.py` | Regla de retención (función pura) |
-| `persistence/adapters/postgres.py` | Adaptador de PostgreSQL (psycopg 3), con reconexión en segundo plano |
-| `persistence/adapters/memory.py` | Repositorio en memoria para las pruebas |
-| `persistence/servicer.py` | Servidor gRPC: traduce mensajes y errores a códigos de gRPC |
+| `persistence/adapters/postgres.py` | Adaptador de PostgreSQL (psycopg 3) de los dos puertos, con reconexión en segundo plano y siembra del administrador |
+| `persistence/adapters/memory.py` | Repositorios en memoria para las pruebas |
+| `persistence/servicer.py` | Servidor gRPC de `PersistenceService`: traduce mensajes y errores a códigos de gRPC |
+| `persistence/account_servicer.py` | Servidor gRPC de `AccountService`: validación y traducción de errores |
 | `persistence/server.py` | Montaje del servidor y del servicio de salud |
 | `migrations/` | Migraciones SQL versionadas (`NNNN_descripcion.sql`) |
 | `tests/` | Pruebas unitarias y de integración |
@@ -34,6 +35,10 @@ Servicio en Python que es la única puerta a PostgreSQL (regla 5 de `CLAUDE.md`)
 | `DATABASE_URL` | Sí | — | Conexión a PostgreSQL, p. ej. `postgresql://usuario:clave@db:5432/hydrovalley`. Sin valor por defecto: las credenciales nunca van en el código (RNF-13) |
 | `PERSISTENCE_LISTEN` | No | `0.0.0.0:50051` | Dirección y puerto en los que escucha el gRPC |
 | `LOG_LEVEL` | No | `INFO` | Nivel de registro |
+| `ADMIN_USERNAME` | No, pero va con `ADMIN_PASSWORD_HASH` | — | Nombre de la cuenta de administrador que se siembra al arrancar |
+| `ADMIN_PASSWORD_HASH` | No, pero va con `ADMIN_USERNAME` | — | Hash Argon2id (formato PHC) de esa cuenta. Nunca la contraseña en claro; el servicio tampoco lo escribe en el registro |
+
+Si solo se define una de las dos variables `ADMIN_*`, o el valor no cumple las reglas de validación, el servicio no arranca y el mensaje nombra las dos variables.
 
 ## Pruebas
 
@@ -73,7 +78,21 @@ El servicio arranca aunque PostgreSQL no esté (regla 5 de portabilidad): el gRP
 - **Errores**: sin conexión, caída o plazo agotado → `UNAVAILABLE`; datos que el esquema no admite (`DataError`, `IntegrityError` de psycopg) → `INVALID_ARGUMENT`; conflicto de contenido → `ALREADY_EXISTS`; cambio concurrente no resuelto → `ABORTED`; cualquier otro error → `INTERNAL`, que se registra con su traza. Nunca `UNKNOWN`.
 - **Retención**: todas las instantáneas de la última hora (tick mayor que el último menos 36.000, es decir, 720) y, de las anteriores, la primera de cada hora de tick (`tick // 36.000`).
 - **Migraciones**: cada archivo de `migrations/` es una versión; las aplicadas se anotan en `schema_migrations`. Se aplican al conectar, en una transacción y bajo un cerrojo consultivo, así que repetir el arranque no cambia nada. Esa transacción no usa el `statement_timeout` de 2 s de la conexión del servicio: lleva su propio plazo (`SET LOCAL` de `statement_timeout` y `lock_timeout`, 10 min por defecto) para las sentencias y para esperar el cerrojo.
-- Por ahora solo existe la tabla `snapshots`; `snapshot_players` (y el campo `players` del contrato) llegará con las cuentas, porque su `player_id` referencia a `accounts`.
+- Existen las tablas `snapshots` y `accounts`; `snapshot_players` (y el campo `players` del contrato) llegará con `ReportService`; su `player_id` ya puede referenciar a `accounts`.
+
+## Cuentas (`AccountService`)
+
+Solo guarda y devuelve el hash Argon2id que calcula la API; la contraseña nunca llega a este servicio (RNF-12).
+
+- **Tabla `accounts`** (`migrations/0002_create_accounts.sql`): `id` UUID (es el `player_id` del token y del mundo), `username`, `password_hash`, `role` (`player` o `admin`, con `CHECK`) y `created_at`.
+- **Mayúsculas y minúsculas**: el nombre de usuario es único **sin distinguir mayúsculas** (índice único sobre `lower(username)`): `Ana` y `ana` son la misma cuenta. Se conserva la grafía con la que se registró, y `GetAccount` busca sin distinguir mayúsculas. El alfabeto es solo ASCII para que `lower()` no dependa de la configuración regional.
+- **Validación de `username`**: de 3 a 32 caracteres entre `A-Z`, `a-z`, `0-9`, `_`, `.` y `-`. En `Register` incumplirlo es `INVALID_ARGUMENT`.
+- **Validación de `password_hash`**: debe empezar por `$argon2id$`, seguir con ASCII imprimible sin espacios y no pasar de 512 caracteres; si no, `INVALID_ARGUMENT`. Solo se comprueba la forma (verificarlo es cosa de la API) y el mensaje de error nunca repite el valor recibido.
+- **Register**: crea una cuenta `player` con un UUID nuevo. Nombre repetido → `ALREADY_EXISTS`. No se reintenta.
+- **GetAccount**: `account_id`, `password_hash` y `role`, o `NOT_FOUND`. Un nombre que no cumple las reglas de validación nunca pudo registrarse, así que también responde `NOT_FOUND` (no `INVALID_ARGUMENT`): la API trata igual todas las búsquedas fallidas.
+- **GetUsernames**: mapa `player_id → username` con los identificadores que existen; los desconocidos se omiten, los repetidos se ignoran y las claves salen en la forma canónica del UUID (minúsculas). Un UUID mal formado, o más de 1.000 identificadores, es `INVALID_ARGUMENT`.
+- **Administrador**: al conectar con la base de datos, justo después de las migraciones y antes de pasar a `SERVING`, si `ADMIN_USERNAME` y `ADMIN_PASSWORD_HASH` están definidas se crea esa cuenta con rol `admin` solo si no existe (`INSERT ... ON CONFLICT DO NOTHING`). Es idempotente y nunca modifica una cuenta existente: si el nombre ya lo tiene un jugador, no lo asciende y lo avisa en el registro. El registro nunca incluye el hash. Si la siembra falla, se reintenta como cualquier fallo de conexión.
+- **Errores**: los mismos que el servicio de instantáneas: sin conexión o plazo agotado → `UNAVAILABLE` (la salud de `AccountService` también pasa a `NOT_SERVING`); datos que el esquema no admite → `INVALID_ARGUMENT`; cualquier otro error → `INTERNAL`. Nunca `UNKNOWN`.
 
 ## Imagen de Docker
 
