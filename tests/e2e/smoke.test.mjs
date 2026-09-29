@@ -59,9 +59,20 @@ async function snapshotRows() {
   return { count, maxTick };
 }
 
+// Los servicios arrancan sin esperar a sus dependencias (RNF-09), así que la
+// API puede estar lista antes de que la persistencia conecte con PostgreSQL y
+// responder 503. No se reintenta el registro, porque tiene un límite de
+// intentos por IP: se espera a que el healthcheck de la persistencia (SERVING
+// solo con la base de datos conectada) la marque como sana.
+async function persistenceHealthy() {
+  const { stdout } = await run("docker", ["compose", "ps", "--format", "{{.Health}}", "persistence"]);
+  return stdout.trim() === "healthy";
+}
+
 // Registra una cuenta nueva (cada ejecución usa un nombre distinto) y devuelve
 // lo que responde la API: el token firmado y el player_id.
 async function registerPlayer() {
+  await eventually("persistence healthy", 120_000, persistenceHealthy);
   const username = `e2e-${randomUUID().slice(0, 8)}`;
   const res = await fetch(`${BASE_URL}/api/auth/register`, {
     method: "POST",
