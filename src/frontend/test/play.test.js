@@ -6,8 +6,8 @@ import {
   createReconnectBackoff,
   describeFrame,
   GRID_SIZE,
-  isUuid,
-  loadOrCreatePlayerId,
+  AUTH_CLOSE_CODE,
+  shouldReconnect,
   newUuid,
   parseFrame,
   RECONNECT_BASE_MS,
@@ -17,15 +17,6 @@ import {
 } from "../js/play.js";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function memoryStorage(initial = {}) {
-  const data = new Map(Object.entries(initial));
-  return {
-    getItem: (k) => (data.has(k) ? data.get(k) : null),
-    setItem: (k, v) => data.set(k, String(v)),
-    data,
-  };
-}
 
 describe("newUuid", () => {
   it("builds a v4 UUID from random bytes", () => {
@@ -42,59 +33,38 @@ describe("newUuid", () => {
   });
 });
 
-describe("isUuid", () => {
-  it("accepts UUIDs and rejects anything else", () => {
-    assert.equal(isUuid("0b9f1c2e-8d3a-4c1b-9e2f-1a2b3c4d5e6f"), true);
-    assert.equal(isUuid("not-a-uuid"), false);
-    assert.equal(isUuid(null), false);
-  });
-});
-
-describe("loadOrCreatePlayerId", () => {
-  it("returns the stored id when it is a UUID", () => {
-    const id = "0b9f1c2e-8d3a-4c1b-9e2f-1a2b3c4d5e6f";
-    const storage = memoryStorage({ "hydrovalley.player_id": id });
-    assert.equal(loadOrCreatePlayerId(storage, () => "other"), id);
-  });
-
-  it("creates and stores a new id when there is none or it is invalid", () => {
-    const fresh = "11111111-2222-4333-8444-555555555555";
-    for (const initial of [{}, { "hydrovalley.player_id": "garbage" }]) {
-      const storage = memoryStorage(initial);
-      assert.equal(loadOrCreatePlayerId(storage, () => fresh), fresh);
-      assert.equal(storage.data.get("hydrovalley.player_id"), fresh);
-    }
-  });
-
-  it("still works when storage throws (private mode)", () => {
-    const storage = {
-      getItem() {
-        throw new Error("blocked");
-      },
-      setItem() {
-        throw new Error("blocked");
-      },
-    };
-    const fresh = "11111111-2222-4333-8444-555555555555";
-    assert.equal(loadOrCreatePlayerId(storage, () => fresh), fresh);
-  });
-});
-
 describe("buildPlayUrl", () => {
-  const id = "0b9f1c2e-8d3a-4c1b-9e2f-1a2b3c4d5e6f";
-
-  it("uses ws on http and keeps host and port", () => {
+  it("uses ws on http, keeps host and port and sends only the token", () => {
     assert.equal(
-      buildPlayUrl({ protocol: "http:", host: "localhost:8080" }, id),
-      `ws://localhost:8080/play?player_id=${id}&map=false`,
+      buildPlayUrl({ protocol: "http:", host: "localhost:8080" }, "a.b.c"),
+      "ws://localhost:8080/play?token=a.b.c&map=false",
     );
   });
 
   it("uses wss on https", () => {
     assert.equal(
-      buildPlayUrl({ protocol: "https:", host: "10.68.17.4:8080" }, id),
-      `wss://10.68.17.4:8080/play?player_id=${id}&map=false`,
+      buildPlayUrl({ protocol: "https:", host: "10.68.17.4:8080" }, "a.b.c"),
+      "wss://10.68.17.4:8080/play?token=a.b.c&map=false",
     );
+  });
+
+  it("url-encodes the token and never sends player_id", () => {
+    const url = buildPlayUrl({ protocol: "http:", host: "h" }, "a b&c=d");
+    assert.equal(url, "ws://h/play?token=a+b%26c%3Dd&map=false");
+    assert.ok(!url.includes("player_id"));
+  });
+});
+
+describe("shouldReconnect", () => {
+  it("does not reconnect after an invalid or expired token (4401)", () => {
+    assert.equal(AUTH_CLOSE_CODE, 4401);
+    assert.equal(shouldReconnect(4401), false);
+  });
+
+  it("reconnects after any other close", () => {
+    for (const code of [1000, 1001, 1006, 1011, 4400, 4402]) {
+      assert.equal(shouldReconnect(code), true, String(code));
+    }
   });
 });
 

@@ -10,7 +10,23 @@
     <!-- Página mínima del esqueleto. TODO: React (paneles) y Phaser (valle isométrico). -->
     <main>
       <h1>hydrovalley</h1>
-      <p class="meta">Jugador: <code id="player-id">…</code> · Conexión: <span id="conn">desconectado</span></p>
+      <section id="access-panel" aria-labelledby="access-title">
+        <h2 id="access-title">Acceso</h2>
+        <form id="auth-form" autocomplete="on">
+          <label>Usuario <input id="username" name="username" type="text" autocomplete="username" required /></label>
+          <label>Contraseña <input id="password" name="password" type="password" autocomplete="current-password" required /></label>
+          <button id="register" type="button">Registrarse</button>
+          <button id="login" type="submit">Entrar</button>
+        </form>
+        <p id="auth-error" class="error" role="alert" hidden></p>
+      </section>
+      <section id="session-panel" hidden>
+        <p class="meta">
+          Conectado como <strong id="session-user"></strong>
+          <button id="logout" type="button">Salir</button>
+        </p>
+      </section>
+      <p class="meta">Conexión: <span id="conn">desconectado</span></p>
       <p class="meta" id="state">Sin estado todavía.</p>
       <form id="drop-form">
         <label>x <input id="x" type="number" min="0" step="1" required /></label>
