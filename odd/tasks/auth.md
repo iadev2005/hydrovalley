@@ -31,7 +31,7 @@ Fuera de alcance: TLS en nginx, `GetRanking`/`GetReport`, React y Phaser.
 ## Tareas
 
 - [x] T1 · Persistencia: migración de `accounts` y `AccountService` con sus pruebas; siembra del administrador. Evidencia: RED en la recolección; `uv run pytest` 113 passed / 21 skipped; con PostgreSQL 16 real 134 passed; `docker build` ok. Usuarios únicos sin distinguir mayúsculas (`lower(username)`).
-- [ ] T2 · API: registro, entrada, Argon2id y firma Ed25519, cliente gRPC de `AccountService`; pruebas y Swagger.
+- [x] T2 · API: registro, entrada, Argon2id y firma Ed25519, cliente gRPC de `AccountService`; pruebas y Swagger. Evidencia: RED (26 y luego 24 fallos), `npm test` 114 passed, lint/typecheck/build ok, `docker build` ok (también `linux/amd64`), e2e 3/3 con clave efímera. Rutas `/api/auth/register` y `/api/auth/login` según el documento; `compose.yml` exige `TOKEN_PRIVATE_KEY`. Commits `077e57e` (revisión 4 enfoques: aprobada), `37bf225` (endurecimiento: límites por IP, un salto de proxy, presupuesto de reintentos, TTL) y `a3520c5` (corrección acotada de un bloqueo global del límite de acceso detectado por la revisión; validador: aprobado). 133 pruebas.
 - [ ] T3 · Hub: verificación del token en `/play`, retirada de `player_id`, `forbidden` para comandos de administración sin rol; pruebas.
 - [ ] T4 · Página: registro y entrada, token guardado, conexión con `token`; pruebas.
 - [ ] T5 · Despliegue y e2e: variables y claves de ejemplo, compose, prueba de extremo a extremo con cuentas.

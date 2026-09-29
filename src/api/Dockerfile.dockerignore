@@ -7,3 +7,6 @@
 !src/api/tsconfig.json
 !src/api/tsconfig.build.json
 !src/api/src/
+# La copia local de gen/ts no entra: la imagen la genera desde proto/.
+src/api/src/gen
+!proto/
