@@ -118,7 +118,11 @@ func (e *env) sign(key ed25519.PrivateKey, c jwt.MapClaims) string {
 
 // as devuelve la consulta de /play de un jugador con su token.
 func (e *env) as(playerID string, extra ...string) string {
-	return "token=" + e.tokenFor(playerID, auth.RolePlayer) + strings.Join(append([]string{""}, extra...), "&")
+	q := "token=" + e.tokenFor(playerID, auth.RolePlayer)
+	for _, param := range extra {
+		q += "&" + param
+	}
+	return q
 }
 
 // asAdmin devuelve la consulta de /play de un administrador.

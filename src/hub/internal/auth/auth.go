@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
 )
 
 // Role es el rol del token (RF-31).
@@ -81,7 +82,7 @@ func (v *Verifier) Verify(token string) (Identity, error) {
 		return Identity{}, fmt.Errorf("%w: %s", ErrInvalidToken, reason(err))
 	}
 	switch {
-	case !isUUID(c.PlayerID):
+	case !frames.IsUUID(c.PlayerID):
 		return Identity{}, fmt.Errorf("%w: player_id is not a UUID", ErrInvalidToken)
 	case c.Subject != c.PlayerID:
 		return Identity{}, fmt.Errorf("%w: sub differs from player_id", ErrInvalidToken)
@@ -141,23 +142,4 @@ func ParsePublicKey(value string) (ed25519.PublicKey, error) {
 		return nil, errors.New("the public key is not Ed25519")
 	}
 	return key, nil
-}
-
-// isUUID: forma canónica 8-4-4-4-12 en hexadecimal.
-func isUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i := range len(s) {
-		c := s[i]
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
-			if c != '-' {
-				return false
-			}
-		case !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'):
-			return false
-		}
-	}
-	return true
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	playv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/play/v1"
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
@@ -377,5 +378,54 @@ func TestSessionKeepsTheRoleOfItsToken(t *testing.T) {
 	}
 	if r := h.hub.Connect(bob, auth.RolePlayer, true).Role(); r != auth.RolePlayer {
 		t.Fatalf("role = %v", r)
+	}
+}
+
+func TestAdminCommandRequeuedAfterFailedStepDoesNotCountAsADrop(t *testing.T) {
+	h := newHarness(t)
+	s := h.hub.Connect(ana, auth.RoleAdmin, true)
+	h.hub.SubmitAdmin(s, adminReset(1))
+	h.hub.SubmitDrop(s, drop(2))
+
+	h.world.set(func(w *fakeWorld) { w.fail = true })
+	h.tick()
+	// Rust ya lo había aplicado: el reintento vuelve como DUPLICATE.
+	h.world.set(func(w *fakeWorld) {
+		w.fail = false
+		w.statuses[uuidN(1)] = worldv1.CommandStatus_COMMAND_STATUS_DUPLICATE
+		w.statuses[uuidN(2)] = worldv1.CommandStatus_COMMAND_STATUS_DUPLICATE
+	})
+	h.tick()
+
+	if got := statusesOf(results(drain(s))); !slices.Equal(got, []string{"applied:" + uuidN(1), "applied:" + uuidN(2)}) {
+		t.Fatalf("results = %v", got)
+	}
+	if n := h.hub.AcceptedDrops(); n != 1 {
+		t.Fatalf("accepted drops = %d, want 1 (the drop only, not the admin command)", n)
+	}
+}
+
+func TestUnrecognizedAdminKindKeepsTheConnectionOpen(t *testing.T) {
+	h := newHarness(t)
+	s := h.hub.Connect(ana, auth.RoleAdmin, true)
+	got := h.hub.SubmitAdmin(s, frames.Admin{ActionID: uuidN(1), Kind: frames.AdminKind(99)})
+	if got != RejectedUnsupported {
+		t.Fatalf("outcome = %v, want unsupported (never no_session)", got)
+	}
+	var codes []string
+	for _, m := range drain(s) {
+		if e, ok := m.(*playv1.ErrorMessage); ok {
+			codes = append(codes, e.GetCode()+":"+e.GetActionId())
+		}
+	}
+	if !slices.Equal(codes, []string{"unknown_type:" + uuidN(1)}) {
+		t.Fatalf("error frames = %v", codes)
+	}
+	if n := h.hub.Status().QueueLen; n != 0 {
+		t.Fatalf("queue = %d", n)
+	}
+	// La sesión sigue registrada.
+	if got := h.hub.SubmitDrop(s, drop(2)); got != Admitted {
+		t.Fatalf("drop after the unsupported command = %v", got)
 	}
 }

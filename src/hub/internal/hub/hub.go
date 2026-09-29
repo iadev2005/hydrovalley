@@ -110,6 +110,9 @@ const (
 	// RejectedForbidden: comando de administración sin role = admin;
 	// "forbidden". Nunca entra en pending ni en la cola.
 	RejectedForbidden
+	// RejectedUnsupported: comando de administración de un tipo que el hub no
+	// conoce; se responde un error unknown_type y la conexión sigue abierta.
+	RejectedUnsupported
 	// RejectedNoSession: la conexión ya no está registrada; no se responde.
 	RejectedNoSession
 )
@@ -130,6 +133,8 @@ func (o Outcome) String() string {
 		return "rejected_paused"
 	case RejectedForbidden:
 		return "rejected_forbidden"
+	case RejectedUnsupported:
+		return "rejected_unsupported"
 	case RejectedNoSession:
 		return "no_session"
 	default:
@@ -175,6 +180,10 @@ type queued struct {
 	// lo supiera, así que su DUPLICATE en el reintento cuenta como APPLIED.
 	inFailedStep bool
 }
+
+// isDrop dice si el comando es una gota: solo las gotas consumen el límite
+// de 15/s y cuentan como gotas aceptadas.
+func (q queued) isDrop() bool { return q.cmd.GetDrop() != nil }
 
 type confirmEntry struct {
 	playerID, actionID string
@@ -326,8 +335,8 @@ func (h *Hub) playerLocked(id string) *player {
 // solo ocupa hueco en la ventana del límite cuando se admite: el límite se
 // consulta sin registrar y se registra después de todas las comprobaciones.
 func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
-	return h.submit(s, d.ActionID, true, &worldv1.Command{
-		Kind: &worldv1.Command_Drop{Drop: &worldv1.DropCommand{X: d.X, Y: d.Y}},
+	return h.submit(s, d.ActionID, func() (*worldv1.Command, Outcome) {
+		return &worldv1.Command{Kind: &worldv1.Command_Drop{Drop: &worldv1.DropCommand{X: d.X, Y: d.Y}}}, Admitted
 	})
 }
 
@@ -336,34 +345,28 @@ func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
 // Con ese rol pasa por la misma admisión que la gota (pending, confirmed y
 // cola llena), sin el límite de gotas, y viaja a Step como cualquier comando.
 func (h *Hub) SubmitAdmin(s *Session, a frames.Admin) Outcome {
-	if s.role != auth.RoleAdmin {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		p, ok := h.players[s.playerID]
-		if !ok {
-			return RejectedNoSession
-		}
-		if _, ok := p.sessions[s]; !ok {
-			return RejectedNoSession
-		}
-		s.Send(frames.Result(a.ActionID, frames.StatusForbidden, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
-		return RejectedForbidden
-	}
-	cmd := &worldv1.Command{}
+	var cmd *worldv1.Command
 	switch a.Kind {
 	case frames.AdminSetDemoMode:
-		cmd.Kind = &worldv1.Command_SetDemoMode{SetDemoMode: &worldv1.SetDemoModeCommand{Enabled: a.Enabled}}
+		cmd = &worldv1.Command{Kind: &worldv1.Command_SetDemoMode{SetDemoMode: &worldv1.SetDemoModeCommand{Enabled: a.Enabled}}}
 	case frames.AdminResetValley:
-		cmd.Kind = &worldv1.Command_ResetValley{ResetValley: &worldv1.ResetValleyCommand{}}
-	default:
-		return RejectedNoSession
+		cmd = &worldv1.Command{Kind: &worldv1.Command_ResetValley{ResetValley: &worldv1.ResetValleyCommand{}}}
 	}
-	return h.submit(s, a.ActionID, false, cmd)
+	return h.submit(s, a.ActionID, func() (*worldv1.Command, Outcome) {
+		switch {
+		case s.role != auth.RoleAdmin:
+			return nil, RejectedForbidden
+		case cmd == nil:
+			return nil, RejectedUnsupported
+		}
+		return cmd, Admitted
+	})
 }
 
-// submit es la admisión común. cmd trae el tipo; aquí se le pone el
+// submit es la admisión común. build decide qué comando viaja o el rechazo
+// previo a la cola (rol, tipo desconocido); a ese comando se le pone aquí el
 // action_id y el jugador de la sesión (nunca los del mensaje).
-func (h *Hub) submit(s *Session, actionID string, isDrop bool, cmd *worldv1.Command) Outcome {
+func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command, Outcome)) Outcome {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	p, ok := h.players[s.playerID]
@@ -373,33 +376,48 @@ func (h *Hub) submit(s *Session, actionID string, isDrop bool, cmd *worldv1.Comm
 	if _, ok := p.sessions[s]; !ok {
 		return RejectedNoSession
 	}
+	cmd, outcome := build()
+	if outcome != Admitted {
+		s.replyLocked(actionID, outcome)
+		return outcome
+	}
+	q := queued{cmd: cmd}
+	cmd.ActionId = actionID
+	cmd.PlayerId = s.playerID
 	if _, ok := p.pending[actionID]; ok {
 		return IgnoredPending
 	}
 	now := h.clock.Now()
-	outcome := Admitted
 	switch {
 	case hasKey(p.confirmed, actionID):
 		outcome = RejectedDuplicate
-	case isDrop && !p.limiter.Permits(now):
+	case q.isDrop() && !p.limiter.Permits(now):
 		outcome = RejectedRateLimited
 	case len(h.queue) >= h.cfg.QueueCap:
 		outcome = RejectedPaused
 	}
 	if outcome != Admitted {
-		if status, ok := WireStatus(outcome); ok {
-			s.Send(frames.Result(actionID, status, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
-		}
+		s.replyLocked(actionID, outcome)
 		return outcome
 	}
-	if isDrop {
+	if q.isDrop() {
 		p.limiter.Record(now)
 	}
 	p.pending[actionID] = struct{}{}
-	cmd.ActionId = actionID
-	cmd.PlayerId = s.playerID
-	h.queue = append(h.queue, queued{cmd: cmd, admittedAt: now})
+	q.admittedAt = now
+	h.queue = append(h.queue, q)
 	return Admitted
+}
+
+// replyLocked responde al instante un rechazo de la admisión.
+func (s *Session) replyLocked(actionID string, o Outcome) {
+	if o == RejectedUnsupported {
+		s.Send(frames.Error(frames.CodeUnknownType, actionID))
+		return
+	}
+	if status, ok := WireStatus(o); ok {
+		s.Send(frames.Result(actionID, status, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED))
+	}
 }
 
 func hasKey[V any](m map[string]V, k string) bool {
