@@ -365,6 +365,24 @@ describe("auth routes", () => {
       expect(res.headers["retry-after"]).toBe("60");
     });
 
+    it("does not create username+IP keys once the IP limit denies", async () => {
+      const userLimiter = createAttemptLimiter({ limit: 10, windowMs: 60_000, now: () => NOW });
+      await setup({ loginIpLimit: 3, loginLimiter: userLimiter });
+      accounts.seed("ana", await passwords.hash("s3cret-pass"));
+      for (let i = 0; i < 20; i++) {
+        await post("/api/auth/login", { username: `user${String(i)}`, password: "bad-password" });
+      }
+
+      expect(userLimiter.size()).toBeLessThanOrEqual(3);
+      const other = await running().inject({
+        method: "POST",
+        url: "/api/auth/login",
+        remoteAddress: "10.9.9.9",
+        payload: { username: "ana", password: "s3cret-pass" },
+      });
+      expect(other.statusCode).toBe(200);
+    });
+
     it("falls back to the typed username when GetUsernames fails after a valid password", async () => {
       await registered();
       accounts.getUsernamesError = unavailable();

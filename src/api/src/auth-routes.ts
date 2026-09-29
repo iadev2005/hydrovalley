@@ -204,14 +204,15 @@ export const authRoutes: FastifyPluginAsync<AuthDeps> = (app, deps) => {
     async (req, reply) => {
       const { username, password } = req.body;
 
-      // Se cuentan los dos límites en cada intento; basta con que uno bloquee.
-      const byIp = deps.loginIpLimiter.hit(req.ip);
-      const byUser = deps.loginLimiter.hit(`${username.toLowerCase()}|${req.ip}`);
-      if (!byIp.allowed || !byUser.allowed) {
-        return tooMany(reply, Math.max(byIp.retryAfterSeconds, byUser.retryAfterSeconds));
-      }
+      // Primero el límite por IP: si niega, no se toca el de usuario e IP, para
+    // que una sola IP no llene el limitador con claves nuevas y bloquee a los
+    // demás (el limitador falla cerrado cuando se llena).
+    const byIp = deps.loginIpLimiter.hit(req.ip);
+    if (!byIp.allowed) return tooMany(reply, byIp.retryAfterSeconds);
+    const byUser = deps.loginLimiter.hit(`${username.toLowerCase()}|${req.ip}`);
+    if (!byUser.allowed) return tooMany(reply, byUser.retryAfterSeconds);
 
-      const account = await deps.accounts.getAccount(username);
+    const account = await deps.accounts.getAccount(username);
       // Si la cuenta no existe se verifica contra el hash de relleno: cuesta lo
       // mismo y la respuesta no revela si el usuario existe.
       const matches = await deps.passwords.verify(
