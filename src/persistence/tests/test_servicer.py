@@ -11,7 +11,11 @@ from grpc_health.v1 import health_pb2, health_pb2_grpc
 
 from hydrovalley.persistence.v1 import persistence_pb2 as pb
 from hydrovalley.persistence.v1 import persistence_pb2_grpc as pb_grpc
-from persistence.adapters.memory import InMemoryAccountRepository, InMemorySnapshotRepository
+from persistence.adapters.memory import (
+    InMemoryAccountRepository,
+    InMemoryCatalogRepository,
+    InMemorySnapshotRepository,
+)
 from persistence.domain import (
     ConcurrentSnapshotChangeError,
     InvalidSnapshotError,
@@ -32,7 +36,8 @@ def repository():
 @pytest.fixture
 def running(repository):
     server, port, health = create_server(
-        repository, "127.0.0.1:0", accounts=InMemoryAccountRepository()
+        repository, "127.0.0.1:0", accounts=InMemoryAccountRepository(),
+        catalog=InMemoryCatalogRepository(),
     )
     server.start()
     channel = grpc.insecure_channel(f"127.0.0.1:{port}")
@@ -147,14 +152,14 @@ def test_health_reports_serving_state(running):
     assert check(SERVICE_NAME) == health_pb2.HealthCheckResponse.NOT_SERVING
 
 
-def test_other_persistence_services_are_not_registered_yet(running):
+def test_report_service_is_not_registered_yet(running):
     _, channel, _ = running
-    get_catalog = channel.unary_unary(
-        "/hydrovalley.persistence.v1.CatalogService/GetCatalog",
+    get_report = channel.unary_unary(
+        "/hydrovalley.persistence.v1.ReportService/GetReport",
         request_serializer=lambda _: b"",
         response_deserializer=lambda raw: raw,
     )
-    assert status_of(lambda: get_catalog(None, timeout=2)) == grpc.StatusCode.UNIMPLEMENTED
+    assert status_of(lambda: get_report(None, timeout=2)) == grpc.StatusCode.UNIMPLEMENTED
 
 
 # --- Validación y traducción de errores ------------------------------------

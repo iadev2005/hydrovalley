@@ -3,6 +3,7 @@
 import uuid
 from typing import Protocol
 
+from persistence.catalog import CatalogEntry
 from persistence.domain import Account, SaveOutcome, Snapshot
 
 
@@ -42,4 +43,14 @@ class AccountRepository(Protocol):
     def get_usernames(self, player_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Nombres de las cuentas que existen; los identificadores
         desconocidos no aparecen."""
+        ...
+
+
+class CatalogRepository(Protocol):
+    def load_entries(self) -> list[CatalogEntry]:
+        """Todas las filas de `catalog_entries`.
+
+        Lanza RepositoryUnavailableError si no hay base de datos. El catálogo
+        lo siembra el adaptador al conectar, desde el archivo de `catalog/`.
+        """
         ...

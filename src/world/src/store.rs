@@ -1,5 +1,6 @@
-//! Puerto hacia la persistencia de instantáneas (Capa 5) y su adaptador
-//! gRPC contra `PersistenceService`.
+//! Puerto hacia la persistencia (instantáneas de la Capa 5 y catálogo) y su
+//! adaptador gRPC contra `PersistenceService` y `CatalogService`, que
+//! comparten dirección (`PERSISTENCE_ADDR`) y canal.
 
 use std::future::Future;
 use std::time::Duration;
@@ -7,7 +8,10 @@ use std::time::Duration;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Code, Request, Status};
 
+use crate::codec;
+use crate::domain::Catalog;
 use crate::proto::persistence::v1 as persistence_pb;
+use crate::proto::persistence::v1::catalog_service_client::CatalogServiceClient;
 use crate::proto::persistence::v1::persistence_service_client::PersistenceServiceClient;
 
 /// Fila de instantánea tal como viaja a la persistencia.
@@ -37,8 +41,10 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-/// Dónde se guardan y de dónde se cargan las instantáneas.
+/// Dónde se guardan y de dónde se cargan las instantáneas y el catálogo.
 pub trait SnapshotStore: Send + Sync + 'static {
+    /// Las cifras del juego (`CatalogService.GetCatalog`), ya validadas.
+    fn get_catalog(&self) -> impl Future<Output = Result<Catalog, StoreError>> + Send;
     /// La instantánea de mayor tick, o `None` si no hay ninguna.
     fn load(&self) -> impl Future<Output = Result<Option<Snapshot>, StoreError>> + Send;
     fn save(&self, snapshot: Snapshot) -> impl Future<Output = Result<(), StoreError>> + Send;
@@ -69,7 +75,7 @@ pub fn is_retryable(code: Code) -> bool {
 /// Adaptador gRPC de [`SnapshotStore`].
 #[derive(Debug, Clone)]
 pub struct GrpcSnapshotStore {
-    client: PersistenceServiceClient<Channel>,
+    channel: Channel,
     policy: CallPolicy,
 }
 
@@ -92,10 +98,7 @@ impl GrpcSnapshotStore {
         let channel = Endpoint::from_shared(uri)?
             .connect_timeout(policy.deadline)
             .connect_lazy();
-        Ok(Self {
-            client: PersistenceServiceClient::new(channel),
-            policy,
-        })
+        Ok(Self { channel, policy })
     }
 
     /// Ejecuta `attempt` con el plazo de la política y como mucho tantos
@@ -112,13 +115,13 @@ impl GrpcSnapshotStore {
     /// se reintenta. Por eso se quitaron.
     async fn call<T, F, Fut>(&self, method: &str, mut attempt: F) -> Result<T, Status>
     where
-        F: FnMut(PersistenceServiceClient<Channel>) -> Fut,
+        F: FnMut(Channel) -> Fut,
         Fut: Future<Output = Result<T, Status>>,
     {
         let mut delays = self.policy.retry_delays.iter();
         loop {
             let deadline = self.policy.deadline;
-            let result = match tokio::time::timeout(deadline, attempt(self.client.clone())).await {
+            let result = match tokio::time::timeout(deadline, attempt(self.channel.clone())).await {
                 Ok(result) => result,
                 Err(_) => Err(Status::deadline_exceeded(format!(
                     "{method}: plazo de {deadline:?} agotado"
@@ -148,10 +151,26 @@ fn store_error(status: &Status) -> StoreError {
 }
 
 impl SnapshotStore for GrpcSnapshotStore {
+    async fn get_catalog(&self) -> Result<Catalog, StoreError> {
+        let response = self
+            .call("GetCatalog", |channel| async move {
+                CatalogServiceClient::new(channel)
+                    .get_catalog(Request::new(persistence_pb::GetCatalogRequest {}))
+                    .await
+            })
+            .await
+            .map_err(|status| store_error(&status))?;
+        let catalog = response
+            .into_inner()
+            .catalog
+            .ok_or_else(|| StoreError::Failed("GetCatalog sin catálogo".to_string()))?;
+        codec::catalog_from_proto(catalog).map_err(|error| StoreError::Failed(error.to_string()))
+    }
+
     async fn load(&self) -> Result<Option<Snapshot>, StoreError> {
         let result = self
-            .call("LoadSnapshot", |mut client| async move {
-                client
+            .call("LoadSnapshot", |channel| async move {
+                PersistenceServiceClient::new(channel)
                     .load_snapshot(Request::new(persistence_pb::LoadSnapshotRequest {}))
                     .await
             })
@@ -167,10 +186,10 @@ impl SnapshotStore for GrpcSnapshotStore {
     }
 
     async fn save(&self, snapshot: Snapshot) -> Result<(), StoreError> {
-        self.call("SaveSnapshot", |mut client| {
+        self.call("SaveSnapshot", |channel| {
             let snapshot = snapshot.clone();
             async move {
-                client
+                PersistenceServiceClient::new(channel)
                     .save_snapshot(Request::new(persistence_pb::SaveSnapshotRequest {
                         snapshot: Some(snapshot),
                     }))

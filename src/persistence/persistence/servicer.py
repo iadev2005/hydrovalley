@@ -27,8 +27,8 @@ log = logging.getLogger(__name__)
 MAX_EPOCH = 2**31 - 1
 
 # catalog_version es el hash del catálogo (64 caracteres en hexadecimal con
-# SHA-256); se deja margen para otros formatos. Puede ir vacía mientras no
-# exista CatalogService: el simulador la envía así hoy.
+# SHA-256); se deja margen para otros formatos. Puede ir vacía: no se
+# contrasta con catalog_entries.
 MAX_CATALOG_VERSION_LENGTH = 128
 
 

@@ -1,7 +1,8 @@
 //! Servicio de aplicación: guarda el mundo, decide cuándo está listo y
 //! envía las instantáneas en segundo plano.
 //!
-//! No conoce gRPC más allá del puerto [`SnapshotStore`]: la capa de red
+//! No conoce gRPC más allá del puerto [`SnapshotStore`] (instantáneas y
+//! catálogo): la capa de red
 //! (`crate::grpc`) traduce las peticiones y llama aquí.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -11,10 +12,10 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::codec;
-use crate::domain::{Command, Rules, StepOutcome, World, is_snapshot_tick};
+use crate::domain::{Catalog, Command, StepOutcome, World, is_snapshot_tick};
 use crate::store::SnapshotStore;
 
-/// Esperas entre intentos de `LoadSnapshot` al arrancar: 1 s, 2 s, 4 s y
+/// Esperas entre intentos de `GetCatalog` y `LoadSnapshot` al arrancar: 1 s, 2 s, 4 s y
 /// luego 5 s indefinidamente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Backoff {
@@ -53,12 +54,15 @@ pub struct StepReport<R> {
 
 enum State {
     Loading,
-    Ready { world: World, restored_tick: u64 },
+    // En el montón: el mundo lleva el catálogo y es mucho mayor que `Loading`.
+    Ready {
+        world: Box<World>,
+        restored_tick: u64,
+    },
 }
 
 pub struct Simulator<S> {
     boot_id: String,
-    rules: Rules,
     store: Arc<S>,
     state: Mutex<State>,
     /// Hay un guardado en curso (como mucho uno).
@@ -73,10 +77,9 @@ pub struct Simulator<S> {
 const SAVE_POLL: Duration = Duration::from_millis(10);
 
 impl<S: SnapshotStore> Simulator<S> {
-    pub fn new(rules: Rules, store: Arc<S>) -> Self {
+    pub fn new(store: Arc<S>) -> Self {
         Self {
             boot_id: Uuid::new_v4().to_string(),
-            rules,
             store,
             state: Mutex::new(State::Loading),
             saving: Arc::new(AtomicBool::new(false)),
@@ -102,21 +105,53 @@ impl<S: SnapshotStore> Simulator<S> {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Carga la última instantánea y deja el mundo listo. Solo con NOT_FOUND
-    /// empieza vacío en el tick 0; ante cualquier otro fallo reintenta sin
-    /// fin, así el tick nunca retrocede.
+    /// Pide el catálogo a la persistencia y reintenta sin fin hasta
+    /// obtenerlo: sin cifras no se puede simular. Es el punto donde también
+    /// se enganchará el reinicio del valle (RF-31), que vuelve a pedirlo.
+    pub async fn fetch_catalog(&self, backoff: Backoff) -> Catalog {
+        let mut delay = backoff.initial;
+        loop {
+            match self.store.get_catalog().await {
+                Ok(catalog) => {
+                    tracing::info!(catalog_version = %catalog.version, "catálogo cargado");
+                    return catalog;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, ?delay, "GetCatalog falló; se reintenta");
+                }
+            }
+            tokio::time::sleep(delay).await;
+            delay = backoff.next(delay);
+        }
+    }
+
+    /// Carga el catálogo y la última instantánea, y deja el mundo listo.
+    /// Solo con NOT_FOUND empieza vacío en el tick 0; ante cualquier otro
+    /// fallo (del catálogo o de la instantánea) reintenta sin fin, así el
+    /// tick nunca retrocede. El mundo aplica el catálogo vigente, también
+    /// si la instantánea se tomó con otra versión.
     pub async fn load(&self, backoff: Backoff) {
+        let catalog = self.fetch_catalog(backoff).await;
         let mut delay = backoff.initial;
         let (world, restored_tick) = loop {
             match self.store.load().await {
                 Ok(None) => {
                     tracing::info!("no hay instantáneas: el valle empieza en el tick 0");
-                    break (World::new(self.rules.clone()), 0);
+                    break (World::new(catalog.clone()), 0);
                 }
                 Ok(Some(snapshot)) => {
                     let tick = snapshot.tick;
-                    match codec::decode_snapshot(snapshot, self.rules.clone()) {
+                    let saved_version = snapshot.catalog_version.clone();
+                    match codec::decode_snapshot(snapshot, catalog.clone()) {
                         Ok(world) => {
+                            if saved_version != catalog.version {
+                                tracing::info!(
+                                    tick,
+                                    saved = %saved_version,
+                                    current = %catalog.version,
+                                    "la instantánea es de otra versión del catálogo: se aplica la vigente"
+                                );
+                            }
                             tracing::info!(tick, "instantánea cargada");
                             break (world, tick);
                         }
@@ -136,7 +171,7 @@ impl<S: SnapshotStore> Simulator<S> {
         if matches!(*state, State::Loading) {
             self.saved_tick.store(restored_tick, Ordering::Release);
             *state = State::Ready {
-                world,
+                world: Box::new(world),
                 restored_tick,
             };
         }
@@ -269,6 +304,11 @@ mod tests {
 
     #[derive(Default)]
     struct FakeStore {
+        /// Respuestas de `get_catalog`; agotadas, el catálogo de D-01.
+        catalogs: Mutex<VecDeque<Result<Catalog, StoreError>>>,
+        catalog_calls: AtomicUsize,
+        /// Orden de las llamadas de carga: "catalog" y "load".
+        calls: Mutex<Vec<&'static str>>,
         loads: Mutex<VecDeque<Result<Option<Snapshot>, StoreError>>>,
         load_calls: AtomicUsize,
         save_calls: AtomicUsize,
@@ -292,8 +332,19 @@ mod tests {
     }
 
     impl SnapshotStore for FakeStore {
+        async fn get_catalog(&self) -> Result<Catalog, StoreError> {
+            self.catalog_calls.fetch_add(1, Ordering::SeqCst);
+            self.calls.lock().unwrap().push("catalog");
+            self.catalogs
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| Ok(Catalog::d01()))
+        }
+
         async fn load(&self) -> Result<Option<Snapshot>, StoreError> {
             self.load_calls.fetch_add(1, Ordering::SeqCst);
+            self.calls.lock().unwrap().push("load");
             self.loads.lock().unwrap().pop_front().unwrap_or(Ok(None))
         }
 
@@ -319,7 +370,7 @@ mod tests {
 
     async fn ready(store: FakeStore) -> (Simulator<FakeStore>, Arc<FakeStore>) {
         let store = Arc::new(store);
-        let simulator = Simulator::new(Rules::initial(), store.clone());
+        let simulator = Simulator::new(store.clone());
         simulator.load(fast()).await;
         (simulator, store)
     }
@@ -341,7 +392,7 @@ mod tests {
     }
 
     fn snapshot_at(tick: u64) -> Snapshot {
-        let mut world = World::new(Rules::initial());
+        let mut world = World::new(Catalog::d01());
         world.step(&[Command {
             action_id: "00000000-0000-4000-8000-000000000001".to_string(),
             player_id: ANA.to_string(),
@@ -349,7 +400,7 @@ mod tests {
         }]);
         let mut parts = world.parts();
         parts.tick = tick;
-        codec::encode_snapshot(&World::restore(Rules::initial(), parts).unwrap())
+        codec::encode_snapshot(&World::restore(Catalog::d01(), parts).unwrap())
     }
 
     #[test]
@@ -367,8 +418,8 @@ mod tests {
     #[test]
     fn boot_id_is_a_fresh_uuid_v4() {
         let store = Arc::new(FakeStore::default());
-        let a = Simulator::new(Rules::initial(), store.clone());
-        let b = Simulator::new(Rules::initial(), store);
+        let a = Simulator::new(store.clone());
+        let b = Simulator::new(store);
         let parsed = Uuid::parse_str(a.boot_id()).unwrap();
         assert_eq!(parsed.get_version_num(), 4);
         assert_ne!(a.boot_id(), b.boot_id());
@@ -376,7 +427,7 @@ mod tests {
 
     #[test]
     fn step_is_unavailable_until_the_world_is_loaded() {
-        let simulator = Simulator::new(Rules::initial(), Arc::new(FakeStore::default()));
+        let simulator = Simulator::new(Arc::new(FakeStore::default()));
         assert!(!simulator.is_ready());
         assert_eq!(simulator.step(&[], |_| ()).unwrap_err(), NotReady);
     }
@@ -517,7 +568,7 @@ mod tests {
     #[test]
     fn step_outside_a_tokio_runtime_skips_the_snapshot_without_panicking() {
         let store = Arc::new(FakeStore::default());
-        let simulator = Simulator::new(Rules::initial(), store.clone());
+        let simulator = Simulator::new(store.clone());
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
@@ -568,7 +619,7 @@ mod tests {
 
         // Sin mundo cargado no hay nada que guardar.
         let store = Arc::new(FakeStore::default());
-        let loading = Simulator::new(Rules::initial(), store.clone());
+        let loading = Simulator::new(store.clone());
         assert!(loading.shutdown(Duration::from_secs(5)).await);
         assert_eq!(store.save_calls.load(Ordering::SeqCst), 0);
     }
@@ -584,5 +635,82 @@ mod tests {
         let started = std::time::Instant::now();
         assert!(!simulator.shutdown(Duration::from_millis(50)).await);
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn the_catalog_is_fetched_before_the_snapshot() {
+        let (simulator, store) = ready(FakeStore::default()).await;
+        assert!(simulator.is_ready());
+        assert_eq!(*store.calls.lock().unwrap(), vec!["catalog", "load"]);
+    }
+
+    #[tokio::test]
+    async fn an_unavailable_catalog_keeps_the_world_not_ready_and_is_retried() {
+        let store = Arc::new(FakeStore {
+            catalogs: Mutex::new(
+                vec![
+                    Err(StoreError::Unavailable("sin base de datos".to_string())),
+                    Err(StoreError::Failed("catálogo no válido".to_string())),
+                ]
+                .into(),
+            ),
+            ..FakeStore::default()
+        });
+        let simulator = Simulator::new(store.clone());
+        simulator.load(fast()).await;
+
+        assert_eq!(store.catalog_calls.load(Ordering::SeqCst), 3);
+        // Sin catálogo no se consultó la instantánea.
+        assert_eq!(
+            *store.calls.lock().unwrap(),
+            vec!["catalog", "catalog", "catalog", "load"]
+        );
+        assert!(simulator.is_ready());
+    }
+
+    #[tokio::test]
+    async fn snapshots_carry_the_catalog_version() {
+        let (simulator, store) = ready(FakeStore::default()).await;
+        steps(&simulator, 50);
+        eventually("SaveSnapshot del tick 50", || {
+            store.saved_ticks() == vec![50]
+        })
+        .await;
+
+        let saved = store.saved.lock().unwrap()[0].clone();
+        assert_eq!(saved.catalog_version, Catalog::D01_VERSION);
+        let inner = pb::WorldSnapshot::decode(saved.world_state.as_slice()).unwrap();
+        assert_eq!(inner.catalog_version, Catalog::D01_VERSION);
+    }
+
+    fn drop_at(n: u32, x: u32, y: u32) -> Command {
+        Command {
+            action_id: format!("00000000-0000-4000-8000-{n:012}"),
+            player_id: ANA.to_string(),
+            kind: Some(CommandKind::Drop { x, y }),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_restored_world_uses_the_current_catalog_version() {
+        let old = snapshot_at(50);
+        let mut current = Catalog::d01();
+        current.version = "nuevo".to_string();
+        current.drop.humidity = 40;
+        let store = FakeStore {
+            catalogs: Mutex::new(vec![Ok(current)].into()),
+            ..FakeStore::with_loads(vec![Ok(Some(old))])
+        };
+        let (simulator, _store) = ready(store).await;
+
+        let report = simulator
+            .step(&[drop_at(2, 0, 0)], |world| {
+                (
+                    world.catalog_version().to_string(),
+                    world.tile(0, 0).unwrap().humidity,
+                )
+            })
+            .unwrap();
+        assert_eq!(report.view, ("nuevo".to_string(), 40));
     }
 }

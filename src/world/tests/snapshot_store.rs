@@ -17,6 +17,9 @@ use world::proto::persistence::v1 as persistence_pb;
 use world::proto::persistence::v1::persistence_service_server::{
     PersistenceService, PersistenceServiceServer,
 };
+mod common;
+
+use world::proto::persistence::v1::catalog_service_server::{CatalogService, CatalogServiceServer};
 use world::store::{CallPolicy, GrpcSnapshotStore, SnapshotStore, StoreError};
 
 /// Qué hace la persistencia falsa en un intento concreto.
@@ -33,6 +36,8 @@ enum Step {
 struct Script {
     steps: Mutex<VecDeque<Step>>,
     calls: AtomicUsize,
+    /// Lo que responde GetCatalog cuando el guion no falla.
+    catalog: Mutex<persistence_pb::Catalog>,
 }
 
 impl Script {
@@ -40,6 +45,7 @@ impl Script {
         Arc::new(Self {
             steps: Mutex::new(steps.into_iter().collect()),
             calls: AtomicUsize::new(0),
+            catalog: Mutex::new(common::catalog()),
         })
     }
 
@@ -88,6 +94,19 @@ impl PersistenceService for FakeService {
     }
 }
 
+#[tonic::async_trait]
+impl CatalogService for FakeService {
+    async fn get_catalog(
+        &self,
+        _: Request<persistence_pb::GetCatalogRequest>,
+    ) -> Result<Response<persistence_pb::GetCatalogResponse>, Status> {
+        self.0.next().await?;
+        Ok(Response::new(persistence_pb::GetCatalogResponse {
+            catalog: Some(self.0.catalog.lock().unwrap().clone()),
+        }))
+    }
+}
+
 struct Harness {
     store: GrpcSnapshotStore,
     script: Arc<Script>,
@@ -110,9 +129,11 @@ async fn start(steps: impl IntoIterator<Item = Step>) -> Harness {
     let addr = listener.local_addr().unwrap();
     let (stop, stopped) = oneshot::channel::<()>();
     let service = PersistenceServiceServer::new(FakeService(script.clone()));
+    let catalog_service = CatalogServiceServer::new(FakeService(script.clone()));
     tokio::spawn(async move {
         Server::builder()
             .add_service(service)
+            .add_service(catalog_service)
             .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
                 stopped.await.ok();
             })
@@ -220,4 +241,58 @@ async fn attempts_that_always_time_out_end_as_unavailable_after_three_retries() 
         "cada intento debe cortarse en su plazo: {:?}",
         started.elapsed()
     );
+}
+
+// --- GetCatalog ---------------------------------------------------------------
+
+#[tokio::test]
+async fn get_catalog_returns_the_validated_catalog() {
+    let h = start([]).await;
+    let catalog = h.store.get_catalog().await.unwrap();
+
+    assert_eq!(catalog.version, common::CATALOG_VERSION);
+    assert_eq!(catalog.drop.humidity, 25);
+    assert_eq!(catalog.tank.capacity, 20);
+    assert_eq!(catalog.offline_installation_seconds, 7200);
+    assert_eq!(h.script.calls(), 1);
+}
+
+#[tokio::test]
+async fn get_catalog_retries_transient_failures() {
+    let h = start([
+        Step::Fail(Code::Unavailable),
+        Step::Fail(Code::DeadlineExceeded),
+    ])
+    .await;
+    assert!(h.store.get_catalog().await.is_ok());
+    assert_eq!(h.script.calls(), 3);
+}
+
+#[tokio::test]
+async fn get_catalog_gives_up_after_the_retries_with_unavailable() {
+    let h = start([Step::Fail(Code::Unavailable); 4]).await;
+    assert!(matches!(
+        h.store.get_catalog().await,
+        Err(StoreError::Unavailable(_))
+    ));
+    // Un intento y tres reintentos.
+    assert_eq!(h.script.calls(), 4);
+}
+
+#[tokio::test]
+async fn get_catalog_does_not_retry_other_errors() {
+    let h = start([Step::Fail(Code::Internal)]).await;
+    assert!(matches!(
+        h.store.get_catalog().await,
+        Err(StoreError::Failed(_))
+    ));
+    assert_eq!(h.script.calls(), 1);
+}
+
+#[tokio::test]
+async fn get_catalog_rejects_an_unusable_catalog() {
+    let h = start([]).await;
+    h.script.catalog.lock().unwrap().growth = None;
+    let error = h.store.get_catalog().await.unwrap_err();
+    assert!(matches!(&error, StoreError::Failed(message) if message.contains("growth")));
 }

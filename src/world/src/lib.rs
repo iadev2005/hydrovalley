@@ -2,8 +2,8 @@
 //!
 //! - [`domain`]: reglas puras del valle, sin gRPC.
 //! - [`codec`]: traducción entre el contrato y el dominio.
-//! - [`store`]: puerto y adaptador gRPC de las instantáneas.
-//! - [`simulator`]: servicio de aplicación (arranque, tick e instantáneas).
+//! - [`store`]: puerto y adaptador gRPC de las instantáneas y el catálogo.
+//! - [`simulator`]: servicio de aplicación (catálogo, arranque, tick e instantáneas).
 //! - [`grpc`], [`server`] y [`config`]: la frontera de red.
 //! - [`proto`]: código generado desde `proto/` en `build.rs`.
 

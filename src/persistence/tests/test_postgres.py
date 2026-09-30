@@ -317,7 +317,7 @@ def test_tcp_user_timeout_defaults_to_five_seconds(monkeypatch):
 @pytest.fixture
 def clean_database():
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS snapshots, accounts, schema_migrations")
+        conn.execute("DROP TABLE IF EXISTS snapshots, accounts, catalog_entries, schema_migrations")
     yield TEST_DATABASE_URL
 
 
@@ -348,7 +348,7 @@ def query(sql: str, params=None):
 @integration
 def test_migrations_create_the_table_and_are_idempotent(clean_database):
     with psycopg.connect(clean_database, autocommit=True) as conn:
-        assert apply_migrations(conn, DEFAULT_MIGRATIONS_DIR) == ["0001", "0002"]
+        assert apply_migrations(conn, DEFAULT_MIGRATIONS_DIR) == ["0001", "0002", "0003"]
         assert apply_migrations(conn, DEFAULT_MIGRATIONS_DIR) == []
     columns = query(
         "SELECT column_name, data_type, is_nullable FROM information_schema.columns "

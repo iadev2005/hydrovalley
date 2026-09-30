@@ -5,9 +5,11 @@
 
 use prost::Message;
 
+use crate::domain::catalog as dc;
 use crate::domain::{
-    self, AppliedAction, Command, CommandKind, CommandOutcome, CommandResult, Fire, Installation,
-    InstallationKind, Player, RejectReason, Rules, Tile, TileStage, UpgradeKind, World, WorldParts,
+    self, AppliedAction, Catalog, Command, CommandKind, CommandOutcome, CommandResult, Fire,
+    Installation, InstallationKind, Player, RejectReason, Tile, TileStage, UpgradeKind, World,
+    WorldParts,
 };
 use crate::proto::persistence::v1 as persistence_pb;
 use crate::proto::world::v1 as pb;
@@ -27,6 +29,8 @@ pub enum DecodeError {
         value: i32,
     },
     Restore(domain::RestoreError),
+    /// El catálogo de la persistencia no sirve para jugar.
+    InvalidCatalog(String),
 }
 
 impl std::fmt::Display for DecodeError {
@@ -40,11 +44,118 @@ impl std::fmt::Display for DecodeError {
                 write!(f, "valor desconocido en {field}: {value}")
             }
             Self::Restore(error) => write!(f, "{error}"),
+            Self::InvalidCatalog(reason) => write!(f, "catálogo no válido: {reason}"),
         }
     }
 }
 
 impl std::error::Error for DecodeError {}
+
+/// Convierte la respuesta de `GetCatalog` en el catálogo del dominio.
+///
+/// Rechaza un catálogo al que le falte un grupo de cifras o cuyas cifras
+/// harían el juego imposible (divisiones por cero, intervalos o áreas
+/// vacíos, versión vacía): mejor no arrancar que simular mal.
+pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, DecodeError> {
+    fn section<T>(value: Option<T>, name: &str) -> Result<T, DecodeError> {
+        value.ok_or_else(|| DecodeError::InvalidCatalog(format!("falta {name}")))
+    }
+    fn positive(value: impl Into<u64>, name: &str) -> Result<(), DecodeError> {
+        if value.into() == 0 {
+            return Err(DecodeError::InvalidCatalog(format!(
+                "{name} debe ser mayor que 0"
+            )));
+        }
+        Ok(())
+    }
+    if catalog.catalog_version.is_empty() {
+        return Err(DecodeError::InvalidCatalog(
+            "catalog_version está vacía".to_string(),
+        ));
+    }
+    let drop = section(catalog.drop, "drop")?;
+    let tank = section(catalog.tank, "tank")?;
+    let growth = section(catalog.growth, "growth")?;
+    let evaporation = section(catalog.evaporation, "evaporation")?;
+    let fire = section(catalog.fire, "fire")?;
+    let sprinkler = section(catalog.sprinkler, "sprinkler")?;
+    let drip = section(catalog.drip, "drip")?;
+    let plant = section(catalog.treatment_plant, "treatment_plant")?;
+    let bigger_drop = section(catalog.bigger_drop, "bigger_drop")?;
+    let bigger_tank = section(catalog.bigger_tank, "bigger_tank")?;
+
+    positive(tank.refill_interval_seconds, "tank.refill_interval_seconds")?;
+    positive(growth.humidity_per_stage, "growth.humidity_per_stage")?;
+    positive(
+        evaporation.wither_after_ticks,
+        "evaporation.wither_after_ticks",
+    )?;
+    positive(fire.drops_to_extinguish, "fire.drops_to_extinguish")?;
+    positive(fire.burn_out_ticks, "fire.burn_out_ticks")?;
+    positive(sprinkler.area_side, "sprinkler.area_side")?;
+    positive(sprinkler.interval_seconds, "sprinkler.interval_seconds")?;
+    positive(drip.area_side, "drip.area_side")?;
+    positive(drip.evaporation_divisor, "drip.evaporation_divisor")?;
+    positive(plant.interval_seconds, "treatment_plant.interval_seconds")?;
+    positive(bigger_drop.area_side, "bigger_drop.area_side")?;
+
+    Ok(Catalog {
+        version: catalog.catalog_version,
+        drop: dc::DropRules {
+            water_cost: drop.water_cost,
+            humidity: drop.humidity,
+        },
+        tank: dc::TankRules {
+            capacity: tank.capacity,
+            refill_amount: tank.refill_amount,
+            refill_interval_seconds: tank.refill_interval_seconds,
+        },
+        growth: dc::GrowthRules {
+            humidity_per_stage: growth.humidity_per_stage,
+            leaves_grass: growth.leaves_grass,
+            leaves_shrub: growth.leaves_shrub,
+            leaves_flowers: growth.leaves_flowers,
+            leaves_tree: growth.leaves_tree,
+            tree_max_humidity: growth.tree_max_humidity,
+        },
+        evaporation: dc::EvaporationRules {
+            humidity_per_second: evaporation.humidity_per_second,
+            wither_after_ticks: evaporation.wither_after_ticks,
+        },
+        fire: dc::FireRules {
+            drops_to_extinguish: fire.drops_to_extinguish,
+            extinguish_bonus_leaves: fire.extinguish_bonus_leaves,
+            burn_out_ticks: fire.burn_out_ticks,
+            ignition_chance_ppm: fire.ignition_chance_ppm,
+        },
+        sprinkler: dc::SprinklerRules {
+            price: sprinkler.price,
+            area_side: sprinkler.area_side,
+            humidity: sprinkler.humidity,
+            interval_seconds: sprinkler.interval_seconds,
+        },
+        drip: dc::DripRules {
+            price: drip.price,
+            area_side: drip.area_side,
+            evaporation_divisor: drip.evaporation_divisor,
+        },
+        treatment_plant: dc::TreatmentPlantRules {
+            price: plant.price,
+            refill_amount: plant.refill_amount,
+            interval_seconds: plant.interval_seconds,
+        },
+        installation_price_increase_percent: catalog.installation_price_increase_percent,
+        bigger_drop: dc::BiggerDropRules {
+            price: bigger_drop.price,
+            area_side: bigger_drop.area_side,
+        },
+        bigger_tank: dc::BiggerTankRules {
+            price: bigger_tank.price,
+            extra_capacity: bigger_tank.extra_capacity,
+        },
+        offline_installation_seconds: catalog.offline_installation_seconds,
+    })
+}
 
 pub fn command_from_proto(command: pb::Command) -> Command {
     use pb::command::Kind;
@@ -119,8 +230,8 @@ fn player_state(player: &Player) -> pb::PlayerState {
             .iter()
             .map(|u| upgrade_to_proto(*u).into())
             .collect(),
-        // TODO(catalog): precio de la siguiente instalación de cada tipo
-        // (RF-07), cuando existan las instalaciones y CatalogService.
+        // TODO(installations): precio de la siguiente instalación de cada tipo
+        // (RF-07), cuando existan las instalaciones.
         next_prices: Vec::new(),
     }
 }
@@ -152,7 +263,7 @@ pub fn encode_snapshot(world: &World) -> persistence_pb::Snapshot {
 
 pub fn decode_snapshot(
     snapshot: persistence_pb::Snapshot,
-    rules: Rules,
+    catalog: Catalog,
 ) -> Result<World, DecodeError> {
     let inner = pb::WorldSnapshot::decode(snapshot.world_state.as_slice())
         .map_err(DecodeError::Malformed)?;
@@ -182,7 +293,7 @@ pub fn decode_snapshot(
             .map(player_from_record)
             .collect::<Result<_, _>>()?,
     };
-    World::restore(rules, parts).map_err(DecodeError::Restore)
+    World::restore(catalog, parts).map_err(DecodeError::Restore)
 }
 
 fn tile_to_proto(tile: &Tile) -> pb::Tile {
@@ -496,7 +607,7 @@ mod tests {
 
     #[test]
     fn world_state_carries_tiles_players_and_counters() {
-        let mut world = World::new(Rules::initial());
+        let mut world = World::new(Catalog::d01());
         world.step(&[drop(2, 1)]);
         let state = world_state(&world);
 
@@ -516,7 +627,7 @@ mod tests {
     }
 
     fn rich_world() -> World {
-        let mut world = World::new(Rules::initial());
+        let mut world = World::new(Catalog::d01());
         world.set_demo_mode(true);
         world.step(&[drop(0, 0), drop(31, 31)]);
         let mut parts = world.parts();
@@ -540,7 +651,7 @@ mod tests {
         player.leaves_earned = 12;
         player.purchases = vec![(InstallationKind::Sprinkler, 2)];
         player.upgrades = vec![UpgradeKind::BiggerTank];
-        World::restore(Rules::initial(), parts).unwrap()
+        World::restore(Catalog::d01(), parts).unwrap()
     }
 
     #[test]
@@ -550,7 +661,9 @@ mod tests {
 
         assert_eq!(snapshot.tick, 1);
         assert_eq!(snapshot.epoch, 3);
-        assert_eq!(snapshot.catalog_version, "");
+        assert_eq!(snapshot.catalog_version, Catalog::D01_VERSION);
+        let inner = pb::WorldSnapshot::decode(snapshot.world_state.as_slice()).unwrap();
+        assert_eq!(inner.catalog_version, Catalog::D01_VERSION);
         assert_eq!(snapshot.players.len(), 1);
         assert_eq!(snapshot.players[0].player_id, ANA);
         assert_eq!(snapshot.players[0].leaves_earned, 12);
@@ -558,25 +671,25 @@ mod tests {
         assert_eq!(inner.tick, 1);
         assert_eq!(inner.players[0].recent_actions.len(), 2);
 
-        let restored = decode_snapshot(snapshot, Rules::initial()).unwrap();
+        let restored = decode_snapshot(snapshot, Catalog::d01()).unwrap();
         assert_eq!(restored.parts(), world.parts());
     }
 
     #[test]
     fn decode_rejects_garbage_and_inconsistent_rows() {
-        let world = World::new(Rules::initial());
+        let world = World::new(Catalog::d01());
 
         let mut garbage = encode_snapshot(&world);
         garbage.world_state = vec![0xff, 0xff, 0xff];
         assert!(matches!(
-            decode_snapshot(garbage, Rules::initial()),
+            decode_snapshot(garbage, Catalog::d01()),
             Err(DecodeError::Malformed(_))
         ));
 
         let mut mismatch = encode_snapshot(&world);
         mismatch.tick = 50;
         assert!(matches!(
-            decode_snapshot(mismatch, Rules::initial()),
+            decode_snapshot(mismatch, Catalog::d01()),
             Err(DecodeError::TickMismatch { row: 50, world: 0 })
         ));
 
@@ -586,7 +699,7 @@ mod tests {
         let mut unknown = encode_snapshot(&world);
         unknown.world_state = inner.encode_to_vec();
         assert!(matches!(
-            decode_snapshot(unknown, Rules::initial()),
+            decode_snapshot(unknown, Catalog::d01()),
             Err(DecodeError::UnknownEnum {
                 field: "Tile.stage",
                 value: 99
@@ -599,8 +712,128 @@ mod tests {
         let mut short = encode_snapshot(&world);
         short.world_state = inner.encode_to_vec();
         assert!(matches!(
-            decode_snapshot(short, Rules::initial()),
+            decode_snapshot(short, Catalog::d01()),
             Err(DecodeError::Restore(_))
         ));
+    }
+
+    /// El catálogo de D-01 tal como lo entrega `GetCatalog`.
+    fn d01_message() -> persistence_pb::Catalog {
+        use persistence_pb as p;
+        p::Catalog {
+            catalog_version: Catalog::D01_VERSION.to_string(),
+            drop: Some(p::DropRules {
+                water_cost: 1,
+                humidity: 25,
+            }),
+            tank: Some(p::TankRules {
+                capacity: 20,
+                refill_amount: 1,
+                refill_interval_seconds: 2,
+            }),
+            growth: Some(p::GrowthRules {
+                humidity_per_stage: 100,
+                leaves_grass: 1,
+                leaves_shrub: 2,
+                leaves_flowers: 4,
+                leaves_tree: 8,
+                tree_max_humidity: 100,
+            }),
+            evaporation: Some(p::EvaporationRules {
+                humidity_per_second: 2,
+                wither_after_ticks: 100,
+            }),
+            fire: Some(p::FireRules {
+                drops_to_extinguish: 3,
+                extinguish_bonus_leaves: 5,
+                burn_out_ticks: 300,
+                ignition_chance_ppm: 0,
+            }),
+            sprinkler: Some(p::SprinklerRules {
+                price: 10,
+                area_side: 3,
+                humidity: 25,
+                interval_seconds: 2,
+            }),
+            drip: Some(p::DripRules {
+                price: 25,
+                area_side: 5,
+                evaporation_divisor: 2,
+            }),
+            treatment_plant: Some(p::TreatmentPlantRules {
+                price: 40,
+                refill_amount: 1,
+                interval_seconds: 2,
+            }),
+            installation_price_increase_percent: 15,
+            bigger_drop: Some(p::BiggerDropRules {
+                price: 30,
+                area_side: 3,
+            }),
+            bigger_tank: Some(p::BiggerTankRules {
+                price: 20,
+                extra_capacity: 10,
+            }),
+            offline_installation_seconds: 7200,
+        }
+    }
+
+    #[test]
+    fn a_catalog_message_becomes_the_domain_catalog() {
+        assert_eq!(catalog_from_proto(d01_message()).unwrap(), Catalog::d01());
+    }
+
+    #[test]
+    fn the_ignition_chance_and_changed_figures_are_carried_over() {
+        let mut message = d01_message();
+        message.fire.as_mut().unwrap().ignition_chance_ppm = 500;
+        message.sprinkler.as_mut().unwrap().price = 12;
+        let catalog = catalog_from_proto(message).unwrap();
+        assert_eq!(catalog.fire.ignition_chance_ppm, 500);
+        assert_eq!(catalog.sprinkler.price, 12);
+    }
+
+    #[test]
+    fn an_incomplete_or_impossible_catalog_is_rejected() {
+        type Break = fn(&mut persistence_pb::Catalog);
+        let breaks: [(&str, Break); 16] = [
+            ("version", |c| c.catalog_version.clear()),
+            ("drop", |c| c.drop = None),
+            ("tank", |c| c.tank = None),
+            ("growth", |c| c.growth = None),
+            ("evaporation", |c| c.evaporation = None),
+            ("fire", |c| c.fire = None),
+            ("sprinkler", |c| c.sprinkler = None),
+            ("drip", |c| c.drip = None),
+            ("treatment_plant", |c| c.treatment_plant = None),
+            ("bigger_drop", |c| c.bigger_drop = None),
+            ("bigger_tank", |c| c.bigger_tank = None),
+            ("stage", |c| {
+                c.growth.as_mut().unwrap().humidity_per_stage = 0
+            }),
+            ("wither", |c| {
+                c.evaporation.as_mut().unwrap().wither_after_ticks = 0
+            }),
+            ("sprinkler area", |c| {
+                c.sprinkler.as_mut().unwrap().area_side = 0
+            }),
+            ("drip divisor", |c| {
+                c.drip.as_mut().unwrap().evaporation_divisor = 0
+            }),
+            ("refill interval", |c| {
+                c.tank.as_mut().unwrap().refill_interval_seconds = 0
+            }),
+        ];
+        for (name, break_it) in breaks {
+            let mut message = d01_message();
+            break_it(&mut message);
+            assert!(
+                matches!(
+                    catalog_from_proto(message),
+                    Err(DecodeError::InvalidCatalog(_))
+                ),
+                "{name}"
+            );
+        }
     }
 }

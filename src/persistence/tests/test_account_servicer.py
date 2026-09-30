@@ -12,7 +12,11 @@ from grpc_health.v1 import health_pb2, health_pb2_grpc
 
 from hydrovalley.persistence.v1 import account_pb2 as pb
 from hydrovalley.persistence.v1 import account_pb2_grpc as pb_grpc
-from persistence.adapters.memory import InMemoryAccountRepository, InMemorySnapshotRepository
+from persistence.adapters.memory import (
+    InMemoryAccountRepository,
+    InMemoryCatalogRepository,
+    InMemorySnapshotRepository,
+)
 from persistence.account_servicer import MAX_USERNAMES_PER_REQUEST
 from persistence.domain import InvalidAccountError, RepositoryUnavailableError
 from persistence.server import ACCOUNT_SERVICE_NAME, create_server, set_serving
@@ -28,7 +32,8 @@ def accounts():
 @pytest.fixture
 def running(accounts):
     server, port, health = create_server(
-        InMemorySnapshotRepository(), "127.0.0.1:0", accounts=accounts
+        InMemorySnapshotRepository(), "127.0.0.1:0", accounts=accounts,
+        catalog=InMemoryCatalogRepository(),
     )
     server.start()
     channel = grpc.insecure_channel(f"127.0.0.1:{port}")

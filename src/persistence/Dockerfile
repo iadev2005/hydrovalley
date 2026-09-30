@@ -34,13 +34,18 @@ COPY --from=deps /app/.venv /app/.venv
 COPY --from=proto /workspace/gen/python /app/gen
 COPY src/persistence/persistence /app/persistence
 COPY src/persistence/migrations /app/migrations
+# Cifras del juego (D-01): la persistencia las siembra en catalog_entries al
+# conectar. Cambiar una cifra es cambiar este archivo y reconstruir la imagen,
+# o montar otro y apuntar CATALOG_PATH a él.
+COPY catalog/catalog.json /app/catalog/catalog.json
 # Sonda estándar de grpc.health.v1 (binario estático), la misma que usa el
 # simulador.
 COPY --from=ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.57@sha256:f77f1257805ecb57f1f0c36c5825d3c2e47aa81cce87128675e768463ed6487a /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONPATH=/app:/app/gen \
     PYTHONUNBUFFERED=1 \
-    PERSISTENCE_LISTEN=0.0.0.0:50051
+    PERSISTENCE_LISTEN=0.0.0.0:50051 \
+    CATALOG_PATH=/app/catalog/catalog.json
 USER persistence
 EXPOSE 50051
 # SERVING solo con la base de datos conectada y las migraciones aplicadas.
