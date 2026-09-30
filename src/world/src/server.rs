@@ -1,5 +1,5 @@
 //! Montaje del servidor gRPC: WorldService, salud estándar y carga del
-//! mundo en segundo plano.
+//! catálogo y del mundo en segundo plano.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -10,7 +10,6 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_health::ServingStatus;
 
-use crate::domain::Rules;
 use crate::grpc::WorldGrpc;
 use crate::proto::world::v1::world_service_server::WorldServiceServer;
 use crate::simulator::{Backoff, Simulator};
@@ -49,7 +48,7 @@ impl Settings {
 /// guardada, con un plazo de `settings.shutdown_timeout`.
 ///
 /// El gRPC atiende desde el principio (regla 5 de portabilidad): mientras
-/// el mundo se carga, Step responde UNAVAILABLE y la salud está en
+/// el catálogo y el mundo se cargan, Step responde UNAVAILABLE y la salud está en
 /// NOT_SERVING.
 pub async fn serve(
     settings: Settings,
@@ -60,7 +59,7 @@ pub async fn serve(
         &settings.persistence_addr,
         settings.call_policy.clone(),
     )?);
-    let simulator = Arc::new(Simulator::new(Rules::initial(), store));
+    let simulator = Arc::new(Simulator::new(store));
     tracing::info!(boot_id = simulator.boot_id(), "simulador creado");
 
     let (reporter, health_service) = tonic_health::server::health_reporter();

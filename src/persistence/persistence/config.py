@@ -2,7 +2,9 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
+from persistence.catalog import Catalog, CatalogError, load_catalog_file
 from persistence.domain import AdminSeed, password_hash_problem, username_problem
 
 DEFAULT_LISTEN = "0.0.0.0:50051"
@@ -16,6 +18,8 @@ class ConfigError(Exception):
 class Settings:
     listen: str
     database_url: str
+    # Catálogo leído y validado de CATALOG_PATH; se siembra al conectar.
+    catalog: Catalog
     # None si no se definieron ADMIN_USERNAME y ADMIN_PASSWORD_HASH.
     admin_seed: AdminSeed | None = None
 
@@ -25,12 +29,26 @@ class Settings:
         database_url = env.get("DATABASE_URL", "").strip()
         if not database_url:
             raise ConfigError("DATABASE_URL es obligatoria (p. ej. postgresql://usuario:clave@db:5432/hydrovalley)")
+        catalog = _catalog(env)
         listen = env.get("PERSISTENCE_LISTEN", "").strip() or DEFAULT_LISTEN
         return cls(
             listen=listen,
             database_url=database_url,
+            catalog=catalog,
             admin_seed=_admin_seed(env),
         )
+
+
+def _catalog(env: Mapping[str, str]) -> Catalog:
+    """Lee y valida el archivo del catálogo: un catálogo roto es un error de
+    configuración y el servicio no arranca."""
+    path = env.get("CATALOG_PATH", "").strip()
+    if not path:
+        raise ConfigError("CATALOG_PATH es obligatoria (p. ej. /app/catalog/catalog.json)")
+    try:
+        return load_catalog_file(Path(path))
+    except CatalogError as error:
+        raise ConfigError(f"CATALOG_PATH inválido: {error}") from error
 
 
 def _admin_seed(env: Mapping[str, str]) -> AdminSeed | None:

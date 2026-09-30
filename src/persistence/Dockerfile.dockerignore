@@ -1,8 +1,9 @@
 # Filtro del contexto para src/persistence/Dockerfile (BuildKit lo toma por
 # su nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo:
-# solo entran proto/ y los archivos de la persistencia.
+# solo entran proto/, el catálogo y los archivos de la persistencia.
 *
 !proto/
+!catalog/catalog.json
 !src/persistence/pyproject.toml
 !src/persistence/uv.lock
 !src/persistence/persistence/

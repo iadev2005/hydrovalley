@@ -24,18 +24,28 @@ def main() -> int:
         log.error("%s", error)
         return 2
 
-    # Un mismo adaptador de PostgreSQL sirve los dos puertos (instantáneas y cuentas).
+    # Un mismo adaptador de PostgreSQL sirve los tres puertos (instantáneas,
+    # cuentas y catálogo) y siembra el catálogo al conectar.
     store = PostgresSnapshotRepository(
-        settings.database_url, admin_seed=settings.admin_seed
+        settings.database_url,
+        admin_seed=settings.admin_seed,
+        catalog=settings.catalog,
     )
-    server, port, health = create_server(store, settings.listen, accounts=store)
+    server, port, health = create_server(
+        store, settings.listen, accounts=store, catalog=store
+    )
     store.on_ready_change = lambda ready: set_serving(health, ready)
 
     # El servidor gRPC atiende desde el principio; la base de datos se
     # conecta en segundo plano y, mientras tanto, se responde UNAVAILABLE.
     server.start()
     store.start()
-    log.info("persistencia escuchando en %s (puerto %d)", settings.listen, port)
+    log.info(
+        "persistencia escuchando en %s (puerto %d); catálogo %s",
+        settings.listen,
+        port,
+        settings.catalog.version,
+    )
 
     stop = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):

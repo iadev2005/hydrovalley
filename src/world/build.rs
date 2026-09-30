@@ -9,6 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_root = proto_root();
     let world = proto_root.join("hydrovalley/world/v1/world.proto");
     let persistence = proto_root.join("hydrovalley/persistence/v1/persistence.proto");
+    let catalog = proto_root.join("hydrovalley/persistence/v1/catalog.proto");
 
     let mut config = prost_build::Config::new();
     config.protoc_executable(protoc_bin_vendored::protoc_bin_path()?);
@@ -18,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .compile_with_config(
             config,
-            &[world, persistence],
+            &[world, persistence, catalog],
             std::slice::from_ref(&proto_root),
         )?;
 

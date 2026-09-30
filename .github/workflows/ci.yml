@@ -102,11 +102,12 @@ jobs:
             persistence:
               - 'src/persistence/**'
               - 'proto/**'
+              - 'catalog/**'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en la persistencia
         if: steps.changes.outputs.persistence != 'true'
-        run: echo "Sin cambios en src/persistence, proto ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/persistence, proto, catalog ni el workflow; no hay nada que probar."
 
       - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         if: steps.changes.outputs.persistence == 'true'

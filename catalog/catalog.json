@@ -1,0 +1,61 @@
+{
+  "rules": {
+    "drop": {
+      "water_cost_liters": 1,
+      "humidity_points": 25
+    },
+    "tank": {
+      "capacity_liters": 20,
+      "refill_liters": 1,
+      "refill_interval_seconds": 2
+    },
+    "growth": {
+      "humidity_per_stage_points": 100,
+      "leaves_grass": 1,
+      "leaves_shrub": 2,
+      "leaves_flowers": 4,
+      "leaves_tree": 8,
+      "tree_max_humidity_points": 100
+    },
+    "evaporation": {
+      "humidity_per_second_points": 2,
+      "wither_after_ticks": 100
+    },
+    "fire": {
+      "drops_to_extinguish": 3,
+      "extinguish_bonus_leaves": 5,
+      "burn_out_ticks": 300,
+      "ignition_chance_ppm": null
+    },
+    "installation_price_increase_percent": 15,
+    "offline_installation_seconds": 7200
+  },
+  "installations": {
+    "sprinkler": {
+      "price_leaves": 10,
+      "area_side_tiles": 3,
+      "humidity_points": 25,
+      "interval_seconds": 2
+    },
+    "drip": {
+      "price_leaves": 25,
+      "area_side_tiles": 5,
+      "evaporation_divisor": 2
+    },
+    "treatment_plant": {
+      "price_leaves": 40,
+      "refill_liters": 1,
+      "interval_seconds": 2
+    }
+  },
+  "upgrades": {
+    "bigger_drop": {
+      "price_leaves": 30,
+      "area_side_tiles": 3
+    },
+    "bigger_tank": {
+      "price_leaves": 20,
+      "extra_capacity_liters": 10
+    }
+  }
+}

@@ -11,14 +11,18 @@ from hydrovalley.persistence.v1 import account_pb2 as account_pb
 from hydrovalley.persistence.v1 import account_pb2_grpc as account_pb_grpc
 from hydrovalley.persistence.v1 import persistence_pb2 as pb
 from hydrovalley.persistence.v1 import persistence_pb2_grpc as pb_grpc
+from hydrovalley.persistence.v1 import catalog_pb2 as catalog_pb
+from hydrovalley.persistence.v1 import catalog_pb2_grpc as catalog_pb_grpc
 from persistence.account_servicer import AccountServicer
-from persistence.ports import AccountRepository, SnapshotRepository
+from persistence.catalog_servicer import CatalogServicer
+from persistence.ports import AccountRepository, CatalogRepository, SnapshotRepository
 from persistence.servicer import PersistenceServicer
 
 log = logging.getLogger(__name__)
 
 SERVICE_NAME = pb.DESCRIPTOR.services_by_name["PersistenceService"].full_name
 ACCOUNT_SERVICE_NAME = account_pb.DESCRIPTOR.services_by_name["AccountService"].full_name
+CATALOG_SERVICE_NAME = catalog_pb.DESCRIPTOR.services_by_name["CatalogService"].full_name
 
 
 def create_server(
@@ -27,17 +31,19 @@ def create_server(
     max_workers: int = 8,
     *,
     accounts: AccountRepository,
+    catalog: CatalogRepository,
 ) -> tuple[grpc.Server, int, health.HealthServicer]:
     """Crea el servidor sin arrancarlo. Devuelve el servidor, el puerto
     enlazado y el servicio de salud (empieza en NOT_SERVING).
 
-    Se registran PersistenceService y AccountService: CatalogService y
-    ReportService llegarán en otros pull requests; mientras tanto gRPC
-    responde UNIMPLEMENTED a sus métodos.
+    Se registran PersistenceService, AccountService y CatalogService:
+    ReportService llegará en otro pull request; mientras tanto gRPC responde
+    UNIMPLEMENTED a sus métodos.
     """
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     pb_grpc.add_PersistenceServiceServicer_to_server(PersistenceServicer(repository), server)
     account_pb_grpc.add_AccountServiceServicer_to_server(AccountServicer(accounts), server)
+    catalog_pb_grpc.add_CatalogServiceServicer_to_server(CatalogServicer(catalog), server)
     health_servicer = health.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
     set_serving(health_servicer, False)
@@ -54,5 +60,5 @@ def set_serving(health_servicer: health.HealthServicer, ready: bool) -> None:
         if ready
         else health_pb2.HealthCheckResponse.NOT_SERVING
     )
-    for service in ("", SERVICE_NAME, ACCOUNT_SERVICE_NAME):
+    for service in ("", SERVICE_NAME, ACCOUNT_SERVICE_NAME, CATALOG_SERVICE_NAME):
         health_servicer.set(service, status)

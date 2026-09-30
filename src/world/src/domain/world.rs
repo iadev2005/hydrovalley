@@ -4,11 +4,12 @@ use std::collections::{BTreeMap, HashSet};
 
 use uuid::Uuid;
 
+use super::catalog::Catalog;
 use super::command::{
     Command, CommandKind, CommandOutcome, CommandResult, RejectReason, StepOutcome,
 };
 use super::player::{AppliedAction, Player};
-use super::rules::Rules;
+use super::rules::{DEMO_DROP_HUMIDITY, RECENT_ACTIONS_WINDOW_TICKS, VALLEY_HEIGHT, VALLEY_WIDTH};
 use super::tile::Tile;
 
 /// Cada cuántos ticks se toma una instantánea (Capa 5).
@@ -86,7 +87,7 @@ struct PlayerSlot {
 /// Estado autoritativo del valle.
 #[derive(Debug, Clone)]
 pub struct World {
-    rules: Rules,
+    catalog: Catalog,
     tick: u64,
     epoch: u32,
     rng_state: Vec<u8>,
@@ -98,10 +99,10 @@ pub struct World {
 
 impl World {
     /// Valle vacío en el tick 0 (LoadSnapshot devolvió NOT_FOUND).
-    pub fn new(rules: Rules) -> Self {
-        let tile_count = tile_count(rules.width, rules.height);
+    pub fn new(catalog: Catalog) -> Self {
+        let tile_count = tile_count(VALLEY_WIDTH, VALLEY_HEIGHT);
         Self {
-            rules,
+            catalog,
             tick: 0,
             epoch: 0,
             // TODO(rng): generador con semilla cuyo estado viaja en la
@@ -116,16 +117,18 @@ impl World {
 
     /// Reconstruye el mundo a partir de una instantánea.
     ///
-    /// TODO(catalog): la versión del catálogo de la instantánea se conserva
-    /// tal cual; cuando exista CatalogService habrá que decidir qué pasa si
-    /// no coincide con la vigente.
-    pub fn restore(mut rules: Rules, parts: WorldParts) -> Result<Self, RestoreError> {
-        let expected = (rules.width, rules.height);
+    /// El mundo restaurado aplica el catálogo vigente (`catalog`), no el que
+    /// estaba en vigor al tomar la instantánea: así un cambio de cifras
+    /// surte efecto al reiniciar. `parts.catalog_version` solo sirve para
+    /// avisar de que cambió; la siguiente instantánea lleva la versión
+    /// vigente.
+    pub fn restore(catalog: Catalog, parts: WorldParts) -> Result<Self, RestoreError> {
+        let expected = (VALLEY_WIDTH, VALLEY_HEIGHT);
         let found = (parts.width, parts.height);
         if expected != found {
             return Err(RestoreError::Dimensions { expected, found });
         }
-        let expected_tiles = tile_count(rules.width, rules.height);
+        let expected_tiles = tile_count(VALLEY_WIDTH, VALLEY_HEIGHT);
         if parts.tiles.len() != expected_tiles {
             return Err(RestoreError::TileCount {
                 expected: expected_tiles,
@@ -148,9 +151,8 @@ impl World {
                 return Err(RestoreError::DuplicatePlayer(id));
             }
         }
-        rules.catalog_version = parts.catalog_version;
         Ok(Self {
-            rules,
+            catalog,
             tick: parts.tick,
             epoch: parts.epoch,
             rng_state: parts.rng_state,
@@ -166,12 +168,12 @@ impl World {
         WorldParts {
             tick: self.tick,
             epoch: self.epoch,
-            catalog_version: self.rules.catalog_version.clone(),
+            catalog_version: self.catalog.version.clone(),
             rng_state: self.rng_state.clone(),
             demo_mode: self.demo_mode,
             humidity_contributed: self.humidity_contributed,
-            width: self.rules.width,
-            height: self.rules.height,
+            width: VALLEY_WIDTH,
+            height: VALLEY_HEIGHT,
             tiles: self.tiles.clone(),
             players: self.players().cloned().collect(),
         }
@@ -245,15 +247,15 @@ impl World {
             return CommandOutcome::Rejected(RejectReason::OutOfBounds);
         };
         let (humidity, cost) = if self.demo_mode {
-            (self.rules.demo_drop_humidity, 0)
+            (DEMO_DROP_HUMIDITY, 0)
         } else {
-            (self.rules.drop_humidity, self.rules.drop_water_cost)
+            (self.catalog.drop.humidity, self.catalog.drop.water_cost)
         };
         let known = self.players.get(player_id).map(|slot| slot.record.water);
         if known.is_none() && self.players.len() >= MAX_PLAYERS {
             return CommandOutcome::Rejected(RejectReason::WorldFull);
         }
-        if known.unwrap_or(self.rules.initial_water) < cost {
+        if known.unwrap_or(self.catalog.tank.capacity) < cost {
             return CommandOutcome::Rejected(RejectReason::InsufficientWater);
         }
         // Solo aquí, con la gota ya aceptada, entra un jugador nuevo.
@@ -271,14 +273,14 @@ impl World {
     /// iniciales del catálogo. Solo se llama al aplicar un comando: los
     /// rechazados, mal formados o no soportados no crean jugadores.
     fn player_slot(&mut self, player_id: &str) -> &mut PlayerSlot {
-        let rules = &self.rules;
+        let tank = self.catalog.tank.capacity;
         self.players
             .entry(player_id.to_string())
             .or_insert_with(|| PlayerSlot {
                 record: Player {
                     player_id: player_id.to_string(),
-                    water: rules.initial_water,
-                    tank_capacity: rules.initial_tank_capacity,
+                    water: tank,
+                    tank_capacity: tank,
                     ..Player::default()
                 },
                 recent_ids: HashSet::new(),
@@ -287,7 +289,7 @@ impl World {
 
     /// Olvida los `action_id` aplicados hace más de la ventana (Capa 3).
     fn forget_old_actions(&mut self, tick: u64) {
-        let window = self.rules.recent_actions_window_ticks;
+        let window = RECENT_ACTIONS_WINDOW_TICKS;
         for slot in self.players.values_mut() {
             let keep_from = slot
                 .record
@@ -300,8 +302,8 @@ impl World {
     }
 
     fn tile_index(&self, x: u32, y: u32) -> Option<usize> {
-        (x < self.rules.width && y < self.rules.height)
-            .then(|| y as usize * self.rules.width as usize + x as usize)
+        (x < VALLEY_WIDTH && y < VALLEY_HEIGHT)
+            .then(|| y as usize * VALLEY_WIDTH as usize + x as usize)
     }
 
     pub fn tick(&self) -> u64 {
@@ -327,15 +329,15 @@ impl World {
     }
 
     pub fn width(&self) -> u32 {
-        self.rules.width
+        VALLEY_WIDTH
     }
 
     pub fn height(&self) -> u32 {
-        self.rules.height
+        VALLEY_HEIGHT
     }
 
     pub fn catalog_version(&self) -> &str {
-        &self.rules.catalog_version
+        &self.catalog.version
     }
 
     /// Por filas: índice = y * width + x.
@@ -386,7 +388,7 @@ mod tests {
     }
 
     fn world() -> World {
-        World::new(Rules::initial())
+        World::new(Catalog::d01())
     }
 
     fn outcomes(step: &StepOutcome) -> Vec<CommandOutcome> {
@@ -731,7 +733,7 @@ mod tests {
         assert_eq!(parts.players.len(), 2);
         assert!(parts.players[0].player_id < parts.players[1].player_id);
 
-        let restored = World::restore(Rules::initial(), parts.clone()).unwrap();
+        let restored = World::restore(Catalog::d01(), parts.clone()).unwrap();
         assert_eq!(restored.parts(), parts);
     }
 
@@ -739,7 +741,7 @@ mod tests {
     fn restored_world_continues_the_tick_and_keeps_the_duplicate_window() {
         let mut w = world();
         w.step(&[drop_cmd(&action(1), ANA, 3, 4)]);
-        let mut restored = World::restore(Rules::initial(), w.parts()).unwrap();
+        let mut restored = World::restore(Catalog::d01(), w.parts()).unwrap();
 
         let out = restored.step(&[drop_cmd(&action(1), ANA, 3, 4)]);
         assert_eq!(out.tick, 2);
@@ -752,7 +754,7 @@ mod tests {
         let mut parts = world().parts();
         parts.width = 16;
         assert_eq!(
-            World::restore(Rules::initial(), parts).unwrap_err(),
+            World::restore(Catalog::d01(), parts).unwrap_err(),
             RestoreError::Dimensions {
                 expected: (32, 32),
                 found: (16, 32)
@@ -762,11 +764,77 @@ mod tests {
         let mut parts = world().parts();
         parts.tiles.pop();
         assert_eq!(
-            World::restore(Rules::initial(), parts).unwrap_err(),
+            World::restore(Catalog::d01(), parts).unwrap_err(),
             RestoreError::TileCount {
                 expected: 1024,
                 found: 1023
             }
         );
+    }
+
+    fn custom_catalog() -> Catalog {
+        let mut catalog = Catalog::d01();
+        catalog.version = "custom".to_string();
+        catalog.drop.water_cost = 2;
+        catalog.drop.humidity = 40;
+        catalog.tank.capacity = 30;
+        catalog
+    }
+
+    #[test]
+    fn a_drop_uses_the_figures_of_the_catalog() {
+        let mut w = World::new(custom_catalog());
+        let out = w.step(&[drop_cmd(&action(1), ANA, 1, 1)]);
+
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
+        let player = w.players().next().unwrap();
+        assert_eq!((player.water, player.tank_capacity), (28, 30));
+        assert_eq!(player.water_spent, 2);
+        assert_eq!(w.tile(1, 1).unwrap().humidity, 40);
+        assert_eq!(w.humidity_contributed(), 40);
+    }
+
+    #[test]
+    fn a_new_player_starts_with_the_full_tank_of_the_catalog() {
+        let mut catalog = Catalog::d01();
+        catalog.tank.capacity = 1;
+        catalog.drop.water_cost = 2;
+        let mut w = World::new(catalog);
+        let out = w.step(&[drop_cmd(&action(1), ANA, 1, 1)]);
+
+        assert_eq!(
+            outcomes(&out),
+            vec![CommandOutcome::Rejected(RejectReason::InsufficientWater)]
+        );
+        assert_eq!(w.players().count(), 0);
+    }
+
+    #[test]
+    fn a_demo_drop_ignores_the_catalog_drop_figures() {
+        let mut w = World::new(custom_catalog());
+        w.set_demo_mode(true);
+        w.step(&[drop_cmd(&action(1), ANA, 1, 1)]);
+
+        assert_eq!(w.tile(1, 1).unwrap().humidity, 1);
+        assert_eq!(w.players().next().unwrap().water, 30);
+    }
+
+    #[test]
+    fn the_world_reports_the_version_of_its_catalog() {
+        let w = World::new(custom_catalog());
+        assert_eq!(w.catalog_version(), "custom");
+        assert_eq!(w.parts().catalog_version, "custom");
+    }
+
+    #[test]
+    fn restore_applies_the_current_catalog_and_not_the_one_of_the_snapshot() {
+        let old = World::new(Catalog::d01()).parts();
+        assert_eq!(old.catalog_version, Catalog::D01_VERSION);
+
+        let mut restored = World::restore(custom_catalog(), old).unwrap();
+        assert_eq!(restored.catalog_version(), "custom");
+        assert_eq!(restored.parts().catalog_version, "custom");
+        restored.step(&[drop_cmd(&action(1), ANA, 0, 0)]);
+        assert_eq!(restored.tile(0, 0).unwrap().humidity, 40);
     }
 }

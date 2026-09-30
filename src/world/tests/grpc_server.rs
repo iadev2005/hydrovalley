@@ -2,7 +2,7 @@
 //! proceso, contra una persistencia falsa servida también con tonic.
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -16,7 +16,10 @@ use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_check_response::ServingStatus;
 use tonic_health::pb::health_client::HealthClient;
 
+mod common;
+
 use world::proto::persistence::v1 as persistence_pb;
+use world::proto::persistence::v1::catalog_service_server::{CatalogService, CatalogServiceServer};
 use world::proto::persistence::v1::persistence_service_server::{
     PersistenceService, PersistenceServiceServer,
 };
@@ -37,6 +40,9 @@ enum LoadMode {
 
 struct FakePersistence {
     mode: Mutex<LoadMode>,
+    /// Si es `false`, GetCatalog responde UNAVAILABLE.
+    catalog_available: AtomicBool,
+    catalog_calls: AtomicUsize,
     load_calls: AtomicUsize,
     saved: Mutex<Vec<persistence_pb::Snapshot>>,
 }
@@ -45,6 +51,8 @@ impl FakePersistence {
     fn new(mode: LoadMode) -> Arc<Self> {
         Arc::new(Self {
             mode: Mutex::new(mode),
+            catalog_available: AtomicBool::new(true),
+            catalog_calls: AtomicUsize::new(0),
             load_calls: AtomicUsize::new(0),
             saved: Mutex::new(Vec::new()),
         })
@@ -88,6 +96,22 @@ impl PersistenceService for FakeService {
     }
 }
 
+#[tonic::async_trait]
+impl CatalogService for FakeService {
+    async fn get_catalog(
+        &self,
+        _: Request<persistence_pb::GetCatalogRequest>,
+    ) -> Result<Response<persistence_pb::GetCatalogResponse>, Status> {
+        self.0.catalog_calls.fetch_add(1, Ordering::SeqCst);
+        if !self.0.catalog_available.load(Ordering::SeqCst) {
+            return Err(Status::unavailable("sin base de datos"));
+        }
+        Ok(Response::new(persistence_pb::GetCatalogResponse {
+            catalog: Some(common::catalog()),
+        }))
+    }
+}
+
 struct Harness {
     world: WorldServiceClient<Channel>,
     health: HealthClient<Channel>,
@@ -104,13 +128,18 @@ async fn listener() -> (TcpListener, SocketAddr) {
 }
 
 async fn start(mode: LoadMode) -> Harness {
-    let persistence = FakePersistence::new(mode);
+    start_with(FakePersistence::new(mode)).await
+}
+
+async fn start_with(persistence: Arc<FakePersistence>) -> Harness {
     let (fake_listener, fake_addr) = listener().await;
     let (stop_fake, fake_stopped) = oneshot::channel::<()>();
     let service = PersistenceServiceServer::new(FakeService(persistence.clone()));
+    let catalog_service = CatalogServiceServer::new(FakeService(persistence.clone()));
     tokio::spawn(async move {
         Server::builder()
             .add_service(service)
+            .add_service(catalog_service)
             .serve_with_incoming_shutdown(TcpListenerStream::new(fake_listener), async {
                 fake_stopped.await.ok();
             })
@@ -313,9 +342,11 @@ async fn a_snapshot_is_saved_at_tick_50() {
 
     let saved = h.persistence.saved.lock().unwrap()[0].clone();
     assert_eq!(saved.epoch, 0);
+    assert_eq!(saved.catalog_version, common::CATALOG_VERSION);
     assert_eq!(saved.players.len(), 1);
     let inner = pb::WorldSnapshot::decode(saved.world_state.as_slice()).unwrap();
     assert_eq!(inner.tick, 50);
+    assert_eq!(inner.catalog_version, common::CATALOG_VERSION);
     assert_eq!(inner.humidity_contributed, 25);
     assert_eq!(inner.players[0].recent_actions.len(), 1);
 }
@@ -387,4 +418,31 @@ async fn shutdown_saves_a_final_snapshot_of_the_last_tick() {
     let saved = persistence.saved.lock().unwrap()[0].clone();
     let inner = pb::WorldSnapshot::decode(saved.world_state.as_slice()).unwrap();
     assert_eq!(inner.humidity_contributed, 25);
+}
+
+#[tokio::test]
+async fn the_world_is_not_ready_until_the_catalog_is_available() {
+    // La persistencia falsa arranca con GetCatalog caído.
+    let persistence = FakePersistence::new(LoadMode::NotFound);
+    persistence.catalog_available.store(false, Ordering::SeqCst);
+    let mut h = start_with(persistence).await;
+    let persistence = h.persistence.clone();
+    eventually("varios GetCatalog", || {
+        persistence.catalog_calls.load(Ordering::SeqCst) >= 3
+    })
+    .await;
+
+    let status = h.step(Vec::new()).await.unwrap_err();
+    assert_eq!(status.code(), Code::Unavailable);
+    assert_eq!(h.health("").await, ServingStatus::NotServing);
+    // Sin catálogo no se toca la instantánea: el tick nunca retrocede.
+    assert_eq!(h.persistence.load_calls.load(Ordering::SeqCst), 0);
+
+    h.persistence
+        .catalog_available
+        .store(true, Ordering::SeqCst);
+    let response = h.first_step().await;
+    assert_eq!(response.tick, 1);
+    assert_eq!(h.persistence.load_calls.load(Ordering::SeqCst), 1);
+    h.stop().await;
 }

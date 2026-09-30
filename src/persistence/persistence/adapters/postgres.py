@@ -32,7 +32,9 @@ from pathlib import Path
 from typing import TypeVar
 
 import psycopg
+from psycopg.types.json import Jsonb
 
+from persistence.catalog import Catalog, CatalogEntry
 from persistence.domain import (
     Account,
     AccountAlreadyExistsError,
@@ -75,10 +77,13 @@ class PostgresSnapshotRepository:
         tcp_user_timeout_ms: int = 5000,
         liveness_interval_s: float = 5.0,
         admin_seed: AdminSeed | None = None,
+        catalog: Catalog | None = None,
     ) -> None:
         self._dsn = dsn
         # Cuenta de administrador que se crea, si no existe, tras migrar.
         self._admin_seed = admin_seed
+        # Catálogo validado que se siembra, si hay, tras migrar.
+        self._catalog = catalog
         self._migrations_dir = migrations_dir
         self.on_ready_change = on_ready_change
         self._connect_timeout_s = connect_timeout_s
@@ -180,11 +185,13 @@ class PostgresSnapshotRepository:
         if applied:
             log.info("migraciones aplicadas: %s", ", ".join(applied))
         # La siembra va antes de publicar la conexión: la salud solo pasa a
-        # SERVING con el administrador ya creado y, si falla, se reintenta
-        # con el resto de la conexión.
+        # SERVING con el administrador y el catálogo ya guardados y, si falla,
+        # se reintenta con el resto de la conexión.
         try:
             if self._admin_seed is not None:
                 self._seed_admin(conn, self._admin_seed)
+            if self._catalog is not None:
+                self._seed_catalog(conn, self._catalog)
         except BaseException:
             conn.close()
             raise
@@ -213,6 +220,31 @@ class PostgresSnapshotRepository:
             )
         else:
             log.info("cuenta de administrador %r ya existía", seed.username)
+
+    @staticmethod
+    def _seed_catalog(conn: psycopg.Connection, catalog: Catalog) -> None:
+        """Deja `catalog_entries` igual que el archivo: inserta las filas
+        nuevas, actualiza solo las que cambiaron (así `updated_at` marca el
+        último cambio real) y borra las que ya no están. Idempotente y en
+        una sola transacción: nadie lee un catálogo a medias."""
+        changed = 0
+        with conn.transaction():
+            for entry in catalog.entries:
+                row = conn.execute(
+                    "INSERT INTO catalog_entries (key, kind, value) VALUES (%s, %s, %s)"
+                    " ON CONFLICT (key) DO UPDATE"
+                    " SET kind = EXCLUDED.kind, value = EXCLUDED.value, updated_at = now()"
+                    " WHERE (catalog_entries.kind, catalog_entries.value)"
+                    " IS DISTINCT FROM (EXCLUDED.kind, EXCLUDED.value)"
+                    " RETURNING key",
+                    (entry.key, entry.kind, Jsonb(entry.value)),
+                ).fetchone()
+                changed += row is not None
+            conn.execute(
+                "DELETE FROM catalog_entries WHERE key <> ALL(%s)",
+                ([entry.key for entry in catalog.entries],),
+            )
+        log.info("catálogo %s sembrado (%d filas nuevas o cambiadas)", catalog.version, changed)
 
     def _publish_readiness(self) -> None:
         """Avisa del estado vigente si cambió desde el último aviso.
@@ -372,6 +404,15 @@ class PostgresSnapshotRepository:
                 ([Decimal(tick) for tick in doomed],),
             )
             return len(doomed)
+
+        return self._call(work)
+
+    # --- Puerto CatalogRepository -------------------------------------------
+
+    def load_entries(self) -> list[CatalogEntry]:
+        def work(conn: psycopg.Connection) -> list[CatalogEntry]:
+            rows = conn.execute("SELECT key, kind, value FROM catalog_entries ORDER BY key")
+            return [CatalogEntry(key, kind, value) for key, kind, value in rows.fetchall()]
 
         return self._call(work)
 

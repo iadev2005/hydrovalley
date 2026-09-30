@@ -4,6 +4,7 @@ y AccountRepository."""
 import threading
 import uuid
 
+from persistence.catalog import Catalog, CatalogEntry
 from persistence.domain import (
     Account,
     AccountAlreadyExistsError,
@@ -114,3 +115,35 @@ class InMemoryAccountRepository:
         wanted = set(player_ids)
         with self._lock:
             return {a.id: a.username for a in self._accounts.values() if a.id in wanted}
+
+
+class InMemoryCatalogRepository:
+    """Doble de pruebas del puerto CatalogRepository."""
+
+    def __init__(self) -> None:
+        self._entries: list[CatalogEntry] = []
+        self._lock = threading.Lock()
+        # Interruptores para simular fallos en las pruebas.
+        self.available = True
+        # Si existe, load_entries lanza esta excepción.
+        self.error: Exception | None = None
+
+    def replace(self, catalog: Catalog) -> None:
+        """Siembra un catálogo validado (lo que hace el adaptador real al conectar)."""
+        self.set_raw(list(catalog.entries))
+
+    def set_raw(self, entries: list[CatalogEntry]) -> None:
+        """Guarda filas sin validar (para probar un contenido corrupto)."""
+        with self._lock:
+            self._entries = list(entries)
+
+    def clear(self) -> None:
+        self.set_raw([])
+
+    def load_entries(self) -> list[CatalogEntry]:
+        if not self.available:
+            raise RepositoryUnavailableError("repositorio en memoria desactivado")
+        if self.error is not None:
+            raise self.error
+        with self._lock:
+            return list(self._entries)
