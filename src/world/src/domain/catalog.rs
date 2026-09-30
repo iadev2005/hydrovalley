@@ -38,6 +38,8 @@ pub struct DropRules {
     pub water_cost: u64,
     /// Humedad que suma una gota fuera del modo demo.
     pub humidity: u64,
+    /// Humedad que suma una gota en modo demo (gratis y de una sola casilla).
+    pub demo_humidity: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +58,21 @@ pub struct GrowthRules {
     pub leaves_flowers: u64,
     pub leaves_tree: u64,
     pub tree_max_humidity: u64,
+}
+
+impl GrowthRules {
+    /// Hojas que gana quien hace llegar una casilla a `stage` (0 en tierra
+    /// seca: nunca se llega a ella creciendo).
+    pub fn leaves_for(&self, stage: super::TileStage) -> u64 {
+        use super::TileStage::*;
+        match stage {
+            DrySoil => 0,
+            Grass => self.leaves_grass,
+            Shrub => self.leaves_shrub,
+            Flowers => self.leaves_flowers,
+            Tree => self.leaves_tree,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +137,7 @@ impl Catalog {
             drop: DropRules {
                 water_cost: 1,
                 humidity: 25,
+                demo_humidity: 1,
             },
             tank: TankRules {
                 capacity: 20,

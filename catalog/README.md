@@ -20,6 +20,7 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | --- | --- | --- |
 | `drop.water_cost_liters` | Agua que cuesta una gota (en modo demo es gratis) | 1 |
 | `drop.humidity_points` | Humedad que suma una gota a su casilla | 25 |
+| `drop.demo_humidity_points` | Humedad que suma una gota en modo demo (gratis y de una sola casilla) | 1 |
 | `tank.capacity_liters` | Capacidad inicial del depósito | 20 |
 | `tank.refill_liters` | Litros que recarga el depósito en cada intervalo | 1 |
 | `tank.refill_interval_seconds` | Segundos entre recargas | 2 |
@@ -62,5 +63,4 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 ## Datos pendientes
 
 - `[DATO: probabilidad de ignición]`: D-01 dice que los incendios «aparecen al azar» pero no da la cifra. `fire.ignition_chance_ppm` queda en `null`; el contrato (`uint32`) no admite nulos, así que `GetCatalog` lo entrega como `0` (ningún incendio aparece) hasta que se fije el valor en la tarea de incendios.
-- `[DATO: humedad de la gota en modo demo]`: D-01 la fija en 1, y la gota demo es gratis y de una sola casilla, pero `catalog.proto` (`DropRules`) no tiene campo para ello. Hasta ampliar el contrato, el simulador la lleva como constante del modo demo.
 - Fuera del catálogo, por ser estructura y no cifras de ajuste: el tamaño del valle (32 × 32), la ventana de 600 ticks de `action_id` recientes y el límite de 15 gotas por segundo (del hub).

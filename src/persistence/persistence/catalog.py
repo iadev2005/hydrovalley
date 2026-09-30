@@ -64,7 +64,11 @@ def _u32(name: str, proto: str, minimum: int = 0, maximum: int = U32_MAX) -> Fie
 SECTIONS: dict[str, Section] = {
     "drop": Section(
         "rule",
-        (_u64("water_cost_liters", "water_cost"), _u64("humidity_points", "humidity")),
+        (
+            _u64("water_cost_liters", "water_cost"),
+            _u64("humidity_points", "humidity"),
+            _u64("demo_humidity_points", "demo_humidity"),
+        ),
     ),
     "tank": Section(
         "rule",

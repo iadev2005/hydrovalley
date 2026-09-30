@@ -8,8 +8,9 @@ use super::catalog::Catalog;
 use super::command::{
     Command, CommandKind, CommandOutcome, CommandResult, RejectReason, StepOutcome,
 };
+use super::growth;
+use super::limits::{RECENT_ACTIONS_WINDOW_TICKS, TICKS_PER_SECOND, VALLEY_HEIGHT, VALLEY_WIDTH};
 use super::player::{AppliedAction, Player};
-use super::rules::{DEMO_DROP_HUMIDITY, RECENT_ACTIONS_WINDOW_TICKS, VALLEY_HEIGHT, VALLEY_WIDTH};
 use super::tile::Tile;
 
 /// Cada cuántos ticks se toma una instantánea (Capa 5).
@@ -181,8 +182,24 @@ impl World {
 
     /// Aplica los comandos en orden y avanza el valle un tick.
     ///
-    /// Los comandos se aplican con el número del tick nuevo: la instantánea
-    /// de ese tick los incluye.
+    /// Los comandos se aplican con el número del tick nuevo `t`: la
+    /// instantánea de ese tick los incluye. El orden dentro del tick es fijo:
+    ///
+    /// 1. Olvida los `action_id` fuera de la ventana de 600 ticks.
+    /// 2. Comandos, en orden de admisión. El crecimiento se resuelve al
+    ///    sumar la humedad de cada gota (así las hojas son de quien la
+    ///    empujó al umbral) y, por tanto, antes de la evaporación del mismo
+    ///    tick.
+    /// 3. Recarga de los depósitos, si `t` es múltiplo del intervalo del
+    ///    catálogo en ticks.
+    /// 4. Evaporación, si `t` es múltiplo de [`TICKS_PER_SECOND`] (salvo en
+    ///    modo demo).
+    /// 5. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
+    ///    modo demo).
+    /// 6. El tick pasa a `t`.
+    ///
+    /// Todo es aritmética entera y no hay azar: mismo estado y mismos
+    /// comandos dan el mismo valle.
     pub fn step(&mut self, commands: &[Command]) -> StepOutcome {
         let tick = self.tick.saturating_add(1);
         self.forget_old_actions(tick);
@@ -196,8 +213,9 @@ impl World {
             })
             .collect();
 
-        // TODO(simulation): crecimiento, recarga del depósito, aspersores,
-        // evaporación, marchitamiento e incendios (D-01).
+        // TODO(simulation): aspersores, goteo, planta de tratamiento e
+        // incendios (D-01); se colgarán de esta función.
+        self.advance_valley(tick);
         self.tick = tick;
         StepOutcome { tick, results }
     }
@@ -216,14 +234,18 @@ impl World {
         let outcome = match &command.kind {
             None => CommandOutcome::Rejected(RejectReason::InvalidCommand),
             Some(CommandKind::Drop { x, y }) => self.drop(&command.player_id, *x, *y),
-            // TODO(commands): instalaciones, mejoras, modo demo y reinicio
-            // del valle (RF-04, RF-07, RF-31).
-            Some(
-                CommandKind::PlaceInstallation
-                | CommandKind::BuyUpgrade
-                | CommandKind::SetDemoMode { .. }
-                | CommandKind::ResetValley,
-            ) => CommandOutcome::Rejected(RejectReason::Unsupported),
+            Some(CommandKind::SetDemoMode { enabled }) => {
+                self.demo_mode = *enabled;
+                CommandOutcome::Applied
+            }
+            Some(CommandKind::ResetValley) => {
+                self.reset_valley();
+                CommandOutcome::Applied
+            }
+            // TODO(commands): instalaciones y mejoras (RF-04, RF-07).
+            Some(CommandKind::PlaceInstallation | CommandKind::BuyUpgrade) => {
+                CommandOutcome::Rejected(RejectReason::Unsupported)
+            }
         };
         if outcome == CommandOutcome::Applied {
             // El comando aplicado ya dio de alta al jugador si era nuevo.
@@ -238,8 +260,9 @@ impl World {
         outcome
     }
 
-    /// Gota sobre (x, y): cobra el agua (salvo en modo demo) y humedece la
-    /// casilla.
+    /// Gota sobre (x, y): cobra el agua (salvo en modo demo), humedece la
+    /// casilla y, si con ella llega al umbral, la hace crecer y paga las
+    /// hojas a este jugador (el que empujó la casilla, en orden de admisión).
     ///
     /// TODO(simulation): gota más grande (3 x 3) y gotas que apagan fuegos.
     fn drop(&mut self, player_id: &str, x: u32, y: u32) -> CommandOutcome {
@@ -247,7 +270,7 @@ impl World {
             return CommandOutcome::Rejected(RejectReason::OutOfBounds);
         };
         let (humidity, cost) = if self.demo_mode {
-            (DEMO_DROP_HUMIDITY, 0)
+            (self.catalog.drop.demo_humidity, 0)
         } else {
             (self.catalog.drop.humidity, self.catalog.drop.water_cost)
         };
@@ -259,14 +282,78 @@ impl World {
             return CommandOutcome::Rejected(RejectReason::InsufficientWater);
         }
         // Solo aquí, con la gota ya aceptada, entra un jugador nuevo.
+        let leaves = growth::add_humidity(&mut self.tiles[index], humidity, &self.catalog.growth);
+        self.humidity_contributed = self.humidity_contributed.saturating_add(humidity);
+
         let player = &mut self.player_slot(player_id).record;
         player.water -= cost;
         player.water_spent = player.water_spent.saturating_add(cost);
-
-        let tile = &mut self.tiles[index];
-        tile.humidity = tile.humidity.saturating_add(humidity);
-        self.humidity_contributed = self.humidity_contributed.saturating_add(humidity);
+        player.leaves = player.leaves.saturating_add(leaves);
+        player.leaves_earned = player.leaves_earned.saturating_add(leaves);
         CommandOutcome::Applied
+    }
+
+    /// Recarga el depósito de cada jugador con `tank.refill_amount` cada
+    /// `tank.refill_interval_seconds` (en ticks, sin decimales), sin pasar de
+    /// la capacidad. Solo cuenta como recargado (RF-27) lo que cabe.
+    fn refill_tanks(&mut self, tick: u64) {
+        let interval =
+            u64::from(self.catalog.tank.refill_interval_seconds).saturating_mul(TICKS_PER_SECOND);
+        if !tick.is_multiple_of(interval) {
+            return;
+        }
+        let amount = self.catalog.tank.refill_amount;
+        for slot in self.players.values_mut() {
+            let player = &mut slot.record;
+            let added = amount.min(player.tank_capacity.saturating_sub(player.water));
+            player.water = player.water.saturating_add(added);
+            player.water_refilled = player.water_refilled.saturating_add(added);
+        }
+    }
+
+    /// Lo que cambia solo con el paso del tiempo, después de los comandos.
+    fn advance_valley(&mut self, tick: u64) {
+        self.refill_tanks(tick);
+        // El modo demo congela el valle: sin evaporación ni marchitamiento
+        // (y, cuando lleguen, sin incendios).
+        if self.demo_mode {
+            return;
+        }
+        // La cifra del catálogo es por segundo: se aplica entera una vez por
+        // segundo (cada TICKS_PER_SECOND ticks), nunca como fracción.
+        if tick.is_multiple_of(TICKS_PER_SECOND) {
+            let amount = self.catalog.evaporation.humidity_per_second;
+            for tile in &mut self.tiles {
+                growth::evaporate(tile, amount);
+            }
+        }
+        for tile in &mut self.tiles {
+            growth::wither(tile, &self.catalog.evaporation);
+        }
+    }
+
+    /// Reinicio del valle (RF-31): el mundo vuelve a su estado inicial y los
+    /// jugadores a los valores de arranque del catálogo, con los contadores
+    /// de RF-27 y de las 3R a cero.
+    ///
+    /// No toca el tick, el modo demo, el generador de azar ni
+    /// `humidity_contributed` (que solo crece), y conserva a los jugadores y
+    /// su ventana de `action_id`. Incrementa la época.
+    fn reset_valley(&mut self) {
+        self.tiles.fill(Tile::default());
+        self.epoch = self.epoch.saturating_add(1);
+        let tank = self.catalog.tank.capacity;
+        for slot in self.players.values_mut() {
+            slot.record = Player::starting(&slot.record.player_id, tank)
+                .keeping_actions_of(std::mem::take(&mut slot.record));
+        }
+    }
+
+    /// Sustituye el catálogo vigente (p. ej. al reiniciar el valle, que lo
+    /// vuelve a pedir). Las reglas siguientes usan las cifras nuevas; lo ya
+    /// calculado no cambia.
+    pub fn set_catalog(&mut self, catalog: Catalog) {
+        self.catalog = catalog;
     }
 
     /// Devuelve el jugador y lo da de alta si no existía, con los valores
@@ -277,12 +364,7 @@ impl World {
         self.players
             .entry(player_id.to_string())
             .or_insert_with(|| PlayerSlot {
-                record: Player {
-                    player_id: player_id.to_string(),
-                    water: tank,
-                    tank_capacity: tank,
-                    ..Player::default()
-                },
+                record: Player::starting(player_id, tank),
                 recent_ids: HashSet::new(),
             })
     }
@@ -318,9 +400,10 @@ impl World {
         self.demo_mode
     }
 
-    /// TODO(admin): hoy solo lo usan las pruebas; llegará con
-    /// `SetDemoModeCommand` (RF-31).
-    pub fn set_demo_mode(&mut self, enabled: bool) {
+    /// Atajo de las pruebas que no quieren gastar un tick: en producción el
+    /// modo demo solo cambia con `CommandKind::SetDemoMode`.
+    #[cfg(test)]
+    pub(crate) fn set_demo_mode(&mut self, enabled: bool) {
         self.demo_mode = enabled;
     }
 
@@ -444,6 +527,7 @@ mod tests {
         assert_eq!(ana.water, 19);
         assert_eq!(ana.tank_capacity, 20);
         assert_eq!(ana.water_spent, 1);
+        assert_eq!(ana.water_refilled, 20, "the full tank counts as refilled");
         assert_eq!(ana.last_action_tick, 1);
         assert_eq!(
             ana.recent_actions,
@@ -508,7 +592,7 @@ mod tests {
             CommandOutcome::Rejected(RejectReason::InsufficientWater)
         );
         assert_eq!(w.player(ANA).unwrap().water, 0);
-        assert_eq!(w.tile(1, 1).unwrap().humidity, 20 * 25);
+        assert_eq!(w.humidity_contributed(), 20 * 25);
 
         w.set_demo_mode(true);
         let out = w.step(&[drop_cmd(&action(100), ANA, 1, 1)]);
@@ -571,7 +655,7 @@ mod tests {
         // Tick 602: fuera de la ventana; se aplica como nuevo.
         let out = w.step(&[drop_cmd(&action(1), ANA, 5, 5)]);
         assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
-        assert_eq!(w.tile(5, 5).unwrap().humidity, 50);
+        assert_eq!(w.humidity_contributed(), 50);
     }
 
     #[test]
@@ -638,14 +722,9 @@ mod tests {
     }
 
     #[test]
-    fn other_command_kinds_are_rejected_as_unsupported_for_now() {
+    fn installation_and_upgrade_commands_are_rejected_as_unsupported_for_now() {
         let mut w = world();
-        let kinds = [
-            CommandKind::PlaceInstallation,
-            CommandKind::BuyUpgrade,
-            CommandKind::SetDemoMode { enabled: true },
-            CommandKind::ResetValley,
-        ];
+        let kinds = [CommandKind::PlaceInstallation, CommandKind::BuyUpgrade];
         let commands: Vec<Command> = kinds
             .into_iter()
             .enumerate()
@@ -658,9 +737,8 @@ mod tests {
         let out = w.step(&commands);
         assert_eq!(
             outcomes(&out),
-            vec![CommandOutcome::Rejected(RejectReason::Unsupported); 4]
+            vec![CommandOutcome::Rejected(RejectReason::Unsupported); 2]
         );
-        assert!(!w.demo_mode());
         assert!(w.player(ANA).is_none());
     }
 
@@ -810,12 +888,15 @@ mod tests {
     }
 
     #[test]
-    fn a_demo_drop_ignores_the_catalog_drop_figures() {
-        let mut w = World::new(custom_catalog());
+    fn a_demo_drop_uses_the_demo_humidity_of_the_catalog() {
+        let mut catalog = custom_catalog();
+        catalog.drop.demo_humidity = 3;
+        let mut w = World::new(catalog);
         w.set_demo_mode(true);
         w.step(&[drop_cmd(&action(1), ANA, 1, 1)]);
 
-        assert_eq!(w.tile(1, 1).unwrap().humidity, 1);
+        assert_eq!(w.tile(1, 1).unwrap().humidity, 3);
+        assert_eq!(w.humidity_contributed(), 3);
         assert_eq!(w.players().next().unwrap().water, 30);
     }
 
@@ -836,5 +917,557 @@ mod tests {
         assert_eq!(restored.parts().catalog_version, "custom");
         restored.step(&[drop_cmd(&action(1), ANA, 0, 0)]);
         assert_eq!(restored.tile(0, 0).unwrap().humidity, 40);
+    }
+
+    // ---- Reglas por tick (T2) -------------------------------------------
+
+    const ADMIN: &str = "aaaaaaaa-0000-4000-8000-000000000001";
+
+    fn demo_cmd(action_id: &str, enabled: bool) -> Command {
+        Command {
+            action_id: action_id.to_string(),
+            player_id: ADMIN.to_string(),
+            kind: Some(CommandKind::SetDemoMode { enabled }),
+        }
+    }
+
+    fn reset_cmd(action_id: &str) -> Command {
+        Command {
+            action_id: action_id.to_string(),
+            player_id: ADMIN.to_string(),
+            kind: Some(CommandKind::ResetValley),
+        }
+    }
+
+    /// Avanza `count` ticks sin comandos.
+    fn idle(w: &mut World, count: u64) {
+        for _ in 0..count {
+            w.step(&[]);
+        }
+    }
+
+    /// Avanza hasta que el mundo quede en `tick`.
+    fn advance_to(w: &mut World, tick: u64) {
+        assert!(w.tick() <= tick);
+        idle(w, tick - w.tick());
+    }
+
+    /// `n` gotas del jugador sobre (x, y), con action_id distintos a partir
+    /// de `first`.
+    fn drops(first: u32, n: u32, player: &str, x: u32, y: u32) -> Vec<Command> {
+        (first..first + n)
+            .map(|k| drop_cmd(&action(k), player, x, y))
+            .collect()
+    }
+
+    /// RF-27: agua = recargada − gastada y hojas = ganadas − gastadas.
+    fn assert_rf27(w: &World) {
+        for p in w.players() {
+            assert_eq!(
+                p.water,
+                p.water_refilled - p.water_spent,
+                "water {}",
+                p.player_id
+            );
+            assert_eq!(
+                p.leaves,
+                p.leaves_earned - p.leaves_spent,
+                "leaves {}",
+                p.player_id
+            );
+        }
+    }
+
+    #[test]
+    fn the_tank_refills_one_litre_every_20_ticks() {
+        let mut w = world();
+        w.step(&drops(1, 5, ANA, 0, 0)); // tick 1: 15 L
+        advance_to(&mut w, 19);
+        assert_eq!(w.player(ANA).unwrap().water, 15);
+        advance_to(&mut w, 20);
+        assert_eq!(w.player(ANA).unwrap().water, 16);
+        advance_to(&mut w, 39);
+        assert_eq!(w.player(ANA).unwrap().water, 16);
+        advance_to(&mut w, 40);
+        assert_eq!(w.player(ANA).unwrap().water, 17);
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn a_full_tank_does_not_overflow_and_counts_nothing() {
+        let mut w = world();
+        w.step(&drops(1, 1, ANA, 0, 0));
+        advance_to(&mut w, 20); // vuelve a 20 L
+        advance_to(&mut w, 100);
+        let ana = w.player(ANA).unwrap();
+        assert_eq!((ana.water, ana.water_refilled), (20, 21));
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn the_refill_is_capped_at_the_capacity_and_counts_only_what_fits() {
+        let mut catalog = Catalog::d01();
+        catalog.tank.refill_amount = 5;
+        let mut w = World::new(catalog);
+        w.step(&drops(1, 3, ANA, 0, 0)); // 17 L
+        advance_to(&mut w, 20);
+        let ana = w.player(ANA).unwrap();
+        assert_eq!((ana.water, ana.water_refilled), (20, 23));
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn every_player_refills_even_when_idle() {
+        let mut w = world();
+        w.step(&[
+            drop_cmd(&action(1), ANA, 0, 0),
+            drop_cmd(&action(2), BETO, 1, 1),
+        ]);
+        advance_to(&mut w, 20);
+        assert_eq!(w.player(ANA).unwrap().water, 20);
+        assert_eq!(w.player(BETO).unwrap().water, 20);
+    }
+
+    #[test]
+    fn the_refill_interval_comes_from_the_catalog() {
+        let mut catalog = Catalog::d01();
+        catalog.tank.refill_interval_seconds = 1;
+        let mut w = World::new(catalog);
+        w.step(&drops(1, 4, ANA, 0, 0));
+        advance_to(&mut w, 9);
+        assert_eq!(w.player(ANA).unwrap().water, 16);
+        advance_to(&mut w, 10);
+        assert_eq!(w.player(ANA).unwrap().water, 17);
+        advance_to(&mut w, 20);
+        assert_eq!(w.player(ANA).unwrap().water, 18);
+    }
+
+    #[test]
+    fn a_tile_loses_the_catalog_humidity_every_second() {
+        let mut w = world();
+        w.step(&drops(1, 2, ANA, 4, 4)); // 50
+        advance_to(&mut w, 9);
+        assert_eq!(w.tile(4, 4).unwrap().humidity, 50);
+        advance_to(&mut w, 10);
+        assert_eq!(w.tile(4, 4).unwrap().humidity, 48);
+        advance_to(&mut w, 20);
+        assert_eq!(w.tile(4, 4).unwrap().humidity, 46);
+        assert_eq!(w.humidity_contributed(), 50, "evaporation never touches it");
+    }
+
+    #[test]
+    fn evaporation_never_goes_below_zero_and_uses_the_catalog() {
+        let mut catalog = Catalog::d01();
+        catalog.evaporation.humidity_per_second = 30;
+        let mut w = World::new(catalog);
+        w.step(&drops(1, 2, ANA, 4, 4)); // 50
+        advance_to(&mut w, 10);
+        assert_eq!(w.tile(4, 4).unwrap().humidity, 20);
+        advance_to(&mut w, 20);
+        assert_eq!(w.tile(4, 4).unwrap().humidity, 0);
+        advance_to(&mut w, 30);
+        assert_eq!(w.tile(4, 4).unwrap().humidity, 0);
+    }
+
+    #[test]
+    fn the_valley_evolves_even_if_nobody_plays() {
+        let mut w = world();
+        w.step(&drops(1, 1, ANA, 7, 7));
+        advance_to(&mut w, 100); // RF-28: solo pasa el tiempo
+        assert_eq!(w.tile(7, 7).unwrap().humidity, 25 - 2 * 10);
+    }
+
+    #[test]
+    fn the_drop_that_reaches_the_threshold_grows_the_tile_and_pays_its_player() {
+        let mut w = world();
+        w.step(&drops(1, 3, ANA, 2, 2));
+        assert_eq!(w.tile(2, 2).unwrap().stage, TileStage::DrySoil);
+        assert_eq!(w.player(ANA).unwrap().leaves, 0);
+
+        w.step(&drops(4, 1, ANA, 2, 2));
+        let tile = w.tile(2, 2).unwrap();
+        assert_eq!((tile.stage, tile.humidity), (TileStage::Grass, 0));
+        let ana = w.player(ANA).unwrap();
+        assert_eq!((ana.leaves, ana.leaves_earned, ana.leaves_spent), (1, 1, 0));
+        assert_eq!(w.humidity_contributed(), 100, "growth does not touch it");
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn the_leaves_go_to_the_player_whose_drop_pushed_the_tile_over() {
+        let mut w = world();
+        // Mismo tick y orden de admisión: Ana pone 75, Beto la empuja al 100.
+        let mut commands = drops(1, 3, ANA, 2, 2);
+        commands.push(drop_cmd(&action(10), BETO, 2, 2));
+        commands.push(drop_cmd(&action(11), ANA, 2, 2)); // ya es de otra etapa
+        w.step(&commands);
+        assert_eq!(w.player(BETO).unwrap().leaves, 1);
+        assert_eq!(w.player(ANA).unwrap().leaves, 0);
+        assert_eq!(w.tile(2, 2).unwrap().humidity, 25);
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn a_tile_climbs_through_all_the_stages_with_the_catalog_leaves() {
+        let mut catalog = Catalog::d01();
+        catalog.tank.capacity = 100;
+        let mut w = World::new(catalog);
+        let mut stages = Vec::new();
+        for round in 0..4u32 {
+            // Cuatro gotas por etapa, en ticks seguidos (antes de que
+            // evaporar, que toca en el tick 10, reste nada).
+            w.step(&drops(round * 10, 4, ANA, 3, 3));
+            stages.push(w.tile(3, 3).unwrap().stage);
+        }
+        stages.insert(0, TileStage::DrySoil);
+        assert_eq!(
+            stages,
+            vec![
+                TileStage::DrySoil,
+                TileStage::Grass,
+                TileStage::Shrub,
+                TileStage::Flowers,
+                TileStage::Tree
+            ]
+        );
+        // 1 + 2 + 4 + 8 hojas.
+        assert_eq!(w.player(ANA).unwrap().leaves_earned, 15);
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn a_tree_keeps_its_humidity_at_the_catalog_cap() {
+        let mut catalog = Catalog::d01();
+        catalog.tank.capacity = 100;
+        let mut w = World::new(catalog);
+        w.step(&drops(1, 40, ANA, 0, 0)); // 1000 de humedad aportada
+        let tile = w.tile(0, 0).unwrap();
+        assert_eq!(tile.stage, TileStage::Tree);
+        assert!(tile.humidity <= 100);
+        assert_eq!(w.humidity_contributed(), 1000);
+    }
+
+    #[test]
+    fn growth_is_resolved_before_evaporation_inside_the_tick() {
+        let mut w = world();
+        advance_to(&mut w, 9);
+        // Tick 10 (toca evaporar): cuatro gotas suman 100 y la casilla crece
+        // antes de que la evaporación le quite nada.
+        w.step(&drops(1, 4, ANA, 5, 5));
+        assert_eq!(w.tick(), 10);
+        let tile = w.tile(5, 5).unwrap();
+        assert_eq!((tile.stage, tile.humidity), (TileStage::Grass, 0));
+        assert_eq!(w.player(ANA).unwrap().leaves, 1);
+    }
+
+    #[test]
+    fn a_plant_without_humidity_withers_after_the_catalog_ticks() {
+        let mut w = world();
+        w.step(&drops(1, 4, ANA, 6, 6)); // tick 1: pasto con humedad 0
+        assert_eq!(w.tile(6, 6).unwrap().stage, TileStage::Grass);
+        advance_to(&mut w, 99);
+        let tile = w.tile(6, 6).unwrap();
+        assert_eq!((tile.stage, tile.dry_ticks), (TileStage::Grass, 99));
+        advance_to(&mut w, 100); // 100 ticks seguidos con humedad 0
+        let tile = w.tile(6, 6).unwrap();
+        assert_eq!((tile.stage, tile.dry_ticks), (TileStage::DrySoil, 0));
+    }
+
+    #[test]
+    fn a_drop_resets_the_dry_counter_of_a_plant() {
+        let mut w = world();
+        w.step(&drops(1, 4, ANA, 6, 6));
+        advance_to(&mut w, 50);
+        assert_eq!(w.tile(6, 6).unwrap().dry_ticks, 50);
+        w.step(&drops(10, 1, ANA, 6, 6));
+        assert_eq!(w.tile(6, 6).unwrap().dry_ticks, 0);
+    }
+
+    #[test]
+    fn demo_mode_has_no_evaporation_and_no_wither() {
+        let mut w = world();
+        w.step(&drops(1, 4, ANA, 6, 6)); // pasto con humedad 0
+        w.step(&drops(10, 1, ANA, 8, 8)); // 25
+        w.set_demo_mode(true);
+        let frozen_at = w.tile(6, 6).unwrap().dry_ticks;
+        advance_to(&mut w, 300);
+        assert_eq!(w.tile(8, 8).unwrap().humidity, 25);
+        let tile = w.tile(6, 6).unwrap();
+        assert_eq!((tile.stage, tile.dry_ticks), (TileStage::Grass, frozen_at));
+    }
+
+    #[test]
+    fn a_burning_tile_is_frozen_by_the_tick_rules() {
+        let mut w = world();
+        let mut parts = w.parts();
+        parts.tiles[0] = Tile {
+            stage: TileStage::Grass,
+            humidity: 10,
+            dry_ticks: 0,
+            fire: Some(crate::domain::Fire {
+                drops_received: 0,
+                burning_ticks: 0,
+            }),
+            installation: None,
+        };
+        parts.tiles[1] = Tile {
+            stage: TileStage::Grass,
+            humidity: 0,
+            dry_ticks: 90,
+            fire: parts.tiles[0].fire,
+            installation: None,
+        };
+        w = World::restore(Catalog::d01(), parts).unwrap();
+        advance_to(&mut w, 200);
+        let burning = w.tile(0, 0).unwrap();
+        assert_eq!((burning.humidity, burning.stage), (10, TileStage::Grass));
+        let frozen = w.tile(1, 0).unwrap();
+        assert_eq!((frozen.dry_ticks, frozen.stage), (90, TileStage::Grass));
+    }
+
+    // ---- Comandos de administración (RF-31) -----------------------------
+
+    #[test]
+    fn set_demo_mode_is_applied_and_switches_the_drop_rules() {
+        let mut w = world();
+        let out = w.step(&[demo_cmd(&action(1), true)]);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
+        assert!(w.demo_mode());
+
+        w.step(&drops(10, 1, ANA, 1, 1));
+        assert_eq!(w.tile(1, 1).unwrap().humidity, 1);
+        assert_eq!(w.player(ANA).unwrap().water, 20, "the demo drop is free");
+
+        let out = w.step(&[demo_cmd(&action(2), false)]);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
+        assert!(!w.demo_mode());
+        w.step(&drops(20, 1, ANA, 1, 1));
+        assert_eq!(w.player(ANA).unwrap().water, 19);
+    }
+
+    #[test]
+    fn set_demo_mode_takes_effect_in_the_same_tick_for_the_commands_after_it() {
+        let mut w = world();
+        let out = w.step(&[
+            drop_cmd(&action(1), ANA, 0, 0),
+            demo_cmd(&action(2), true),
+            drop_cmd(&action(3), ANA, 0, 0),
+        ]);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Applied; 3]);
+        assert_eq!(w.tile(0, 0).unwrap().humidity, 26);
+        assert_eq!(w.humidity_contributed(), 26);
+    }
+
+    #[test]
+    fn a_repeated_admin_command_is_a_duplicate() {
+        let mut w = world();
+        w.step(&[demo_cmd(&action(1), true)]);
+        let out = w.step(&[demo_cmd(&action(1), true)]);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Duplicate]);
+    }
+
+    #[test]
+    fn in_demo_mode_the_humidity_contributed_equals_the_accepted_drops() {
+        // CP-01 / CP-11 / RF-30 sobre el dominio: varios jugadores, varios
+        // ticks, muchas gotas sobre la misma casilla (que además crece).
+        let mut w = world();
+        w.step(&[demo_cmd(&action(1), true)]);
+        let players = [ANA, BETO, ADMIN];
+        let mut accepted = 0u64;
+        let mut next = 100;
+        for tick in 0..30u32 {
+            let batch: Vec<Command> = (0..7)
+                .map(|k| {
+                    next += 1;
+                    let player = players[((tick + k) % 3) as usize];
+                    drop_cmd(&action(next), player, tick % 2, 0)
+                })
+                .collect();
+            let out = w.step(&batch);
+            accepted += out
+                .results
+                .iter()
+                .filter(|r| r.outcome == CommandOutcome::Applied)
+                .count() as u64;
+        }
+        assert_eq!(accepted, 210);
+        assert_eq!(w.humidity_contributed(), accepted);
+        for p in w.players() {
+            assert_eq!(p.water, 20, "the tank does not change in demo mode");
+            assert_eq!(p.water_spent, 0);
+        }
+        assert!(
+            w.tiles().iter().any(|t| t.stage != TileStage::DrySoil),
+            "the tiles grew while the total stayed exact"
+        );
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn reset_valley_restores_the_initial_state_and_keeps_the_clock() {
+        let mut w = world();
+        w.step(&[demo_cmd(&action(1), false)]);
+        w.step(&drops(10, 6, ANA, 2, 2));
+        w.step(&drops(20, 4, BETO, 9, 9)); // Beto hace crecer una casilla
+        advance_to(&mut w, 57);
+        assert!(w.tiles().iter().any(|t| *t != Tile::default()));
+        let contributed = w.humidity_contributed();
+
+        let out = w.step(&[reset_cmd(&action(99))]);
+        assert_eq!(out.tick, 58);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
+        assert_eq!(w.tick(), 58, "the tick never goes back");
+        assert_eq!(w.epoch(), 1);
+        assert!(w.tiles().iter().all(|t| *t == Tile::default()));
+        assert_eq!(w.humidity_contributed(), contributed);
+        assert!(!w.demo_mode());
+        idle(&mut w, 1);
+        assert_eq!(w.tick(), 59);
+    }
+
+    #[test]
+    fn reset_valley_resets_the_players_counters_but_keeps_the_players() {
+        let mut w = world();
+        w.step(&drops(10, 6, ANA, 2, 2));
+        w.step(&drops(20, 4, BETO, 9, 9));
+        assert_eq!(w.player(BETO).unwrap().leaves, 1);
+
+        w.step(&[reset_cmd(&action(99))]);
+        assert_eq!(w.players().count(), 3, "Ana, Beto and the admin remain");
+        for p in [ANA, BETO] {
+            let p = w.player(p).unwrap();
+            assert_eq!((p.water, p.tank_capacity), (20, 20));
+            assert_eq!((p.leaves, p.leaves_earned, p.leaves_spent), (0, 0, 0));
+            assert_eq!((p.water_refilled, p.water_spent), (20, 0));
+            assert_eq!(
+                (p.water_reduced, p.water_reused, p.water_recycled),
+                (0, 0, 0)
+            );
+            assert!(p.purchases.is_empty() && p.upgrades.is_empty());
+        }
+        assert_rf27(&w);
+    }
+
+    #[test]
+    fn reset_valley_keeps_the_idempotency_window() {
+        let mut w = world();
+        w.step(&drops(10, 1, ANA, 2, 2));
+        w.step(&[reset_cmd(&action(99))]);
+        let out = w.step(&[drop_cmd(&action(10), ANA, 2, 2), reset_cmd(&action(99))]);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Duplicate; 2]);
+        assert_eq!(w.epoch(), 1);
+        assert_eq!(w.humidity_contributed(), 25);
+    }
+
+    #[test]
+    fn reset_valley_splits_the_tick_in_before_and_after() {
+        let mut w = world();
+        w.step(&[
+            drop_cmd(&action(1), ANA, 3, 3),
+            reset_cmd(&action(2)),
+            drop_cmd(&action(3), ANA, 4, 4),
+        ]);
+        assert_eq!(w.tile(3, 3).unwrap().humidity, 0);
+        assert_eq!(w.tile(4, 4).unwrap().humidity, 25);
+        assert_eq!(w.player(ANA).unwrap().water, 19);
+    }
+
+    #[test]
+    fn every_reset_increments_the_epoch() {
+        let mut w = world();
+        w.step(&[reset_cmd(&action(1))]);
+        w.step(&[reset_cmd(&action(2))]);
+        assert_eq!(w.epoch(), 2);
+        assert_eq!(w.parts().epoch, 2);
+    }
+
+    #[test]
+    fn a_replaced_catalog_governs_the_next_rules_and_the_next_reset() {
+        let mut w = world();
+        w.step(&drops(1, 1, ANA, 0, 0));
+        let mut next = custom_catalog(); // capacidad 30, gota de 40
+        next.tank.refill_interval_seconds = 1;
+        w.set_catalog(next);
+        assert_eq!(w.catalog_version(), "custom");
+        advance_to(&mut w, 10); // recarga cada 10 ticks con el catálogo nuevo
+        assert_eq!(w.player(ANA).unwrap().water, 20);
+
+        w.step(&[reset_cmd(&action(9))]);
+        let ana = w.player(ANA).unwrap();
+        assert_eq!((ana.water, ana.tank_capacity), (30, 30));
+    }
+
+    // ---- Instantánea y determinismo -------------------------------------
+
+    #[test]
+    fn the_snapshot_carries_the_state_of_the_new_rules() {
+        let mut w = world();
+        w.step(&[demo_cmd(&action(1), false)]);
+        w.step(&drops(10, 4, ANA, 6, 6)); // pasto, humedad 0
+        advance_to(&mut w, 30); // dry_ticks > 0
+        w.step(&drops(50, 2, BETO, 7, 7));
+        w.step(&[reset_cmd(&action(98))]);
+        w.step(&drops(60, 4, ANA, 6, 6));
+        advance_to(&mut w, 45);
+        w.step(&[demo_cmd(&action(97), true)]);
+        let parts = w.parts();
+        assert_eq!(parts.epoch, 1);
+        assert!(parts.demo_mode);
+        assert!(parts.tiles[6 * 32 + 6].dry_ticks > 0);
+        let restored = World::restore(Catalog::d01(), parts.clone()).unwrap();
+        assert_eq!(restored.parts(), parts);
+    }
+
+    /// Guion fijo de comandos para las pruebas de determinismo.
+    fn script(tick: u64) -> Vec<Command> {
+        let n = (tick * 10) as u32;
+        let mut commands = Vec::new();
+        match tick % 7 {
+            0 => commands.extend(drops(n, 5, ANA, (tick % 5) as u32, 1)),
+            2 => commands.extend(drops(n, 3, BETO, (tick % 5) as u32, 1)),
+            4 => commands.extend(drops(n, 4, ADMIN, 2, 2)),
+            _ => {}
+        }
+        if tick == 50 {
+            commands.push(demo_cmd(&action(9001), true));
+        }
+        if tick == 120 {
+            commands.push(demo_cmd(&action(9002), false));
+        }
+        if tick == 200 {
+            commands.push(reset_cmd(&action(9003)));
+        }
+        commands
+    }
+
+    fn run(w: &mut World, from: u64, to: u64) {
+        for tick in from..=to {
+            w.step(&script(tick));
+        }
+    }
+
+    #[test]
+    fn the_same_commands_always_produce_the_same_valley() {
+        // CP-10 sin azar todavía: dos ejecuciones del mismo guion dan el
+        // mismo valle.
+        let mut first = world();
+        let mut second = world();
+        run(&mut first, 1, 400);
+        run(&mut second, 1, 400);
+        assert_eq!(first.parts(), second.parts());
+        assert_eq!(first.epoch(), 1);
+        assert!(first.humidity_contributed() > 0);
+    }
+
+    #[test]
+    fn restoring_a_snapshot_mid_run_does_not_change_the_outcome() {
+        let mut straight = world();
+        run(&mut straight, 1, 400);
+
+        let mut interrupted = world();
+        run(&mut interrupted, 1, 150);
+        let mut resumed = World::restore(Catalog::d01(), interrupted.parts()).unwrap();
+        run(&mut resumed, 151, 400);
+        assert_eq!(resumed.parts(), straight.parts());
     }
 }

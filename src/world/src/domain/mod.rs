@@ -2,8 +2,9 @@
 
 pub mod catalog;
 pub mod command;
+pub mod growth;
+pub mod limits;
 pub mod player;
-pub mod rules;
 pub mod tile;
 pub mod world;
 

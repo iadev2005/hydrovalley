@@ -65,6 +65,7 @@ def error_of(call) -> grpc.RpcError:
 def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
     catalog = get_catalog(stub)
     assert (catalog.drop.water_cost, catalog.drop.humidity) == (1, 25)
+    assert catalog.drop.demo_humidity == 1
     assert (catalog.tank.capacity, catalog.tank.refill_amount) == (20, 1)
     assert catalog.tank.refill_interval_seconds == 2
     assert catalog.growth.humidity_per_stage == 100

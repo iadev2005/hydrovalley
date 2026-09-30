@@ -2,7 +2,8 @@
   "rules": {
     "drop": {
       "water_cost_liters": 1,
-      "humidity_points": 25
+      "humidity_points": 25,
+      "demo_humidity_points": 1
     },
     "tank": {
       "capacity_liters": 20,

@@ -10,6 +10,31 @@ pub enum TileStage {
     Tree,
 }
 
+impl TileStage {
+    /// Etapa a la que sube la casilla al acumular la humedad necesaria;
+    /// `None` en el árbol.
+    pub fn next(self) -> Option<Self> {
+        match self {
+            Self::DrySoil => Some(Self::Grass),
+            Self::Grass => Some(Self::Shrub),
+            Self::Shrub => Some(Self::Flowers),
+            Self::Flowers => Some(Self::Tree),
+            Self::Tree => None,
+        }
+    }
+
+    /// Etapa a la que baja al marchitarse; `None` en tierra seca.
+    pub fn previous(self) -> Option<Self> {
+        match self {
+            Self::DrySoil => None,
+            Self::Grass => Some(Self::DrySoil),
+            Self::Shrub => Some(Self::Grass),
+            Self::Flowers => Some(Self::Shrub),
+            Self::Tree => Some(Self::Flowers),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallationKind {
     Sprinkler,

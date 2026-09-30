@@ -13,7 +13,7 @@ use tonic_health::ServingStatus;
 use crate::grpc::WorldGrpc;
 use crate::proto::world::v1::world_service_server::WorldServiceServer;
 use crate::simulator::{Backoff, Simulator};
-use crate::store::{CallPolicy, GrpcSnapshotStore};
+use crate::store::{CallPolicy, GrpcPersistenceStore};
 
 /// Nombre completo del servicio para `grpc.health.v1.Health`.
 pub const WORLD_SERVICE_NAME: &str = "hydrovalley.world.v1.WorldService";
@@ -55,7 +55,7 @@ pub async fn serve(
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let store = Arc::new(GrpcSnapshotStore::connect_lazy(
+    let store = Arc::new(GrpcPersistenceStore::connect_lazy(
         &settings.persistence_addr,
         settings.call_policy.clone(),
     )?);

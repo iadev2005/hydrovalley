@@ -48,8 +48,12 @@ message Catalog {
 message DropRules {
   // Agua que se toma del depósito por gota (1 L). Modo demo: gratis.
   uint64 water_cost = 1;
-  // Humedad que suma a la casilla (25). Modo demo: 1, una sola casilla.
+  // Humedad que suma a la casilla (25) fuera del modo demo.
   uint64 humidity = 2;
+  // Humedad que suma una gota en modo demo (1): la gota es gratis y de una
+  // sola casilla, para verificar a ojo el total de `humidity_contributed`
+  // (D-01, RF-30).
+  uint64 demo_humidity = 3;
 }
 
 message TankRules {

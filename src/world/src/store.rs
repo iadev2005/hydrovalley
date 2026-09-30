@@ -42,7 +42,7 @@ impl std::fmt::Display for StoreError {
 impl std::error::Error for StoreError {}
 
 /// Dónde se guardan y de dónde se cargan las instantáneas y el catálogo.
-pub trait SnapshotStore: Send + Sync + 'static {
+pub trait PersistenceStore: Send + Sync + 'static {
     /// Las cifras del juego (`CatalogService.GetCatalog`), ya validadas.
     fn get_catalog(&self) -> impl Future<Output = Result<Catalog, StoreError>> + Send;
     /// La instantánea de mayor tick, o `None` si no hay ninguna.
@@ -72,14 +72,14 @@ pub fn is_retryable(code: Code) -> bool {
     matches!(code, Code::Unavailable | Code::DeadlineExceeded)
 }
 
-/// Adaptador gRPC de [`SnapshotStore`].
+/// Adaptador gRPC de [`PersistenceStore`].
 #[derive(Debug, Clone)]
-pub struct GrpcSnapshotStore {
+pub struct GrpcPersistenceStore {
     channel: Channel,
     policy: CallPolicy,
 }
 
-impl GrpcSnapshotStore {
+impl GrpcPersistenceStore {
     /// No conecta todavía: el canal se abre con la primera llamada y se
     /// reconecta solo (regla 5 de portabilidad).
     pub fn connect_lazy(
@@ -150,7 +150,7 @@ fn store_error(status: &Status) -> StoreError {
     }
 }
 
-impl SnapshotStore for GrpcSnapshotStore {
+impl PersistenceStore for GrpcPersistenceStore {
     async fn get_catalog(&self) -> Result<Catalog, StoreError> {
         let response = self
             .call("GetCatalog", |channel| async move {
