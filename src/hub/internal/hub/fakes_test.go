@@ -50,6 +50,8 @@ type fakeWorld struct {
 	fail     bool
 	// status por action_id; por defecto APPLIED.
 	statuses map[string]worldv1.CommandStatus
+	// motivo de rechazo por action_id; por defecto OUT_OF_BOUNDS.
+	reasons  map[string]worldv1.RejectReason
 	requests []*worldv1.StepRequest
 	// hook se llama dentro de Step, sin el candado del mundo.
 	hook     func(ctx context.Context, req *worldv1.StepRequest)
@@ -96,6 +98,9 @@ func (w *fakeWorld) Step(ctx context.Context, req *worldv1.StepRequest) (*worldv
 		r := &worldv1.CommandResult{ActionId: c.GetActionId(), PlayerId: c.GetPlayerId(), Status: status}
 		if status == worldv1.CommandStatus_COMMAND_STATUS_REJECTED {
 			r.Reason = worldv1.RejectReason_REJECT_REASON_OUT_OF_BOUNDS
+			if reason, ok := w.reasons[c.GetActionId()]; ok {
+				r.Reason = reason
+			}
 		}
 		resp.Results = append(resp.Results, r)
 	}

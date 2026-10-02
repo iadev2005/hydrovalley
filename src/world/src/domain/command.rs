@@ -3,6 +3,8 @@
 //! Tipos del dominio, sin nada de gRPC: la traducción desde y hacia los
 //! mensajes del contrato vive en `crate::codec`.
 
+use super::tile::{InstallationKind, UpgradeKind};
+
 /// Comando admitido por el hub para este tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
@@ -12,14 +14,24 @@ pub struct Command {
     pub kind: Option<CommandKind>,
 }
 
-/// Tipos de comando del contrato. Por ahora el simulador solo aplica
-/// `Drop`; el resto se rechaza con [`RejectReason::Unsupported`].
+/// Tipos de comando del contrato.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandKind {
-    Drop { x: u32, y: u32 },
-    PlaceInstallation,
-    BuyUpgrade,
-    SetDemoMode { enabled: bool },
+    Drop {
+        x: u32,
+        y: u32,
+    },
+    PlaceInstallation {
+        kind: InstallationKind,
+        x: u32,
+        y: u32,
+    },
+    BuyUpgrade {
+        kind: UpgradeKind,
+    },
+    SetDemoMode {
+        enabled: bool,
+    },
     ResetValley,
 }
 
@@ -38,10 +50,15 @@ pub enum CommandOutcome {
 pub enum RejectReason {
     InsufficientWater,
     OutOfBounds,
-    /// Sin tipo o con identificadores que no son UUID.
+    /// No alcanzan las hojas para la instalación o la mejora.
+    InsufficientLeaves,
+    /// La casilla ya tiene una instalación (como mucho una por casilla).
+    TileOccupied,
+    /// La mejora (de compra única) ya se había comprado.
+    UpgradeAlreadyOwned,
+    /// Sin tipo, con un valor de enum desconocido o con identificadores que
+    /// no son UUID.
     InvalidCommand,
-    /// Tipo de comando que el simulador todavía no implementa.
-    Unsupported,
     /// El mundo ya tiene `MAX_PLAYERS` jugadores y el comando daría de alta
     /// a uno nuevo.
     WorldFull,

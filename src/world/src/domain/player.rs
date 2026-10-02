@@ -31,6 +31,31 @@ pub struct Player {
 }
 
 impl Player {
+    /// Instalaciones de `kind` que el jugador ha comprado (fija el precio de
+    /// la siguiente).
+    pub fn purchases_of(&self, kind: InstallationKind) -> u32 {
+        self.purchases
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .map_or(0, |(_, count)| *count)
+    }
+
+    pub(super) fn record_purchase(&mut self, kind: InstallationKind) {
+        match self.purchases.iter_mut().find(|(k, _)| *k == kind) {
+            Some((_, count)) => *count = count.saturating_add(1),
+            None => self.purchases.push((kind, 1)),
+        }
+    }
+
+    pub(super) fn spend_leaves(&mut self, amount: u64) {
+        self.leaves = self.leaves.saturating_sub(amount);
+        self.leaves_spent = self.leaves_spent.saturating_add(amount);
+    }
+
+    pub fn has_upgrade(&self, kind: UpgradeKind) -> bool {
+        self.upgrades.contains(&kind)
+    }
+
     /// Jugador recién llegado (o reiniciado): depósito lleno y todo a cero.
     /// El depósito inicial cuenta como recargado, para que se cumpla
     /// RF-27: `water = water_refilled - water_spent`.

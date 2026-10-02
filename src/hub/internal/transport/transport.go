@@ -169,9 +169,14 @@ func (p *playHandler) readLoop(ctx context.Context, conn *websocket.Conn, s *hub
 			continue
 		}
 		var outcome hub.Outcome
-		if cmd.Admin != nil {
+		switch {
+		case cmd.Admin != nil:
 			outcome = p.hub.SubmitAdmin(s, *cmd.Admin)
-		} else {
+		case cmd.Place != nil:
+			outcome = p.hub.SubmitPlace(s, *cmd.Place)
+		case cmd.Buy != nil:
+			outcome = p.hub.SubmitBuy(s, *cmd.Buy)
+		default:
 			outcome = p.hub.SubmitDrop(s, *cmd.Drop)
 		}
 		if outcome == hub.RejectedNoSession {

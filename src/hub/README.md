@@ -1,6 +1,6 @@
 # Hub en tiempo real
 
-Servicio en Go que atiende a los jugadores por el WebSocket `/play`, filtra sus comandos (Capa 1), lleva la idempotencia del lado de Go (Capa 3), marca el tick cada 100 ms llamando a `WorldService.Step` y difunde el estado una vez por segundo. Verifica el token firmado al abrir `/play` (ver [Token y roles](#token-y-roles)); por ahora admite gotas y los comandos de administración (ver [Pendiente](#pendiente)).
+Servicio en Go que atiende a los jugadores por el WebSocket `/play`, filtra sus comandos (Capa 1), lleva la idempotencia del lado de Go (Capa 3), marca el tick cada 100 ms llamando a `WorldService.Step` y difunde el estado una vez por segundo. Verifica el token firmado al abrir `/play` (ver [Token y roles](#token-y-roles)); admite gotas, compras (instalaciones y mejoras) y los comandos de administración.
 
 Frontera Go/Rust (CLAUDE.md): **el hub decide si un comando es admisible; el simulador decide qué produce.** El hub nunca calcula el mundo.
 
@@ -66,9 +66,10 @@ El hub arranca aunque el simulador no esté (regla 5 de portabilidad): el canal 
 | --- | --- |
 | `{"type": "drop", "action_id": "<uuid>", "x": 14, "y": 9}` | Si se admite, nada al instante; tras su `Step`, `{"type": "result", "action_id": "…", "status": "applied"}` (o `duplicate`, o `rejected` con `reason`), o `expired` si pasa más de 30 s en la cola |
 | `{"type": "set_demo_mode", "action_id": "<uuid>", "enabled": true}` y `{"type": "reset_valley", "action_id": "<uuid>"}` | Con `role = player`: `{"type": "result", …, "status": "forbidden"}` al instante, sin encolar. Con `role = admin`: se admiten y viajan a `Step` como cualquier comando; su resultado final llega como el de una gota |
+| `{"type": "place_installation", "action_id": "<uuid>", "installation": "sprinkler", "x": 5, "y": 6}` (`installation`: `sprinkler`, `drip` o `treatment_plant`) y `{"type": "buy_upgrade", "action_id": "<uuid>", "upgrade": "bigger_drop"}` (`upgrade`: `bigger_drop` o `bigger_tank`) | Como una gota: nada al instante si se admite y, tras su `Step`, `applied`, `duplicate`, `rejected` con `reason` (`insufficient_leaves`, `tile_occupied`, `out_of_bounds`, `upgrade_already_owned`, `invalid_command`) o `expired`. El hub no sabe de precios ni de hojas: lo decide el simulador |
 | El mismo `action_id` mientras sigue pendiente | Nada: el resultado final llegará |
-| JSON inválido, sin `type`, con campos desconocidos, `action_id` que no es UUID, coordenadas negativas o un mensaje binario | `{"type": "error", "code": "invalid_message"}`, con `action_id` si se pudo leer |
-| Un `type` desconocido o todavía no soportado | `{"type": "error", "code": "unknown_type"}` |
+| JSON inválido, sin `type`, con campos desconocidos, `action_id` que no es UUID, coordenadas negativas, una `installation` o un `upgrade` ausente o que no es exactamente uno de los nombres de arriba, o un mensaje binario | `{"type": "error", "code": "invalid_message"}`, con `action_id` si se pudo leer |
+| Un `type` desconocido | `{"type": "error", "code": "unknown_type"}` |
 
 Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`, `paused`, `demo_mode`, el tamaño y el mapa del valle (sin mapa con `map=false`) y la vista de su jugador (`player`) cuando ya está en el mundo.
 
@@ -79,13 +80,14 @@ Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`
 - **Token inválido**: se completa el upgrade y se cierra con el código **4401** (rango privado del WebSocket) y el motivo `invalid or expired token`, como en el diagrama 09; un navegador no puede leer el estado HTTP de un upgrade rechazado, y sin el código no distinguiría «vuelve a entrar» de una caída de red. No se registra ninguna sesión ni se lee un solo mensaje. El motivo detallado va solo al registro, nunca el token.
 - **Vencimiento**: el token se comprueba únicamente al abrir. Si vence con la conexión abierta, no se corta; para reconectarse hace falta uno vigente.
 - **Rol**: se guarda en la sesión. Solo `admin` puede enviar `set_demo_mode` y `reset_valley` (RF-31); los demás reciben `forbidden` al instante (regla 2 de CLAUDE.md) y el comando no entra en `pending` ni en la cola. Los comandos de administración no cuentan como gotas aceptadas ni consumen el límite de 15 gotas por segundo.
+- **Compras** (`place_installation`, `buy_upgrade`): las puede enviar cualquier jugador. Entran en `pending`, `confirmed` y la cola como cualquier comando, pero **no** consumen el límite de 15 gotas por segundo (ni lo frenan) y **no** cuentan como gotas aceptadas: solo las gotas lo hacen. Su `action_id` es único por jugador sea del tipo que sea. El hub las traduce a `PlaceInstallationCommand` y `BuyUpgradeCommand` con el `player_id` del token.
 - **Aviso**: el token viaja en la consulta de la URL. nginx no lo escribe en su registro de acceso (usa `$uri`, la ruta sin consulta; ver `deploy/README.md`), pero sigue visible en el historial del navegador y en cualquier otro proxy intermedio. El token dura 12 h y no da acceso a la contraseña.
 
 ## Comportamiento
 
 - **Conexiones**: una goroutine por conexión lee y filtra los mensajes del jugador en fila (Capa 1); otra escribe lo que el núcleo deja en su buzón. El núcleo nunca espera a un cliente lento: si el buzón (256 mensajes) se llena, cierra esa conexión y el cliente se reconecta y reenvía sus pendientes. Un jugador puede tener varias conexiones; los resultados llegan a todas.
 - **Sesión lógica**: `pending`, `confirmed` y el límite de gotas son por jugador y sobreviven a las reconexiones mientras el hub siga en marcha. El registro de un jugador solo se borra cuando no tiene conexiones, ni acciones en `pending` o `confirmed`, ni gotas en su ventana del último segundo; así, desconectarse y volver a conectarse no reinicia el límite.
-- **Admisión**, en este orden: la conexión sigue registrada; un comando de administración sin rol `admin` → `forbidden` (y termina ahí); `action_id` en `pending` → se ignora; en `confirmed` → `duplicate` al instante; más de 15 gotas en el último segundo → `rate_limited`; cola con 5.000 comandos → `paused`. Si pasa, entra en `pending` y en la cola. El límite se consulta sin registrar y la gota solo ocupa hueco en la ventana cuando se admite, así que ningún rechazo (tampoco `paused`) consume el cupo de 15/s. Los valores de `status` salen de una traducción explícita (`WireStatus`) y no del nombre del resultado en los registros.
+- **Admisión** (la misma para gotas, compras y comandos de administración; las compras no pasan por el límite de gotas), en este orden: la conexión sigue registrada; un comando de administración sin rol `admin` → `forbidden` (y termina ahí); `action_id` en `pending` → se ignora; en `confirmed` → `duplicate` al instante; más de 15 gotas en el último segundo → `rate_limited`; cola con 5.000 comandos → `paused`. Si pasa, entra en `pending` y en la cola. El límite se consulta sin registrar y la gota solo ocupa hueco en la ventana cuando se admite, así que ningún rechazo (tampoco `paused`) consume el cupo de 15/s. Los valores de `status` salen de una traducción explícita (`WireStatus`) y no del nombre del resultado en los registros.
 - **Límite de gotas**: ventana deslizante con los instantes de las últimas 15 gotas admitidas. Garantiza que nunca hay más de 15 en cualquier intervalo de 1 s (CP-03); un cubo de fichas con la misma cifra dejaría pasar hasta 30 en el primer segundo. Los rechazos no ocupan hueco.
 - **Tick**: cada 100 ms, un solo bucle responde `expired` a lo que lleva más de 30 s en la cola, saca como mucho 500 comandos en orden de admisión y llama a `Step` con un plazo de 200 ms, sin reintento y sin el candado tomado. Como el bucle es uno y `Step` es síncrono, nunca hay dos llamadas a la vez; si una tarda más de 100 ms, el siguiente tick espera. `Step` se llama aunque no haya comandos (RF-28).
 - **Resultados**: justo después del `Step`, cada resultado final va a las conexiones de su jugador y quita la acción de `pending`; `applied` y `duplicate` la pasan a `confirmed` con su tick durante 600 ticks (hasta *t* + 600 incluido, igual que Rust). Una respuesta que no trae exactamente un resultado por comando, en orden y con un estado conocido, se trata como un `Step` fallido.
@@ -98,7 +100,6 @@ Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`
 
 ## Pendiente
 
-- Resto de comandos de `play.proto`: `place_installation` y `buy_upgrade`. Hoy responden `unknown_type`, el código más cercano: el contrato no tiene uno para «no soportado». Los comandos de administración ya se admiten en el hub, pero el simulador todavía los rechaza como no soportados.
 - Datos para el panel del sistema (duración de cada `Step`, cola, gotas aceptadas).
 
 ## Imagen de Docker
