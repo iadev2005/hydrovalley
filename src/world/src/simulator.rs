@@ -221,9 +221,9 @@ impl<S: PersistenceStore> Simulator<S> {
         self.step_with(commands, None, view)
     }
 
-    /// Como [`step`](Self::step), pero si `catalog` viene (lo devuelve
-    /// [`catalog_for`](Self::catalog_for)) el mundo lo adopta antes de
-    /// aplicar los comandos, de modo que el reinicio usa las cifras nuevas.
+    /// Como [`step`](Self::step), pero ofrece `catalog` (lo devuelve
+    /// [`catalog_for`](Self::catalog_for)) al reinicio del tick: el mundo lo
+    /// adopta solo si el `ResetValley` se aplica.
     pub fn step_with<R>(
         &self,
         commands: &[Command],
@@ -238,10 +238,7 @@ impl<S: PersistenceStore> Simulator<S> {
         else {
             return Err(NotReady);
         };
-        if let Some(catalog) = catalog {
-            world.set_catalog(catalog);
-        }
-        let outcome = world.step(commands);
+        let outcome = world.step_with_reset_catalog(commands, catalog);
         if is_snapshot_tick(outcome.tick) {
             self.schedule_snapshot(world);
         }
@@ -842,17 +839,56 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_slow_catalog_does_not_hold_the_step_past_its_timeout() {
         let simulator = Simulator::new(Arc::new(HangingCatalog));
-        let world = World::new(Catalog::d01());
         *simulator.state.lock().unwrap() = State::Ready {
-            world: Box::new(world),
+            world: Box::new(World::new(Catalog::d01())),
             restored_tick: 0,
         };
-        let started = std::time::Instant::now();
+        // Con el reloj en pausa, Tokio lo adelanta solo al quedar inactivo:
+        // el tiempo transcurrido es exactamente el plazo.
+        let started = tokio::time::Instant::now();
         let fresh = simulator.catalog_for(&[reset_command()]).await;
         assert!(fresh.is_none());
-        assert!(started.elapsed() < Duration::from_millis(190));
+        assert_eq!(started.elapsed(), RESET_CATALOG_TIMEOUT);
+        assert!(RESET_CATALOG_TIMEOUT < Duration::from_millis(200));
+    }
+
+    #[tokio::test]
+    async fn a_duplicate_or_rejected_reset_does_not_swap_the_catalog() {
+        let mut next = Catalog::d01();
+        next.version = "v2".to_string();
+        let store = FakeStore::default();
+        store
+            .catalogs
+            .lock()
+            .unwrap()
+            .extend([Ok(Catalog::d01()), Ok(next.clone()), Ok(next)]);
+        let (simulator, _) = ready(store).await;
+
+        let applied = [reset_command()];
+        simulator.step(&applied, |_| ()).unwrap();
+
+        let duplicate = simulator.catalog_for(&applied).await;
+        assert!(duplicate.is_some());
+        let report = simulator
+            .step_with(&applied, duplicate, version_of)
+            .unwrap();
+        assert_eq!(report.outcome.results[0].outcome, CommandOutcome::Duplicate);
+        assert_eq!(report.view, Catalog::D01_VERSION);
+
+        let rejected = [Command {
+            action_id: "not-a-uuid".to_string(),
+            ..reset_command()
+        }];
+        let fresh = simulator.catalog_for(&rejected).await;
+        assert!(fresh.is_some());
+        let report = simulator.step_with(&rejected, fresh, version_of).unwrap();
+        assert!(matches!(
+            report.outcome.results[0].outcome,
+            CommandOutcome::Rejected(_)
+        ));
+        assert_eq!(report.view, Catalog::D01_VERSION);
     }
 }

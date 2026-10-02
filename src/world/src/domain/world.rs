@@ -96,6 +96,9 @@ pub struct World {
     humidity_contributed: u64,
     tiles: Vec<Tile>,
     players: BTreeMap<String, PlayerSlot>,
+    /// Catálogo ofrecido a los reinicios del tick en curso; solo existe
+    /// durante `step_with_reset_catalog`. No viaja en la instantánea.
+    reset_catalog: Option<Catalog>,
 }
 
 impl World {
@@ -113,6 +116,7 @@ impl World {
             humidity_contributed: 0,
             tiles: vec![Tile::default(); tile_count],
             players: BTreeMap::new(),
+            reset_catalog: None,
         }
     }
 
@@ -161,6 +165,7 @@ impl World {
             humidity_contributed: parts.humidity_contributed,
             tiles: parts.tiles,
             players,
+            reset_catalog: None,
         })
     }
 
@@ -201,6 +206,26 @@ impl World {
     /// Todo es aritmética entera y no hay azar: mismo estado y mismos
     /// comandos dan el mismo valle.
     pub fn step(&mut self, commands: &[Command]) -> StepOutcome {
+        self.step_with_reset_catalog(commands, None)
+    }
+
+    /// Como [`step`](Self::step), pero ofrece `catalog` a los reinicios del
+    /// tick: el mundo lo adopta solo cuando un `ResetValley` se **aplica**
+    /// (un reinicio duplicado o rechazado no cambia nada) y, si se aplica,
+    /// el propio reinicio ya usa las cifras nuevas. Sin reinicio aplicado,
+    /// el catálogo se descarta.
+    pub fn step_with_reset_catalog(
+        &mut self,
+        commands: &[Command],
+        catalog: Option<Catalog>,
+    ) -> StepOutcome {
+        self.reset_catalog = catalog;
+        let outcome = self.advance(commands);
+        self.reset_catalog = None;
+        outcome
+    }
+
+    fn advance(&mut self, commands: &[Command]) -> StepOutcome {
         let tick = self.tick.saturating_add(1);
         self.forget_old_actions(tick);
 
@@ -340,6 +365,9 @@ impl World {
     /// `humidity_contributed` (que solo crece), y conserva a los jugadores y
     /// su ventana de `action_id`. Incrementa la época.
     fn reset_valley(&mut self) {
+        if let Some(catalog) = self.reset_catalog.take() {
+            self.catalog = catalog;
+        }
         self.tiles.fill(Tile::default());
         self.epoch = self.epoch.saturating_add(1);
         let tank = self.catalog.tank.capacity;
@@ -347,13 +375,6 @@ impl World {
             slot.record = Player::starting(&slot.record.player_id, tank)
                 .keeping_actions_of(std::mem::take(&mut slot.record));
         }
-    }
-
-    /// Sustituye el catálogo vigente (p. ej. al reiniciar el valle, que lo
-    /// vuelve a pedir). Las reglas siguientes usan las cifras nuevas; lo ya
-    /// calculado no cambia.
-    pub fn set_catalog(&mut self, catalog: Catalog) {
-        self.catalog = catalog;
     }
 
     /// Devuelve el jugador y lo da de alta si no existía, con los valores
@@ -1381,20 +1402,52 @@ mod tests {
         assert_eq!(w.parts().epoch, 2);
     }
 
-    #[test]
-    fn a_replaced_catalog_governs_the_next_rules_and_the_next_reset() {
-        let mut w = world();
-        w.step(&drops(1, 1, ANA, 0, 0));
+    fn next_catalog() -> Catalog {
         let mut next = custom_catalog(); // capacidad 30, gota de 40
         next.tank.refill_interval_seconds = 1;
-        w.set_catalog(next);
-        assert_eq!(w.catalog_version(), "custom");
-        advance_to(&mut w, 10); // recarga cada 10 ticks con el catálogo nuevo
-        assert_eq!(w.player(ANA).unwrap().water, 20);
+        next
+    }
 
-        w.step(&[reset_cmd(&action(9))]);
+    #[test]
+    fn an_applied_reset_adopts_the_offered_catalog() {
+        let mut w = world();
+        w.step(&drops(1, 1, ANA, 0, 0));
+        let out = w.step_with_reset_catalog(&[reset_cmd(&action(9))], Some(next_catalog()));
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
+        assert_eq!(w.catalog_version(), "custom");
         let ana = w.player(ANA).unwrap();
         assert_eq!((ana.water, ana.tank_capacity), (30, 30));
+        advance_to(&mut w, 12); // recarga cada 10 ticks con el catálogo nuevo
+        assert_eq!(w.player(ANA).unwrap().water_refilled, 30);
+    }
+
+    #[test]
+    fn a_duplicate_reset_keeps_the_current_catalog() {
+        let mut w = world();
+        w.step(&[reset_cmd(&action(9))]);
+        let out = w.step_with_reset_catalog(&[reset_cmd(&action(9))], Some(next_catalog()));
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Duplicate]);
+        assert_eq!(w.catalog_version(), Catalog::D01_VERSION);
+        assert_eq!(w.epoch(), 1);
+    }
+
+    #[test]
+    fn a_rejected_reset_keeps_the_current_catalog() {
+        let mut w = world();
+        let out = w.step_with_reset_catalog(&[reset_cmd("not-a-uuid")], Some(next_catalog()));
+        assert_eq!(
+            outcomes(&out),
+            vec![CommandOutcome::Rejected(RejectReason::InvalidCommand)]
+        );
+        assert_eq!(w.catalog_version(), Catalog::D01_VERSION);
+        assert_eq!(w.epoch(), 0);
+    }
+
+    #[test]
+    fn an_offered_catalog_without_a_reset_is_ignored() {
+        let mut w = world();
+        w.step_with_reset_catalog(&drops(1, 1, ANA, 0, 0), Some(next_catalog()));
+        assert_eq!(w.catalog_version(), Catalog::D01_VERSION);
     }
 
     // ---- Instantánea y determinismo -------------------------------------

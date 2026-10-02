@@ -84,6 +84,7 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     let bigger_drop = section(catalog.bigger_drop, "bigger_drop")?;
     let bigger_tank = section(catalog.bigger_tank, "bigger_tank")?;
 
+    positive(drop.demo_humidity, "drop.demo_humidity")?;
     positive(tank.refill_interval_seconds, "tank.refill_interval_seconds")?;
     positive(growth.humidity_per_stage, "growth.humidity_per_stage")?;
     positive(
@@ -844,7 +845,7 @@ mod tests {
     #[test]
     fn an_incomplete_or_impossible_catalog_is_rejected() {
         type Break = fn(&mut persistence_pb::Catalog);
-        let breaks: [(&str, Break); 16] = [
+        let breaks: [(&str, Break); 17] = [
             ("version", |c| c.catalog_version.clear()),
             ("drop", |c| c.drop = None),
             ("tank", |c| c.tank = None),
@@ -867,6 +868,9 @@ mod tests {
             }),
             ("drip divisor", |c| {
                 c.drip.as_mut().unwrap().evaporation_divisor = 0
+            }),
+            ("demo humidity", |c| {
+                c.drop.as_mut().unwrap().demo_humidity = 0
             }),
             ("refill interval", |c| {
                 c.tank.as_mut().unwrap().refill_interval_seconds = 0

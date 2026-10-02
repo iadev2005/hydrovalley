@@ -67,7 +67,7 @@ SECTIONS: dict[str, Section] = {
         (
             _u64("water_cost_liters", "water_cost"),
             _u64("humidity_points", "humidity"),
-            _u64("demo_humidity_points", "demo_humidity"),
+            _u64("demo_humidity_points", "demo_humidity", minimum=1),
         ),
     ),
     "tank": Section(

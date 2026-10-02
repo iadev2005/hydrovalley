@@ -113,6 +113,7 @@ def mutate(document, path, value):
         (("rules", "drop", "humidity_points"), None),  # nulo donde no se admite
         (("rules", "drop", "demo_humidity_points"), 1.5),  # decimal
         (("rules", "drop", "demo_humidity_points"), -1),  # negativo
+        (("rules", "drop", "demo_humidity_points"), 0),  # la gota demo suma algo
         (("rules", "drop", "humidity_points"), -1),  # negativo
         (("rules", "tank", "refill_interval_seconds"), 2**32),  # no cabe en uint32
         (("rules", "tank", "refill_interval_seconds"), 0),  # intervalo cero
