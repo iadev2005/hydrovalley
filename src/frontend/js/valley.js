@@ -110,37 +110,83 @@ const REJECT_TEXT = {
   invalid_command: "el comando no es válido",
 };
 
-const STATUS_TEXT = {
-  expired: "caducó en la cola (más de 30 s sin aplicarse)",
-  rate_limited: "demasiadas gotas por segundo; espera un momento",
-  paused: "el valle está en pausa; inténtalo más tarde",
-  forbidden: "solo un administrador puede hacerlo",
+/**
+ * Única tabla de resultados finales de play.proto: cada clave es un estado
+ * que cierra la acción. `duplicate` cuenta como aplicada (CLAUDE.md, regla 2).
+ * `rejected` se resuelve aparte porque su texto depende del motivo.
+ */
+const STATUS_TABLE = {
+  applied: { ok: true, text: "aplicada" },
+  duplicate: { ok: true, text: "aplicada" },
+  rejected: { ok: false, text: "rechazada" },
+  expired: { ok: false, text: "caducó en la cola (más de 30 s sin aplicarse)" },
+  rate_limited: { ok: false, text: "demasiadas gotas por segundo; espera un momento" },
+  paused: { ok: false, text: "el valle está en pausa; inténtalo más tarde" },
+  forbidden: { ok: false, text: "solo un administrador puede hacerlo" },
 };
 
 /**
- * Mensaje para el jugador a partir del resultado de una acción. `duplicate`
- * cuenta como aplicada (CLAUDE.md, regla 2).
+ * Mensaje para el jugador a partir del resultado de una acción.
  * @param {{status: string, reason?: string}} result
  * @returns {{ok: boolean, text: string}}
  */
 export function describeActionResult({ status, reason = "" }) {
-  if (status === "applied" || status === "duplicate") return { ok: true, text: "aplicada" };
   if (status === "rejected") {
     return { ok: false, text: `rechazada: ${REJECT_TEXT[reason] ?? (reason || "sin motivo")}` };
   }
-  if (status in STATUS_TEXT) return { ok: false, text: STATUS_TEXT[status] };
-  return { ok: false, text: `resultado desconocido (${status})` };
+  const known = STATUS_TABLE[status];
+  return known ? { ...known } : { ok: false, text: `resultado desconocido (${status})` };
 }
 
-const FINAL_STATUSES = new Set([
-  "applied",
-  "duplicate",
-  "rejected",
-  "expired",
-  "rate_limited",
-  "paused",
-  "forbidden",
-]);
+/**
+ * Descripción de la casilla elegida para el panel; sin selección devuelve el
+ * texto de reposo (así «Salir» limpia la etiqueta). El mapa se indexa con el
+ * ancho del propio estado. El hub no difunde cuántas gotas apagan un fuego
+ * (`FireView` solo trae `drops_received`), así que solo se muestran las
+ * recibidas, sin un total fijado en la página.
+ * @param {Parameters<typeof buildTiles>[0]} state
+ * @param {{x: number, y: number} | null} selected
+ */
+export function selectionView(state, selected) {
+  if (!selected) return { label: "ninguna", info: "Haz clic en una casilla." };
+  const label = `(${selected.x}, ${selected.y})`;
+  const tile = buildTiles(state)[selected.y * (state?.width ?? 0) + selected.x];
+  if (!tile) return { label, info: "Sin datos del mapa todavía." };
+  let info = `${stageName(tile.stage)}, humedad ${tile.humidity}`;
+  if (tile.fire) info += `, en llamas (${tile.fire.drops_received} gotas recibidas)`;
+  if (tile.installation) info += `, instalación: ${tile.installation.kind}`;
+  return { label, info };
+}
+
+/**
+ * Plazo de una acción pendiente: el mismo que la cola del hub, que responde
+ * `expired` a lo que lleva más de 30 s admitido (CLAUDE.md, regla 2). Pasado
+ * ese tiempo reenviarla ya no tiene sentido.
+ */
+export const PENDING_MAX_AGE_MS = 30_000;
+
+/** Comandos de administración (RF-31): nunca se reenvían solos al reconectar. */
+const ADMIN_COMMAND_TYPES = new Set(["reset_valley", "set_demo_mode"]);
+
+/**
+ * Qué hacer con las acciones pendientes al reabrir el WebSocket (regla 2 de
+ * CLAUDE.md): reenviar las recientes de jugador, en orden de envío; descartar
+ * las que superan el plazo (`expired`) y los comandos de administración
+ * (`adminDropped`), que el administrador debe repetir a propósito.
+ * @param {{actionId: string, frame: string, type: string, addedAt: number}[]} entries
+ * @param {number} now
+ */
+export function planResend(entries, now) {
+  const plan = { resend: [], expired: [], adminDropped: [] };
+  for (const entry of entries) {
+    if (now - entry.addedAt > PENDING_MAX_AGE_MS) plan.expired.push(entry);
+    else if (ADMIN_COMMAND_TYPES.has(entry.type)) plan.adminDropped.push(entry);
+    else plan.resend.push(entry);
+  }
+  return plan;
+}
+
+const FINAL_STATUSES = new Set(Object.keys(STATUS_TABLE));
 
 /**
  * Acciones enviadas que aún no tienen resultado final. Se guardan con su
@@ -148,9 +194,10 @@ const FINAL_STATUSES = new Set([
  * ignora un `action_id` que sigue en cola y responde `duplicate` a uno ya
  * aplicado, así que reenviar es seguro. Un resultado final, de cualquier
  * clase (incluido `duplicate`), la quita.
+ * @param {{now?: () => number}} [deps]
  */
-export function createPendingActions() {
-  /** @type {Map<string, {label: string, frame: string}>} */
+export function createPendingActions({ now = Date.now } = {}) {
+  /** @type {Map<string, {actionId: string, label: string, frame: string, type: string, addedAt: number}>} */
   const entries = new Map();
   return {
     get size() {
@@ -158,20 +205,33 @@ export function createPendingActions() {
     },
     has: (actionId) => entries.has(actionId),
     add(actionId, frame, label) {
-      entries.set(actionId, { label, frame });
+      let type = "";
+      try {
+        type = JSON.parse(frame)?.type ?? "";
+      } catch {
+        // un mensaje ilegible se trata como comando de jugador
+      }
+      entries.set(actionId, { actionId, label, frame, type, addedAt: now() });
     },
     /** Quita la acción si el resultado es final; devuelve su entrada o `null`. */
     resolve({ action_id: actionId, status }) {
-      if (!FINAL_STATUSES.has(status)) return null;
-      return this.fail(actionId);
+      return FINAL_STATUSES.has(status) ? this.settle(actionId) : null;
     },
-    /** Quita la acción que el hub contestó con un mensaje `error`. */
-    fail(actionId) {
+    /** Quita la acción (resultado final, `error` del hub o descarte); devuelve su entrada o `null`. */
+    settle(actionId) {
       const entry = entries.get(actionId);
       if (!entry) return null;
       entries.delete(actionId);
       return entry;
     },
-    framesToResend: () => Array.from(entries.values(), (e) => e.frame),
+    /**
+     * Plan para reabrir el WebSocket: quita las caducadas y las de
+     * administración; las que se reenvían siguen pendientes.
+     */
+    planReconnect() {
+      const plan = planResend(Array.from(entries.values()), now());
+      for (const entry of [...plan.expired, ...plan.adminDropped]) entries.delete(entry.actionId);
+      return plan;
+    },
   };
 }

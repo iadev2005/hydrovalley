@@ -44,6 +44,8 @@ if [[ -z "${TOKEN_PUBLIC_KEY:-}" ]]; then
   export TOKEN_PUBLIC_KEY
 fi
 
+# Los parámetros de Argon2id (m=19456, t=2, p=1) deben ser los de la API:
+# src/api/src/passwords.ts.
 # Cuenta de administrador para la prueba (RF-31): contraseña efímera y su hash
 # Argon2id, calculado con la imagen de la API (como en deploy/README.md). Ni la
 # contraseña ni el hash se guardan en disco. Si ya vienen definidos en el

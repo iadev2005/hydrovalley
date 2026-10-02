@@ -394,7 +394,7 @@ describe("administration (RF-31)", () => {
     await command({ type: "reset_valley" });
     await admin.waitFor(
       "the tile back to dry land",
-      (f) => f.type === "state" && f.stages?.length === 1024 && f.stages[tileIndex(f, 5, 5)] === 1,
+      (f) => f.type === "state" && f.stages?.length === 32 * 32 && f.stages[tileIndex(f, 5, 5)] === 1,
       10_000,
     );
   });

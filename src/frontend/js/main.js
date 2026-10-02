@@ -23,8 +23,10 @@ import {
   decideOnClose,
   describeFrame,
   GRID_SIZE,
+  INSTALLATIONS,
   newUuid,
   parseFrame,
+  UPGRADES,
 } from "./play.js";
 import {
   buildTiles,
@@ -32,7 +34,7 @@ import {
   describeActionResult,
   isAdminRole,
   playerPanel,
-  stageName,
+  selectionView,
   tileAt,
   tokenRole,
 } from "./valley.js";
@@ -162,22 +164,16 @@ function drawValley() {
 }
 
 function renderState() {
-  const tiles = drawValley();
+  drawValley();
   const panel = playerPanel(lastState?.player ?? null);
   $("water").textContent = panel.water;
   $("water-bar").value = panel.waterRatio;
   $("leaves").textContent = panel.leaves;
   for (const [kind, price] of Object.entries(panel.prices)) $(`price-${kind}`).textContent = price;
   $("demo-toggle").textContent = lastState?.demo_mode ? "Desactivar modo demo" : "Activar modo demo";
-  if (selected) {
-    $("selected").textContent = `(${selected.x}, ${selected.y})`;
-    const tile = tiles[selected.y * GRID_SIZE + selected.x];
-    $("tile-info").textContent = tile
-      ? `${stageName(tile.stage)}, humedad ${tile.humidity}` +
-        (tile.fire ? `, en llamas (${tile.fire.drops_received}/3 gotas)` : "") +
-        (tile.installation ? `, instalación: ${tile.installation.kind}` : "")
-      : "Sin datos del mapa todavía.";
-  }
+  const view = selectionView(lastState, selected);
+  $("selected").textContent = view.label;
+  $("tile-info").textContent = view.info;
   refreshControls();
 }
 
@@ -216,7 +212,13 @@ function connect(session) {
     $("conn").textContent = "conectado";
     // Regla 2 de CLAUDE.md: al reconectar solo se reenvían las pendientes. El
     // hub ignora las que siguen en cola y responde `duplicate` a las aplicadas.
-    for (const frame of pending.framesToResend()) ws.send(frame);
+    const plan = pending.planReconnect();
+    for (const entry of plan.resend) ws.send(entry.frame);
+    const notes = [
+      ...plan.expired.map((e) => `${e.label}: expiró`),
+      ...plan.adminDropped.map((e) => `${e.label}: no se reenvía sola tras reconectar; vuelve a intentarlo`),
+    ];
+    if (notes.length > 0) setActionMessage(notes.join(" · "), false);
     refreshControls();
   });
   ws.addEventListener("message", (event) => {
@@ -233,7 +235,7 @@ function connect(session) {
         setActionMessage(`${entry.label}: ${outcome.text}`, outcome.ok);
         refreshControls();
       }
-    } else if (frame.type === "error" && pending.fail(frame.action_id)) {
+    } else if (frame.type === "error" && pending.settle(frame.action_id)) {
       setActionMessage(`mensaje rechazado por el hub (${frame.code})`, false);
       refreshControls();
     }
@@ -336,7 +338,7 @@ $("drop").addEventListener("click", () => {
   const { x, y } = selected;
   sendAction(`Soltar gota (${x}, ${y})`, (actionId) => buildDropFrame({ x, y, actionId }));
 });
-for (const installation of ["sprinkler", "drip", "treatment_plant"]) {
+for (const installation of INSTALLATIONS) {
   $(`place-${installation}`).addEventListener("click", () => {
     if (!selected) return;
     const { x, y } = selected;
@@ -345,7 +347,7 @@ for (const installation of ["sprinkler", "drip", "treatment_plant"]) {
     );
   });
 }
-for (const upgrade of ["bigger_drop", "bigger_tank"]) {
+for (const upgrade of UPGRADES) {
   $(`buy-${upgrade}`).addEventListener("click", () =>
     sendAction(`Comprar ${upgrade}`, (actionId) => buildBuyUpgradeFrame({ upgrade, actionId })),
   );
