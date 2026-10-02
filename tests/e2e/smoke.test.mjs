@@ -9,6 +9,8 @@
 // Variables:
 //   HV_BASE_URL          raíz de nginx (por defecto http://localhost:8080)
 //   E2E_READY_TIMEOUT_S  espera máxima a que el stack esté listo (180)
+//   ADMIN_USERNAME, E2E_ADMIN_PASSWORD  cuenta de administrador sembrada para
+//                        la prueba (run.sh las genera; ver RF-31)
 // La sesión de /play está en play-session.mjs, con pruebas propias que no
 // necesitan el stack (play-session.test.mjs).
 // La consulta a PostgreSQL usa `docker compose exec`, con COMPOSE_PROJECT_NAME,
@@ -71,6 +73,10 @@ async function persistenceHealthy() {
 
 const PASSWORD = "e2e-password-1";
 
+// Cuentas por IP: el registro admite 5 por 10 minutos y el acceso 10 por
+// usuario y minuto (src/api/src/limits.ts). Esta ejecución registra 4
+// (compartida, gota, acceso y crecimiento) y el administrador entra 1 vez.
+
 // Registra una cuenta nueva (cada ejecución usa un nombre distinto) y devuelve
 // lo que responde la API: el token firmado y el player_id.
 async function registerPlayer() {
@@ -87,16 +93,43 @@ async function registerPlayer() {
   return { ...body, username };
 }
 
+// Un solo jugador para las pruebas que solo necesitan un token válido.
+let sharedPlayerPromise;
+function sharedPlayer() {
+  sharedPlayerPromise ??= registerPlayer();
+  return sharedPlayerPromise;
+}
+
+// Abre /play y espera a que el valle corra (estado sin pausa): Step ya
+// responde, o sea, el simulador cargó su instantánea.
+function openReadySession(token, { map }) {
+  return eventually("a running valley on /play", READY_TIMEOUT_MS, async () => {
+    const candidate = new PlaySession(`${WS_BASE}/play?token=${token}&map=${map}`);
+    try {
+      await candidate.opened;
+      await candidate.first("a state frame without pause", (f) => f.type === "state" && !f.paused, 3000);
+      return candidate;
+    } catch (err) {
+      candidate.close();
+      throw err;
+    }
+  }, 2000);
+}
+
+const tileIndex = (state, x, y) => y * state.width + x;
+
+async function waitForHealthyStack() {
+  await eventually("GET /api/health through nginx", READY_TIMEOUT_MS, async () => {
+    const res = await fetch(`${BASE_URL}/api/health`);
+    return res.ok && (await res.json()).status === "ok";
+  });
+}
+
 describe("walking skeleton (CP-01-lite)", () => {
   let account;
   let session;
 
-  before(async () => {
-    await eventually("GET /api/health through nginx", READY_TIMEOUT_MS, async () => {
-      const res = await fetch(`${BASE_URL}/api/health`);
-      return res.ok && (await res.json()).status === "ok";
-    });
-  });
+  before(waitForHealthyStack);
 
   after(() => session?.close());
 
@@ -114,7 +147,7 @@ describe("walking skeleton (CP-01-lite)", () => {
   });
 
   it("closes /play with 4401 when the token is missing or not valid", async () => {
-    const { token } = await registerPlayer();
+    const { token } = await sharedPlayer();
     const tampered = `${token.slice(0, -20)}${token.at(-20) === "A" ? "B" : "A"}${token.slice(-19)}`;
     const cases = {
       "no token": "map=false",
@@ -139,17 +172,7 @@ describe("walking skeleton (CP-01-lite)", () => {
     account = await registerPlayer();
     // El hub está listo cuando difunde un estado sin pausa: Step ya responde,
     // o sea, el simulador cargó su instantánea desde la persistencia.
-    session = await eventually("a running valley on /play", READY_TIMEOUT_MS, async () => {
-      const candidate = new PlaySession(`${WS_BASE}/play?token=${account.token}&map=false`);
-      try {
-        await candidate.opened;
-        await candidate.first("a state frame without pause", (f) => f.type === "state" && !f.paused, 3000);
-        return candidate;
-      } catch (err) {
-        candidate.close();
-        throw err;
-      }
-    }, 2000);
+    session = await openReadySession(account.token, { map: false });
 
     // Tres gotas seguidas: cada una cuesta 1 L de los 20 iniciales (D-01).
     const actionIds = [randomUUID(), randomUUID(), randomUUID()];
@@ -211,7 +234,7 @@ describe("walking skeleton (CP-01-lite)", () => {
   });
 
   it("answers forbidden to set_demo_mode from a non-admin player (RF-31)", async () => {
-    const { token } = await registerPlayer();
+    const { token } = await sharedPlayer();
     const player = new PlaySession(`${WS_BASE}/play?token=${token}&map=false`);
     try {
       await player.opened;
@@ -242,5 +265,137 @@ describe("walking skeleton (CP-01-lite)", () => {
     assert.ok(rows.maxTick >= Number(SNAPSHOT_EVERY), JSON.stringify(rows));
     assert.equal(rows.maxTick % Number(SNAPSHOT_EVERY), 0, JSON.stringify(rows));
     console.log(`tick ${state.tick}: ${rows.count} snapshot row(s), latest tick ${rows.maxTick}`);
+  });
+});
+
+// Envía una gota y espera su resultado final.
+async function dropAndWait(player, x, y) {
+  const actionId = randomUUID();
+  player.send({ type: "drop", action_id: actionId, x, y });
+  const result = await player.first(
+    `the result of ${actionId}`,
+    (f) => f.type === "result" && f.action_id === actionId,
+    10_000,
+  );
+  assert.equal(result.status, "applied", JSON.stringify(result));
+}
+
+describe("growth end to end (RF-04, RF-05)", () => {
+  let player;
+
+  before(waitForHealthyStack);
+  after(() => player?.close());
+
+  it("grows a tile and pays leaves after four drops on it", async () => {
+    const account = await registerPlayer();
+    player = await openReadySession(account.token, { map: true });
+    const x = 25;
+    const y = 6;
+
+    const before = await player.first(
+      "a state with the map",
+      (f) => f.type === "state" && f.stages?.length === 32 * 32,
+      10_000,
+    );
+    assert.equal(before.stages[tileIndex(before, x, y)], 1, "the tile starts as dry land");
+
+    // 4 × 25 = 100 de humedad bastan para subir de etapa; se sueltan 6 por si
+    // la evaporación (2 por segundo) se lleva algo entre gota y gota.
+    for (let i = 0; i < 6; i += 1) await dropAndWait(player, x, y);
+
+    const grown = await player.waitFor(
+      "a state where the tile grew and the player has leaves",
+      (f) =>
+        f.type === "state" &&
+        f.stages?.[tileIndex(f, x, y)] >= 2 &&
+        BigInt(f.player?.leaves ?? "0") >= 1n,
+      10_000,
+    );
+    console.log(`tile (${x}, ${y}) stage ${grown.stages[tileIndex(grown, x, y)]}, leaves ${grown.player.leaves}`);
+  });
+});
+
+describe("administration (RF-31)", () => {
+  const adminUsername = process.env.ADMIN_USERNAME;
+  const adminPassword = process.env.E2E_ADMIN_PASSWORD;
+  let admin;
+
+  async function command(message) {
+    const actionId = randomUUID();
+    admin.send({ ...message, action_id: actionId });
+    const result = await admin.first(
+      `the result of ${actionId}`,
+      (f) => f.type === "result" && f.action_id === actionId,
+      10_000,
+    );
+    assert.equal(result.status, "applied", `${message.type}: ${JSON.stringify(result)}`);
+  }
+
+  before(async () => {
+    assert.ok(
+      adminUsername && adminPassword,
+      "falta ADMIN_USERNAME o E2E_ADMIN_PASSWORD: tests/e2e/run.sh las genera",
+    );
+    await waitForHealthyStack();
+    await eventually("persistence healthy", 120_000, persistenceHealthy);
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: adminUsername, password: adminPassword }),
+    });
+    assert.equal(res.status, 200, `admin login: ${res.status}`);
+    const { token } = await res.json();
+    admin = await openReadySession(token, { map: true });
+  });
+
+  after(async () => {
+    if (!admin) return;
+    // Deja el modo demo apagado para quien use el stack después.
+    try {
+      await command({ type: "set_demo_mode", enabled: false });
+    } finally {
+      admin.close();
+    }
+  });
+
+  it("turns demo mode on and resets the valley to its initial state", async () => {
+    await command({ type: "set_demo_mode", enabled: true });
+    await admin.waitFor("a state with demo_mode on", (f) => f.type === "state" && f.demo_mode === true, 10_000);
+
+    // El reinicio deja el mapa en su estado inicial (el segundo caso comprueba
+    // que además borra el crecimiento).
+    await command({ type: "reset_valley" });
+    const reset = await admin.waitFor(
+      "a map back to its initial state",
+      (f) =>
+        f.type === "state" &&
+        f.stages?.length === 32 * 32 &&
+        f.stages.every((stage) => stage === 1) &&
+        (f.humidity ?? []).every((h) => h === "0") &&
+        // protojson omite las listas vacías.
+        (f.fires ?? []).length === 0 &&
+        (f.installations ?? []).length === 0,
+      10_000,
+    );
+    assert.equal(reset.width, 32);
+  });
+
+  it("wipes a grown tile on reset_valley", async () => {
+    await command({ type: "set_demo_mode", enabled: false });
+    await admin.waitFor("a state with demo_mode off", (f) => f.type === "state" && !f.demo_mode, 10_000);
+    for (let i = 0; i < 6; i += 1) await dropAndWait(admin, 5, 5);
+    const grown = await admin.waitFor(
+      "the tile grown",
+      (f) => f.type === "state" && f.stages?.[tileIndex(f, 5, 5)] >= 2,
+      10_000,
+    );
+    assert.ok(grown.stages[tileIndex(grown, 5, 5)] >= 2);
+
+    await command({ type: "reset_valley" });
+    await admin.waitFor(
+      "the tile back to dry land",
+      (f) => f.type === "state" && f.stages?.length === 1024 && f.stages[tileIndex(f, 5, 5)] === 1,
+      10_000,
+    );
   });
 });

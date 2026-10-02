@@ -18,10 +18,16 @@ pub struct Config {
 /// Semilla derivada de la hora de arranque, para cuando no hay `WORLD_SEED`.
 /// Quien la use debe registrarla para poder repetir la partida.
 pub fn seed_from_clock() -> u64 {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_nanos());
-    // Pliega los 128 bits en 64 para no perder el segundo ni el nanosegundo.
+    seed_from_nanos(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos()),
+    )
+}
+
+/// Pliega los nanosegundos desde la época Unix (128 bits) en 64 para no
+/// perder el segundo ni el nanosegundo. Separada del reloj para probarla.
+pub fn seed_from_nanos(nanos: u128) -> u64 {
     (nanos as u64) ^ ((nanos >> 64) as u64)
 }
 
@@ -153,10 +159,14 @@ mod tests {
     }
 
     #[test]
-    fn the_clock_seed_changes_with_time() {
-        let a = seed_from_clock();
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        assert_ne!(a, seed_from_clock());
+    fn the_clock_seed_folds_both_halves_of_the_nanoseconds_deterministically() {
+        // Dos lecturas distintas (aunque solo difieran en 1 ns) dan semillas distintas.
+        let base = 1_790_000_000_123_456_789u128;
+        assert_ne!(seed_from_nanos(base), seed_from_nanos(base + 1));
+        // La mitad alta también cuenta, y la misma entrada da la misma semilla.
+        assert_ne!(seed_from_nanos(base), seed_from_nanos(base | (1u128 << 64)));
+        assert_eq!(seed_from_nanos(base), seed_from_nanos(base));
+        assert_eq!(seed_from_nanos(0), 0);
     }
 
     #[test]

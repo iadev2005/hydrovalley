@@ -275,6 +275,27 @@ fn a_bigger_drop_counts_for_every_burning_tile_it_reaches() {
     assert_eq!(leaves(&w, ANA), 5);
 }
 
+#[test]
+fn a_bigger_drop_that_completes_several_fires_pays_the_bonus_once_per_fire() {
+    // Cada fuego apagado es una extinción distinta (decisión del equipo): la
+    // gota más grande que completa la tercera gota de dos fuegos paga dos bonos.
+    let mut w = world_with(catalog_with_ppm(0), 1, |p| {
+        for (x, y) in [(7, 7), (8, 7)] {
+            p.tiles[index(x, y)] = Tile {
+                fire: burning(2, 5),
+                ..burning_grass(0)
+            };
+        }
+        let mut ana = crate::domain::Player::starting(ANA, 20);
+        ana.upgrades.push(crate::domain::UpgradeKind::BiggerDrop);
+        p.players.push(ana);
+    });
+    w.step(&[drop_cmd(1, ANA, 7, 7)]);
+    assert_eq!(fire_at(&w, 7, 7), None);
+    assert_eq!(fire_at(&w, 8, 7), None);
+    assert_eq!(leaves(&w, ANA), 2 * 5, "un bono por cada fuego apagado");
+}
+
 // ---- Aspersor ----------------------------------------------------------
 
 fn sprinkler_world(owner: &str) -> World {

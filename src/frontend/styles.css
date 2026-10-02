@@ -7,7 +7,7 @@ body {
   padding: 1rem;
 }
 main {
-  max-width: 44rem;
+  max-width: 60rem;
   margin: 0 auto;
 }
 .meta {
@@ -42,4 +42,51 @@ input {
   font-family: ui-monospace, monospace;
   font-size: 0.85rem;
   padding-left: 2.5rem;
+}
+.layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+#valley {
+  width: 512px;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  border: 1px solid #888;
+  cursor: crosshair;
+}
+.panel {
+  flex: 1 1 16rem;
+}
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  list-style: none;
+  padding: 0;
+  font-size: 0.85rem;
+}
+.swatch {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-right: 0.25rem;
+  vertical-align: middle;
+}
+.ok {
+  color: #1b5e20;
+}
+@media (prefers-color-scheme: dark) {
+  .ok {
+    color: #a5d6a7;
+  }
 }
