@@ -769,6 +769,17 @@ impl World {
     }
 
     /// Jugadores ordenados por `player_id`.
+    /// Copia de las hojas ganadas de cada jugador, para armar el ranking
+    /// fuera del bloqueo del mundo.
+    pub fn scores(&self) -> Vec<super::ranking::Score> {
+        self.players()
+            .map(|p| super::ranking::Score {
+                player_id: p.player_id.clone(),
+                leaves_earned: p.leaves_earned,
+            })
+            .collect()
+    }
+
     pub fn players(&self) -> impl Iterator<Item = &Player> {
         self.players.values().map(|slot| &slot.record)
     }

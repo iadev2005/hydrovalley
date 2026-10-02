@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 use crate::codec;
+use crate::domain::rank_players;
 use crate::proto::world::v1 as pb;
 use crate::proto::world::v1::world_service_server::WorldService;
 use crate::simulator::Simulator;
@@ -54,13 +55,25 @@ impl<S: PersistenceStore> WorldService for WorldGrpc<S> {
         }))
     }
 
-    /// TODO(ranking): RF-10. Llegará con las hojas y el crecimiento.
+    /// RF-10 y RF-11: solo lee. Copia los puntajes con el bloqueo tomado y
+    /// ordena después, con el bloqueo ya suelto, así `Step` no espera.
     async fn get_ranking(
         &self,
-        _request: Request<pb::GetRankingRequest>,
+        request: Request<pb::GetRankingRequest>,
     ) -> Result<Response<pb::GetRankingResponse>, Status> {
-        Err(Status::unimplemented(
-            "GetRanking todavía no está implementado",
-        ))
+        let limit = request.into_inner().limit;
+        let (tick, scores) = self
+            .simulator
+            .read(|world| (world.tick(), world.scores()))
+            .map_err(|_| Status::unavailable("el simulador todavía está cargando el mundo"))?;
+        let entries = rank_players(scores, limit)
+            .into_iter()
+            .map(|entry| pb::RankingEntry {
+                rank: entry.rank,
+                player_id: entry.player_id,
+                leaves_earned: entry.leaves_earned,
+            })
+            .collect();
+        Ok(Response::new(pb::GetRankingResponse { tick, entries }))
     }
 }

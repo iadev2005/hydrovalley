@@ -13,7 +13,8 @@ service ReportService {
   // Por jugador: su fila en las instantáneas. Global: la suma de las filas
   // de todos los jugadores. Con periodo: la diferencia entre las
   // instantáneas de to_tick y from_tick. NOT_FOUND si no hay ninguna
-  // instantánea en la época actual (o el jugador no está en ella);
+  // instantánea en la época actual o si el player_id no tiene cuenta; una
+  // cuenta que aún no aparece en ninguna instantánea recibe ceros.
   // INVALID_ARGUMENT si un tick queda fuera de la época actual.
   rpc GetReport(GetReportRequest) returns (GetReportResponse);
 }

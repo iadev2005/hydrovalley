@@ -4,7 +4,7 @@ import uuid
 from typing import Protocol
 
 from persistence.catalog import CatalogEntry
-from persistence.domain import Account, SaveOutcome, Snapshot
+from persistence.domain import Account, Report, SaveOutcome, Snapshot
 
 
 class SnapshotRepository(Protocol):
@@ -52,5 +52,22 @@ class CatalogRepository(Protocol):
 
         Lanza RepositoryUnavailableError si no hay base de datos. El catálogo
         lo siembra el adaptador al conectar, desde el archivo de `catalog/`.
+        """
+        ...
+
+
+class ReportRepository(Protocol):
+    def report(
+        self, player_id: uuid.UUID | None, from_tick: int | None, to_tick: int | None
+    ) -> Report:
+        """Reporte de las 3R de la época actual (ver persistence.reports).
+
+        player_id None = global (suma de todas las filas). Lee todo en una
+        sola transacción coherente.
+
+        Lanza NoSnapshotError si no hay ninguna instantánea, UnknownPlayerError
+        si no existe esa cuenta, InvalidReportPeriodError si el periodo no es
+        válido y RepositoryUnavailableError si no hay base de datos. Una cuenta
+        que existe pero no tiene fila en las instantáneas devuelve ceros.
         """
         ...

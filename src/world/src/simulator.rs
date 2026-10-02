@@ -228,6 +228,16 @@ impl<S: PersistenceStore> Simulator<S> {
         self.step_with(commands, None, view)
     }
 
+    /// Lectura sin modificar: ejecuta `view` sobre el mundo con el bloqueo
+    /// tomado. `view` debe ser breve (copiar lo que necesite) y hacer el
+    /// trabajo pesado después, ya sin el bloqueo, para no retrasar `Step`.
+    pub fn read<R>(&self, view: impl FnOnce(&World) -> R) -> Result<R, NotReady> {
+        match &*self.lock() {
+            State::Ready { world, .. } => Ok(view(world)),
+            _ => Err(NotReady),
+        }
+    }
+
     /// Como [`step`](Self::step), pero ofrece `catalog` (lo devuelve
     /// [`catalog_for`](Self::catalog_for)) al reinicio del tick: el mundo lo
     /// adopta solo si el `ResetValley` se aplica.

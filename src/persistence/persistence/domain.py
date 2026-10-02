@@ -8,13 +8,33 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class SnapshotPlayer:
+    """Fila de `snapshot_players` (diagrama 07): contadores de un jugador en
+    una instantánea. Todos son u64."""
+
+    player_id: uuid.UUID
+    water: int = 0
+    leaves: int = 0
+    water_refilled: int = 0
+    water_spent: int = 0
+    leaves_earned: int = 0
+    leaves_spent: int = 0
+    water_reduced: int = 0
+    water_reused: int = 0
+    water_recycled: int = 0
+
+
+@dataclass(frozen=True)
 class Snapshot:
-    """Fila de `snapshots` (diagrama 07). world_state es opaco para Python."""
+    """Fila de `snapshots` (diagrama 07) y sus filas de `snapshot_players`.
+    world_state es opaco para Python. `players` solo se rellena al guardar:
+    load_latest no lo lee (el simulador recupera todo de world_state)."""
 
     tick: int
     epoch: int
     catalog_version: str
     world_state: bytes
+    players: tuple[SnapshotPlayer, ...] = ()
 
     @property
     def world_state_sha256(self) -> bytes:
@@ -46,6 +66,56 @@ class ConcurrentSnapshotChangeError(Exception):
     """La fila de ese tick cambió a la vez que se guardaba (p. ej. la poda de
     retención la borró entre el INSERT y la lectura) y el reintento tampoco
     pudo resolverlo."""
+
+
+# --- Reportes (RF-12) -------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ReportTotals:
+    """Totales de un reporte: contadores acumulados de las 3R y saldos de RF-27."""
+
+    water_reduced: int
+    water_reused: int
+    water_recycled: int
+    water_refilled: int
+    water_spent: int
+    leaves_earned: int
+    leaves_spent: int
+
+    def minus(self, other: "ReportTotals") -> "ReportTotals":
+        """Diferencia campo a campo, sin bajar de cero (los contadores solo
+        crecen dentro de una época; el tope es una defensa)."""
+        return ReportTotals(
+            **{
+                name: max(0, getattr(self, name) - getattr(other, name))
+                for name in self.__dataclass_fields__
+            }
+        )
+
+
+@dataclass(frozen=True)
+class Report:
+    """Resultado de GetReport. player_id es None en el reporte global.
+    from_tick = 0 significa el inicio de la época (contadores a cero)."""
+
+    player_id: uuid.UUID | None
+    epoch: int
+    from_tick: int
+    to_tick: int
+    totals: ReportTotals
+
+
+class NoSnapshotError(Exception):
+    """No hay ninguna instantánea (y por tanto tampoco época actual)."""
+
+
+class UnknownPlayerError(Exception):
+    """No existe una cuenta con ese player_id."""
+
+
+class InvalidReportPeriodError(Exception):
+    """El periodo pedido queda fuera de la época actual o está invertido."""
 
 
 # --- Cuentas ----------------------------------------------------------------

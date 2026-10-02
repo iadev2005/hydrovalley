@@ -114,12 +114,14 @@ El simulador arranca aunque la persistencia no esté (regla 5 de portabilidad): 
 - **Instantánea** (Capa 5): cuando `tick % 50 == 0`, después de aplicar el tick, se copia el mundo y una tarea en segundo plano lo serializa como `WorldSnapshot` y llama a `SaveSnapshot`; `Step` nunca espera. Como mucho hay un guardado en curso: si el anterior sigue, esa instantánea se salta. Los errores se registran (`ALREADY_EXISTS` como error) y se vuelve a intentar en el siguiente tick de instantánea. `Snapshot.players` lleva los contadores de cada jugador. La tarea se lanza en el runtime de Tokio actual; si `Step` se llama fuera de un runtime, la instantánea se salta con un error en el registro (no hay pánico) y se reintenta en el siguiente tick de instantánea.
 - **Parada** (SIGINT o SIGTERM): el servidor deja de aceptar peticiones y espera a las que están en curso. Después, con un plazo total de 5 s, el simulador espera al guardado en curso y, si el mundo está cargado y el tick avanzó desde la última instantánea guardada (o cargada), envía una instantánea final del tick actual, aunque no sea múltiplo de 50. Así, al reiniciar, se pierde como mucho lo que no llegó a guardarse en ese plazo.
 - **Llamadas a la persistencia**: plazo de 2 s por intento y, al ser idempotentes, como mucho 3 reintentos tras 100, 200 y 400 ms, solo con `UNAVAILABLE` o `DEADLINE_EXCEEDED`. El plazo lo impone solo el cliente, alrededor de cada intento (un plazo vencido cuenta como `DEADLINE_EXCEEDED` y se reintenta); no se envía `grpc-timeout` ni se fija plazo en el canal, porque tonic los resuelve como `CANCELLED`, que no se reintenta. El canal se abre con la primera llamada y se reconecta solo.
-- **GetRanking**: responde `UNIMPLEMENTED` por ahora.
+- **GetRanking** (RF-10, RF-11): solo lee. Con el bloqueo del mundo copia las hojas ganadas (`leaves_earned`) de cada jugador y el tick; ordena y recorta después, ya sin el bloqueo, así `Step` no espera y el ranking se recalcula en cada llamada sin pausar el juego. Mientras el mundo no está cargado responde `UNAVAILABLE`, como `Step`. La lógica vive en `domain/ranking.rs` (función pura).
+  - Orden: `leaves_earned` de mayor a menor; el documento inicial no define los empates, así que se desempata por `player_id` ascendente (resultado determinista).
+  - Posición («competition ranking»): los empatados comparten posición y la siguiente salta (1, 2, 2, 4). Se calcula sobre el ranking completo, así que `limit` nunca la cambia.
+  - `limit` = 0 devuelve todos; en cualquier caso, como mucho 1.000 entradas (`MAX_RANKING_ENTRIES`) para acotar la respuesta. Los jugadores sin hojas también aparecen.
 
 ## Pendiente
 
 - Propagación del fuego a las casillas vecinas (nivel 2).
-- `GetRanking` (RF-10).
 - `[DATO: equivalencia litro ↔ humedad]` para los reportes de las 3R (RF-12): `water_reused` y `water_reduced` cuentan puntos de humedad y `water_recycled`, litros. D-01 no dice cómo sumarlos ni si un litro de la gota equivale a los 25 puntos que suma. Hasta que se decida, el reporte debe mostrarlos por separado.
 - D-01 no dice si el goteo se acumula al solaparse, cómo se redondea la evaporación dividida ni cuánta humedad reparte cada casilla de la gota más grande: las decisiones tomadas están arriba y se ajustan en un solo sitio (`Catalog` y `World`).
 
