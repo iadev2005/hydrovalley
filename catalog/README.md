@@ -12,7 +12,7 @@ Para aplicar un cambio hay que reiniciar la persistencia (siembra el archivo) y 
 
 ## Forma del archivo
 
-Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `installations` y `upgrades`. Todos los valores son enteros sin signo (regla 7 de `CLAUDE.md`), salvo `ignition_chance_ppm`, que puede ser `null`. Las unidades van en el nombre de la clave.
+Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `installations` y `upgrades`. Todos los valores son enteros sin signo (regla 7 de `CLAUDE.md`). Las unidades van en el nombre de la clave.
 
 ### `rules`
 
@@ -32,7 +32,7 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `fire.drops_to_extinguish` | Gotas que apagan un incendio | 3 |
 | `fire.extinguish_bonus_leaves` | Hojas para quien suelta la última | 5 |
 | `fire.burn_out_ticks` | Ticks hasta que un incendio sin atender se consume | 300 |
-| `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón | `null` |
+| `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón (0 = no hay incendios) | 50 |
 | `installation_price_increase_percent` | Aumento del precio por cada compra del mismo tipo de instalación (RF-07) | 15 |
 | `offline_installation_seconds` | Tiempo que las instalaciones siguen trabajando tras la última acción de su dueño (RF-25) | 7200 |
 
@@ -62,5 +62,5 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 
 ## Datos pendientes
 
-- `[DATO: probabilidad de ignición]`: D-01 dice que los incendios «aparecen al azar» pero no da la cifra. `fire.ignition_chance_ppm` queda en `null`; el contrato (`uint32`) no admite nulos, así que `GetCatalog` lo entrega como `0` (ningún incendio aparece) hasta que se fije el valor en la tarea de incendios.
+- `fire.ignition_chance_ppm = 50` (50 por millón, por tick y por casilla elegible; con 1.024 casillas y 10 ticks por segundo equivale a unos 0,5 incendios por segundo si todo el valle fuera elegible) es un valor inicial elegido por el equipo, ajustable: D-01 dice que los incendios «aparecen al azar» pero no da la cifra. Falta recogerlo en D-01 por pull request.
 - Fuera del catálogo, por ser estructura y no cifras de ajuste: el tamaño del valle (32 × 32), la ventana de 600 ticks de `action_id` recientes y el límite de 15 gotas por segundo (del hub).

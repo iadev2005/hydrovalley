@@ -40,7 +40,7 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
     assert values["bigger_tank"]["extra_capacity_liters"] == 10
     assert values["installation_price_increase_percent"] == 15
     assert values["offline_installation_seconds"] == 7200
-    assert values["fire"]["ignition_chance_ppm"] is None
+    assert values["fire"]["ignition_chance_ppm"] == 50
 
 
 def test_every_entry_has_the_kind_of_its_group(document):
@@ -119,6 +119,9 @@ def mutate(document, path, value):
         (("rules", "tank", "refill_interval_seconds"), 0),  # intervalo cero
         (("rules", "growth", "humidity_per_stage_points"), 0),  # umbral cero
         (("rules", "fire", "ignition_chance_ppm"), 1_000_001),  # más de 100 %
+        (("rules", "fire", "ignition_chance_ppm"), None),  # ya es obligatoria
+        (("rules", "fire", "ignition_chance_ppm"), -1),  # negativa
+        (("rules", "fire", "ignition_chance_ppm"), 0.5),  # decimal
         (("rules", "installation_price_increase_percent"), {"percent": 15}),
         (("rules", "drop"), 7),  # una cifra escalar donde va un grupo
         (("rules", "sprinkler"), {"price_leaves": 1}),  # elemento en el grupo equivocado
@@ -135,10 +138,11 @@ def test_invalid_documents_are_rejected(document, path, value):
         parse_catalog(mutate(document, path, value))
 
 
-def test_the_ignition_chance_may_be_a_number_or_null(document):
-    with_value = mutate(document, ("rules", "fire", "ignition_chance_ppm"), 500)
+@pytest.mark.parametrize("ppm", [0, 500, 1_000_000])
+def test_the_ignition_chance_accepts_zero_up_to_a_million(document, ppm):
+    with_value = mutate(document, ("rules", "fire", "ignition_chance_ppm"), ppm)
     catalog = parse_catalog(with_value)
-    assert {e.key: e.value for e in catalog.entries}["fire"]["ignition_chance_ppm"] == 500
+    assert {e.key: e.value for e in catalog.entries}["fire"]["ignition_chance_ppm"] == ppm
 
 
 def test_the_error_message_names_the_problem_but_not_the_value(document):

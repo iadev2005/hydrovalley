@@ -10,6 +10,19 @@ pub struct Config {
     pub listen: SocketAddr,
     /// `PERSISTENCE_ADDR`: `host:puerto` de PersistenceService.
     pub persistence_addr: String,
+    /// `WORLD_SEED` (u64): semilla del azar de los incendios cuando el valle
+    /// empieza de cero. Sin ella se deriva de la hora de arranque.
+    pub world_seed: Option<u64>,
+}
+
+/// Semilla derivada de la hora de arranque, para cuando no hay `WORLD_SEED`.
+/// Quien la use debe registrarla para poder repetir la partida.
+pub fn seed_from_clock() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    // Pliega los 128 bits en 64 para no perder el segundo ni el nanosegundo.
+    (nanos as u64) ^ ((nanos >> 64) as u64)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,9 +62,18 @@ impl Config {
         })?;
         let persistence_addr =
             read("PERSISTENCE_ADDR").ok_or(ConfigError::Missing("PERSISTENCE_ADDR"))?;
+        let world_seed = read("WORLD_SEED")
+            .map(|text| {
+                text.parse::<u64>().map_err(|_| ConfigError::Invalid {
+                    name: "WORLD_SEED",
+                    value: text.clone(),
+                })
+            })
+            .transpose()?;
         Ok(Self {
             listen,
             persistence_addr,
+            world_seed,
         })
     }
 }
@@ -101,6 +123,40 @@ mod tests {
             Config::from_lookup(env(&[("PERSISTENCE_ADDR", "  ")])).unwrap_err(),
             ConfigError::Missing("PERSISTENCE_ADDR")
         );
+    }
+
+    #[test]
+    fn the_seed_is_optional_and_parsed_as_u64() {
+        let base = [("PERSISTENCE_ADDR", "persistence:50051")];
+        assert_eq!(Config::from_lookup(env(&base)).unwrap().world_seed, None);
+        let with = |value| {
+            Config::from_lookup(env(&[
+                ("PERSISTENCE_ADDR", "persistence:50051"),
+                ("WORLD_SEED", value),
+            ]))
+        };
+        assert_eq!(with(" 42 ").unwrap().world_seed, Some(42));
+        assert_eq!(
+            with("18446744073709551615").unwrap().world_seed,
+            Some(u64::MAX)
+        );
+        assert_eq!(with("").unwrap().world_seed, None, "vacía = sin definir");
+        for bad in ["-1", "1.5", "abc", "18446744073709551616"] {
+            assert_eq!(
+                with(bad).unwrap_err(),
+                ConfigError::Invalid {
+                    name: "WORLD_SEED",
+                    value: bad.to_string()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn the_clock_seed_changes_with_time() {
+        let a = seed_from_clock();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        assert_ne!(a, seed_from_clock());
     }
 
     #[test]

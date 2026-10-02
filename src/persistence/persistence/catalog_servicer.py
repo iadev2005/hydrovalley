@@ -34,8 +34,7 @@ _MESSAGES = {
 
 
 def to_message(catalog: Catalog) -> pb.Catalog:
-    """Traduce el catálogo validado al mensaje del contrato. Una cifra sin
-    definir (`null`) viaja como 0: el contrato no admite nulos."""
+    """Traduce el catálogo validado al mensaje del contrato."""
     message = pb.Catalog(catalog_version=catalog.version)
     for entry in catalog.entries:
         section = SECTIONS[entry.key]
@@ -44,7 +43,7 @@ def to_message(catalog: Catalog) -> pb.Catalog:
             continue
         rules_type, attribute = _MESSAGES[entry.key]
         values = {
-            field.proto: entry.value[field.name] or 0 for field in section.fields
+            field.proto: entry.value[field.name] for field in section.fields
         }
         getattr(message, attribute).CopyFrom(rules_type(**values))
     return message

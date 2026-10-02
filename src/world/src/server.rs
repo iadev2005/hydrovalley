@@ -10,6 +10,7 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_health::ServingStatus;
 
+use crate::config::seed_from_clock;
 use crate::grpc::WorldGrpc;
 use crate::proto::world::v1::world_service_server::WorldServiceServer;
 use crate::simulator::{Backoff, Simulator};
@@ -26,6 +27,8 @@ pub struct Settings {
     /// Plazo de la parada ordenada: esperar al guardado en curso y enviar
     /// la instantánea final.
     pub shutdown_timeout: Duration,
+    /// Semilla del azar para un valle que empieza de cero (`WORLD_SEED`).
+    pub seed: u64,
 }
 
 impl Settings {
@@ -36,6 +39,7 @@ impl Settings {
             call_policy: CallPolicy::default(),
             load_backoff: Backoff::default(),
             shutdown_timeout: Duration::from_secs(5),
+            seed: seed_from_clock(),
         }
     }
 }
@@ -59,7 +63,7 @@ pub async fn serve(
         &settings.persistence_addr,
         settings.call_policy.clone(),
     )?);
-    let simulator = Arc::new(Simulator::new(store));
+    let simulator = Arc::new(Simulator::new(store, settings.seed));
     tracing::info!(boot_id = simulator.boot_id(), "simulador creado");
 
     let (reporter, health_service) = tonic_health::server::health_reporter();

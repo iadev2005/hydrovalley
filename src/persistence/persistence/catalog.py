@@ -33,13 +33,12 @@ class CatalogError(Exception):
 @dataclass(frozen=True)
 class Field:
     """Una cifra: su nombre en el archivo, su campo en `catalog.proto` y su
-    rango. `nullable`: admite `null` (todavía sin definir en D-01)."""
+    rango."""
 
     name: str
     proto: str
     maximum: int = U64_MAX
     minimum: int = 0
-    nullable: bool = False
 
 
 @dataclass(frozen=True)
@@ -102,7 +101,7 @@ SECTIONS: dict[str, Section] = {
             _u32("drops_to_extinguish", "drops_to_extinguish", minimum=1),
             _u64("extinguish_bonus_leaves", "extinguish_bonus_leaves"),
             _u32("burn_out_ticks", "burn_out_ticks", minimum=1),
-            Field("ignition_chance_ppm", "ignition_chance_ppm", PPM_MAX, nullable=True),
+            Field("ignition_chance_ppm", "ignition_chance_ppm", PPM_MAX),
         ),
     ),
     "installation_price_increase_percent": Section(
@@ -171,10 +170,8 @@ class Catalog:
         raise KeyError(key)
 
 
-def _check_number(label: str, field: Field, value: object) -> int | None:
+def _check_number(label: str, field: Field, value: object) -> int:
     if value is None:
-        if field.nullable:
-            return None
         raise CatalogError(f"{label} no admite null")
     # bool es subclase de int; los decimales (aunque valgan 25.0) no son
     # enteros sin signo (regla 7 de CLAUDE.md).

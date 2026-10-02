@@ -26,7 +26,7 @@
       "drops_to_extinguish": 3,
       "extinguish_bonus_leaves": 5,
       "burn_out_ticks": 300,
-      "ignition_chance_ppm": null
+      "ignition_chance_ppm": 50
     },
     "installation_price_increase_percent": 15,
     "offline_installation_seconds": 7200

@@ -160,6 +160,7 @@ async fn start_with(persistence: Arc<FakePersistence>) -> Harness {
             max: Duration::from_millis(50),
         },
         shutdown_timeout: Duration::from_secs(5),
+        seed: 7,
     };
     let server = tokio::spawn(async move {
         serve(settings, world_listener, async {

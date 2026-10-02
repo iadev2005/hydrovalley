@@ -37,12 +37,10 @@ pub fn add_humidity(tile: &mut Tile, amount: u64, growth: &GrowthRules) -> u64 {
     leaves
 }
 
-/// Resta `amount` de humedad, sin bajar de 0. Una casilla ardiendo no se
-/// evapora.
+/// Resta `amount` de humedad, sin bajar de 0. También una casilla ardiendo:
+/// el fuego congela la etapa, no la evaporación (diagrama 05).
 pub fn evaporate(tile: &mut Tile, amount: u64) {
-    if tile.fire.is_none() {
-        tile.humidity = tile.humidity.saturating_sub(amount);
-    }
+    tile.humidity = tile.humidity.saturating_sub(amount);
 }
 
 /// Avanza un tick el marchitamiento. Devuelve `true` si la casilla bajó de
@@ -194,10 +192,10 @@ mod tests {
     }
 
     #[test]
-    fn a_burning_tile_does_not_evaporate() {
+    fn a_burning_tile_still_evaporates() {
         let mut t = burning(tile(TileStage::Grass, 10));
         evaporate(&mut t, 2);
-        assert_eq!(t.humidity, 10);
+        assert_eq!(t.humidity, 8);
     }
 
     #[test]
