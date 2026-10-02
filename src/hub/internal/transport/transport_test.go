@@ -475,3 +475,49 @@ func TestAllowedOriginPattern(t *testing.T) {
 		t.Fatalf("allowed origin rejected: %v", err)
 	}
 }
+
+func TestPurchasesTravelOverTheWire(t *testing.T) {
+	e := newEnv(t)
+	conn := e.dial(e.as(ana))
+
+	send(t, conn, `{"type":"place_installation","action_id":"`+actionID+`","installation":"treatment_plant","x":7,"y":3}`)
+	send(t, conn, `{"type":"buy_upgrade","action_id":"`+uuid2+`","upgrade":"bigger_tank"}`)
+	e.waitQueue(2)
+	e.tick()
+
+	for _, id := range []string{actionID, uuid2} {
+		if got := next(t, conn, "result"); got["action_id"] != id || got["status"] != "applied" {
+			t.Fatalf("result = %v, want applied %s", got, id)
+		}
+	}
+	e.world.mu.Lock()
+	defer e.world.mu.Unlock()
+	if len(e.world.last) != 2 {
+		t.Fatalf("commands = %v", e.world.last)
+	}
+	place := e.world.last[0].GetPlaceInstallation()
+	if place.GetKind() != worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT || place.GetX() != 7 || place.GetY() != 3 {
+		t.Fatalf("place = %v", e.world.last[0])
+	}
+	if e.world.last[1].GetBuyUpgrade().GetKind() != worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_TANK {
+		t.Fatalf("buy = %v", e.world.last[1])
+	}
+}
+
+func TestInvalidPurchasesGetErrorsAndQueueNothing(t *testing.T) {
+	e := newEnv(t)
+	conn := e.dial(e.as(ana))
+	for _, frame := range []string{
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":"fountain","x":1,"y":1}`,
+		`{"type":"place_installation","action_id":"nope","installation":"drip","x":1,"y":1}`,
+		`{"type":"buy_upgrade","action_id":"` + actionID + `","upgrade":"bigger_house"}`,
+	} {
+		send(t, conn, frame)
+		if got := next(t, conn, "error"); got["code"] != "invalid_message" {
+			t.Fatalf("frame %s → %v, want invalid_message", frame, got)
+		}
+	}
+	if n := e.hub.Status().QueueLen; n != 0 {
+		t.Fatalf("queue = %d", n)
+	}
+}

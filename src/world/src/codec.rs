@@ -161,17 +161,25 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
 
 pub fn command_from_proto(command: pb::Command) -> Command {
     use pb::command::Kind;
-    let kind = command.kind.map(|kind| match kind {
-        Kind::Drop(drop) => CommandKind::Drop {
+    // Un tipo de instalación o de mejora desconocido deja el comando sin
+    // tipo: el simulador lo rechaza como INVALID_COMMAND.
+    let kind = command.kind.and_then(|kind| match kind {
+        Kind::Drop(drop) => Some(CommandKind::Drop {
             x: drop.x,
             y: drop.y,
-        },
-        Kind::PlaceInstallation(_) => CommandKind::PlaceInstallation,
-        Kind::BuyUpgrade(_) => CommandKind::BuyUpgrade,
-        Kind::SetDemoMode(demo) => CommandKind::SetDemoMode {
+        }),
+        Kind::PlaceInstallation(place) => Some(CommandKind::PlaceInstallation {
+            kind: installation_from_proto(place.kind, "PlaceInstallationCommand.kind").ok()?,
+            x: place.x,
+            y: place.y,
+        }),
+        Kind::BuyUpgrade(buy) => Some(CommandKind::BuyUpgrade {
+            kind: upgrade_from_proto(buy.kind).ok()?,
+        }),
+        Kind::SetDemoMode(demo) => Some(CommandKind::SetDemoMode {
             enabled: demo.enabled,
-        },
-        Kind::ResetValley(_) => CommandKind::ResetValley,
+        }),
+        Kind::ResetValley(_) => Some(CommandKind::ResetValley),
     });
     Command {
         action_id: command.action_id,
@@ -198,10 +206,10 @@ fn reject_reason(reason: RejectReason) -> pb::RejectReason {
     match reason {
         RejectReason::InsufficientWater => pb::RejectReason::InsufficientWater,
         RejectReason::OutOfBounds => pb::RejectReason::OutOfBounds,
+        RejectReason::InsufficientLeaves => pb::RejectReason::InsufficientLeaves,
+        RejectReason::TileOccupied => pb::RejectReason::TileOccupied,
+        RejectReason::UpgradeAlreadyOwned => pb::RejectReason::UpgradeAlreadyOwned,
         RejectReason::InvalidCommand => pb::RejectReason::InvalidCommand,
-        // El contrato no tiene un motivo "todavía no soportado"; el más
-        // cercano es INVALID_COMMAND (el simulador no sabe aplicarlo).
-        RejectReason::Unsupported => pb::RejectReason::InvalidCommand,
         // Tampoco hay uno para «mundo lleno»: INVALID_COMMAND es el más
         // cercano (el comando no se puede aplicar tal como llega).
         RejectReason::WorldFull => pb::RejectReason::InvalidCommand,
@@ -214,14 +222,17 @@ pub fn world_state(world: &World) -> pb::WorldState {
         width: world.width(),
         height: world.height(),
         tiles: world.tiles().iter().map(tile_to_proto).collect(),
-        players: world.players().map(player_state).collect(),
+        players: world
+            .players()
+            .map(|player| player_state(world, player))
+            .collect(),
         demo_mode: world.demo_mode(),
         humidity_contributed: world.humidity_contributed(),
         epoch: world.epoch(),
     }
 }
 
-fn player_state(player: &Player) -> pb::PlayerState {
+fn player_state(world: &World, player: &Player) -> pb::PlayerState {
     pb::PlayerState {
         player_id: player.player_id.clone(),
         water: player.water,
@@ -232,9 +243,19 @@ fn player_state(player: &Player) -> pb::PlayerState {
             .iter()
             .map(|u| upgrade_to_proto(*u).into())
             .collect(),
-        // TODO(installations): precio de la siguiente instalación de cada tipo
-        // (RF-07), cuando existan las instalaciones.
-        next_prices: Vec::new(),
+        // Precio de la siguiente instalación de cada tipo (RF-07), calculado
+        // por las reglas del simulador: el hub solo lo reenvía.
+        next_prices: [
+            InstallationKind::Sprinkler,
+            InstallationKind::Drip,
+            InstallationKind::TreatmentPlant,
+        ]
+        .into_iter()
+        .map(|kind| pb::InstallationPrice {
+            kind: installation_to_proto(kind).into(),
+            leaves: world.next_price(player, kind),
+        })
+        .collect(),
     }
 }
 
@@ -527,14 +548,46 @@ mod tests {
                 Some(CommandKind::Drop { x: 3, y: 4 }),
             ),
             (
-                Some(Kind::PlaceInstallation(
-                    pb::PlaceInstallationCommand::default(),
-                )),
-                Some(CommandKind::PlaceInstallation),
+                Some(Kind::PlaceInstallation(pb::PlaceInstallationCommand {
+                    kind: pb::InstallationKind::Drip.into(),
+                    x: 5,
+                    y: 6,
+                })),
+                Some(CommandKind::PlaceInstallation {
+                    kind: InstallationKind::Drip,
+                    x: 5,
+                    y: 6,
+                }),
             ),
             (
-                Some(Kind::BuyUpgrade(pb::BuyUpgradeCommand::default())),
-                Some(CommandKind::BuyUpgrade),
+                Some(Kind::BuyUpgrade(pb::BuyUpgradeCommand {
+                    kind: pb::UpgradeKind::BiggerTank.into(),
+                })),
+                Some(CommandKind::BuyUpgrade {
+                    kind: UpgradeKind::BiggerTank,
+                }),
+            ),
+            // Un tipo sin especificar o desconocido deja el comando sin tipo
+            // (INVALID_COMMAND en el simulador).
+            (
+                Some(Kind::PlaceInstallation(pb::PlaceInstallationCommand {
+                    kind: pb::InstallationKind::Unspecified.into(),
+                    x: 1,
+                    y: 1,
+                })),
+                None,
+            ),
+            (
+                Some(Kind::PlaceInstallation(pb::PlaceInstallationCommand {
+                    kind: 99,
+                    x: 1,
+                    y: 1,
+                })),
+                None,
+            ),
+            (
+                Some(Kind::BuyUpgrade(pb::BuyUpgradeCommand { kind: 0 })),
+                None,
             ),
             (
                 Some(Kind::SetDemoMode(pb::SetDemoModeCommand { enabled: true })),
@@ -582,11 +635,20 @@ mod tests {
                 pb::CommandStatus::Rejected,
                 pb::RejectReason::InvalidCommand,
             ),
-            // El contrato no tiene un motivo "no soportado": se usa el más cercano.
             (
-                CommandOutcome::Rejected(RejectReason::Unsupported),
+                CommandOutcome::Rejected(RejectReason::InsufficientLeaves),
                 pb::CommandStatus::Rejected,
-                pb::RejectReason::InvalidCommand,
+                pb::RejectReason::InsufficientLeaves,
+            ),
+            (
+                CommandOutcome::Rejected(RejectReason::TileOccupied),
+                pb::CommandStatus::Rejected,
+                pb::RejectReason::TileOccupied,
+            ),
+            (
+                CommandOutcome::Rejected(RejectReason::UpgradeAlreadyOwned),
+                pb::CommandStatus::Rejected,
+                pb::RejectReason::UpgradeAlreadyOwned,
             ),
             (
                 CommandOutcome::Rejected(RejectReason::WorldFull),
@@ -675,6 +737,110 @@ mod tests {
 
         let restored = decode_snapshot(snapshot, Catalog::d01()).unwrap();
         assert_eq!(restored.parts(), world.parts());
+    }
+
+    #[test]
+    fn world_state_lists_the_next_price_of_every_installation_kind() {
+        use pb::InstallationKind as Kind;
+        let mut parts = World::new(Catalog::d01()).parts();
+        parts.players.push(Player {
+            leaves: 100,
+            leaves_earned: 100,
+            purchases: vec![
+                (InstallationKind::Sprinkler, 2),
+                (InstallationKind::Drip, 1),
+            ],
+            ..Player::starting(ANA, 20)
+        });
+        let world = World::restore(Catalog::d01(), parts).unwrap();
+        let state = world_state(&world);
+        let prices: Vec<(Kind, u64)> = state.players[0]
+            .next_prices
+            .iter()
+            .map(|p| (p.kind(), p.leaves))
+            .collect();
+        // Sprinkler 10 -> 12 -> 14; drip 25 -> 29; plant sin compras.
+        assert_eq!(
+            prices,
+            vec![
+                (Kind::Sprinkler, 14),
+                (Kind::Drip, 29),
+                (Kind::TreatmentPlant, 40)
+            ]
+        );
+    }
+
+    #[test]
+    fn installations_upgrades_and_3r_counters_produced_by_the_rules_survive_the_wire() {
+        let command = |n: u32, kind: CommandKind| Command {
+            action_id: format!("00000000-0000-4000-8000-{n:012}"),
+            player_id: ANA.to_string(),
+            kind: Some(kind),
+        };
+        let mut parts = World::new(Catalog::d01()).parts();
+        parts.players.push(Player {
+            leaves: 200,
+            leaves_earned: 200,
+            ..Player::starting(ANA, 20)
+        });
+        let mut world = World::restore(Catalog::d01(), parts).unwrap();
+        world.step(&[
+            command(
+                1,
+                CommandKind::PlaceInstallation {
+                    kind: InstallationKind::Sprinkler,
+                    x: 6,
+                    y: 6,
+                },
+            ),
+            command(
+                2,
+                CommandKind::PlaceInstallation {
+                    kind: InstallationKind::Drip,
+                    x: 8,
+                    y: 6,
+                },
+            ),
+            command(
+                3,
+                CommandKind::PlaceInstallation {
+                    kind: InstallationKind::TreatmentPlant,
+                    x: 1,
+                    y: 1,
+                },
+            ),
+            command(
+                4,
+                CommandKind::BuyUpgrade {
+                    kind: UpgradeKind::BiggerDrop,
+                },
+            ),
+            command(
+                5,
+                CommandKind::BuyUpgrade {
+                    kind: UpgradeKind::BiggerTank,
+                },
+            ),
+            command(6, CommandKind::Drop { x: 7, y: 6 }),
+        ]);
+        for _ in 0..60 {
+            world.step(&[]);
+        }
+        let ana = world.player(ANA).unwrap();
+        assert!(ana.water_reused > 0 && ana.water_reduced > 0 && ana.water_recycled > 0);
+
+        let restored = decode_snapshot(encode_snapshot(&world), Catalog::d01()).unwrap();
+        assert_eq!(restored.parts(), world.parts());
+        let state = world_state(&restored);
+        let installed: Vec<_> = state
+            .tiles
+            .iter()
+            .filter_map(|t| t.installation.as_ref().map(|i| i.kind()))
+            .collect();
+        assert_eq!(installed.len(), 3);
+        let p = &state.players[0];
+        assert_eq!(p.tank_capacity, 30);
+        assert_eq!(p.upgrades.len(), 2);
     }
 
     #[test]

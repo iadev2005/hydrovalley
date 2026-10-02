@@ -10,6 +10,8 @@
 //! los intervalos `_seconds` cuentan segundos y las duraciones `_ticks`,
 //! ticks de 100 ms.
 
+use super::tile::{InstallationKind, UpgradeKind};
+
 /// Catálogo completo, con el hash que lo identifica (`catalog_version`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Catalog {
@@ -30,6 +32,50 @@ pub struct Catalog {
     /// Segundos que las instalaciones siguen trabajando tras la última
     /// acción de su dueño.
     pub offline_installation_seconds: u64,
+}
+
+impl Catalog {
+    /// Precio base (la primera compra) de una instalación.
+    pub fn installation_base_price(&self, kind: InstallationKind) -> u64 {
+        match kind {
+            InstallationKind::Sprinkler => self.sprinkler.price,
+            InstallationKind::Drip => self.drip.price,
+            InstallationKind::TreatmentPlant => self.treatment_plant.price,
+        }
+    }
+
+    /// Precio de la siguiente instalación de `kind` cuando el jugador ya
+    /// compró `purchased` del mismo tipo (RF-07).
+    ///
+    /// Cada precio es el anterior más `installation_price_increase_percent`
+    /// por ciento, **redondeado hacia arriba** al entero siguiente: con el 15 %
+    /// del catálogo, un aspersor cuesta 10, 12, 14, 17, 20, 23… (11,5 sube a
+    /// 12). Se encadena sobre el precio entero anterior, no sobre el decimal
+    /// exacto, para que lo que el jugador ve en pantalla sea siempre «el
+    /// anterior más un 15 %» y nunca baje del 15 %. La cuenta usa 128 bits y
+    /// se detiene al saturar en `u64::MAX` (o si el aumento no cambia el
+    /// precio, p. ej. 0 %), así que ni desborda ni itera de más.
+    pub fn installation_price(&self, kind: InstallationKind, purchased: u32) -> u64 {
+        let factor = 100u128 + u128::from(self.installation_price_increase_percent);
+        let mut price = self.installation_base_price(kind);
+        for _ in 0..purchased {
+            let next = (u128::from(price) * factor).div_ceil(100);
+            let next = u64::try_from(next).unwrap_or(u64::MAX);
+            if next == price {
+                break;
+            }
+            price = next;
+        }
+        price
+    }
+
+    /// Precio de una mejora (compra única).
+    pub fn upgrade_price(&self, kind: UpgradeKind) -> u64 {
+        match kind {
+            UpgradeKind::BiggerDrop => self.bigger_drop.price,
+            UpgradeKind::BiggerTank => self.bigger_tank.price,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

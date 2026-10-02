@@ -12,7 +12,7 @@ const actionID = "0b7c9a52-5f3e-4f5b-9d7e-2a1f3c4d5e6f"
 
 func TestDecodeDrop(t *testing.T) {
 	cmd, errMsg := DecodeClient([]byte(`{"type":"drop","action_id":"` + actionID + `","x":14,"y":9}`))
-	if errMsg != nil || cmd.Drop == nil || cmd.Admin != nil {
+	if errMsg != nil || cmd.Drop == nil || cmd.Admin != nil || cmd.Place != nil || cmd.Buy != nil {
 		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
 	}
 	drop := cmd.Drop
@@ -65,6 +65,91 @@ func TestDecodeAdminErrors(t *testing.T) {
 	}
 }
 
+func TestDecodePlaceInstallation(t *testing.T) {
+	cases := []struct {
+		name string
+		kind worldv1.InstallationKind
+	}{
+		{"sprinkler", worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER},
+		{"drip", worldv1.InstallationKind_INSTALLATION_KIND_DRIP},
+		{"treatment_plant", worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT},
+	}
+	for _, tc := range cases {
+		cmd, errMsg := DecodeClient([]byte(`{"type":"place_installation","action_id":"` + actionID + `","installation":"` + tc.name + `","x":14,"y":9}`))
+		if errMsg != nil || cmd.Place == nil || cmd.Drop != nil || cmd.Admin != nil || cmd.Buy != nil {
+			t.Fatalf("%s: cmd = %+v, error frame: %v", tc.name, cmd, errMsg)
+		}
+		if p := cmd.Place; p.ActionID != actionID || p.Kind != tc.kind || p.X != 14 || p.Y != 9 {
+			t.Fatalf("%s: place = %+v", tc.name, p)
+		}
+	}
+	// Coordenadas ausentes se leen como 0 (protojson omite los ceros).
+	cmd, errMsg := DecodeClient([]byte(`{"type":"place_installation","action_id":"` + actionID + `","installation":"drip"}`))
+	if errMsg != nil || cmd.Place == nil || cmd.Place.X != 0 || cmd.Place.Y != 0 {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
+	}
+}
+
+func TestDecodeBuyUpgrade(t *testing.T) {
+	cases := map[string]worldv1.UpgradeKind{
+		"bigger_drop": worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_DROP,
+		"bigger_tank": worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_TANK,
+	}
+	for name, kind := range cases {
+		cmd, errMsg := DecodeClient([]byte(`{"type":"buy_upgrade","action_id":"` + actionID + `","upgrade":"` + name + `"}`))
+		if errMsg != nil || cmd.Buy == nil || cmd.Drop != nil || cmd.Admin != nil || cmd.Place != nil {
+			t.Fatalf("%s: cmd = %+v, error frame: %v", name, cmd, errMsg)
+		}
+		if b := cmd.Buy; b.ActionID != actionID || b.Kind != kind {
+			t.Fatalf("%s: buy = %+v", name, b)
+		}
+	}
+}
+
+func TestDecodePurchaseErrors(t *testing.T) {
+	for _, data := range []string{
+		// sin action_id o con uno que no es UUID
+		`{"type":"place_installation","installation":"drip","x":1,"y":1}`,
+		`{"type":"place_installation","action_id":"nope","installation":"drip","x":1,"y":1}`,
+		`{"type":"buy_upgrade","upgrade":"bigger_drop"}`,
+		`{"type":"buy_upgrade","action_id":"nope","upgrade":"bigger_drop"}`,
+		// tipo ausente, desconocido, en otro formato o con un valor numérico
+		`{"type":"place_installation","action_id":"` + actionID + `","x":1,"y":1}`,
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":"fountain","x":1,"y":1}`,
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":"Sprinkler","x":1,"y":1}`,
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":"INSTALLATION_KIND_DRIP","x":1,"y":1}`,
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":2,"x":1,"y":1}`,
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":"","x":1,"y":1}`,
+		`{"type":"buy_upgrade","action_id":"` + actionID + `"}`,
+		`{"type":"buy_upgrade","action_id":"` + actionID + `","upgrade":"bigger_house"}`,
+		`{"type":"buy_upgrade","action_id":"` + actionID + `","upgrade":"UPGRADE_KIND_BIGGER_DROP"}`,
+		// coordenadas negativas o de texto, campos de otro mensaje o desconocidos
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":"drip","x":-1,"y":1}`,
+		`{"type":"place_installation","action_id":"` + actionID + `","installation":"drip","x":"1","y":"a"}`,
+		`{"type":"place_installation","action_id":"` + actionID + `","upgrade":"bigger_drop"}`,
+		`{"type":"buy_upgrade","action_id":"` + actionID + `","upgrade":"bigger_drop","x":1}`,
+	} {
+		cmd, errMsg := DecodeClient([]byte(data))
+		if cmd.Place != nil || cmd.Buy != nil || errMsg == nil || errMsg.GetCode() != CodeInvalidMessage {
+			t.Errorf("%s → %+v, %v; want invalid_message", data, cmd, errMsg)
+		}
+	}
+}
+
+func TestPurchaseRejectionReasonsHaveTheirOwnNames(t *testing.T) {
+	for reason, want := range map[worldv1.RejectReason]string{
+		worldv1.RejectReason_REJECT_REASON_INSUFFICIENT_LEAVES:   "insufficient_leaves",
+		worldv1.RejectReason_REJECT_REASON_TILE_OCCUPIED:         "tile_occupied",
+		worldv1.RejectReason_REJECT_REASON_UPGRADE_ALREADY_OWNED: "upgrade_already_owned",
+		worldv1.RejectReason_REJECT_REASON_INVALID_COMMAND:       "invalid_command",
+	} {
+		data, _ := Marshal(Result(actionID, StatusRejected, reason))
+		if got := decodeJSON(t, data)["reason"]; got != want {
+			t.Errorf("reason %v → %v, want %s", reason, got, want)
+		}
+	}
+}
+
 func TestDecodeErrors(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -78,7 +163,6 @@ func TestDecodeErrors(t *testing.T) {
 		{"type is not a string", `{"type":5}`, CodeInvalidMessage, ""},
 		{"unknown type", `{"type":"teleport","action_id":"` + actionID + `"}`, CodeUnknownType, actionID},
 		{"server frame sent by client", `{"type":"result","action_id":"` + actionID + `"}`, CodeUnknownType, actionID},
-		{"not yet supported command", `{"type":"buy_upgrade","action_id":"` + actionID + `","upgrade":"bigger_drop"}`, CodeUnknownType, actionID},
 		{"drop without action_id", `{"type":"drop","x":1,"y":2}`, CodeInvalidMessage, ""},
 		{"drop with non-uuid action_id", `{"type":"drop","action_id":"abc","x":1}`, CodeInvalidMessage, "abc"},
 		{"drop with negative x", `{"type":"drop","action_id":"` + actionID + `","x":-1}`, CodeInvalidMessage, actionID},
@@ -88,7 +172,7 @@ func TestDecodeErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd, errMsg := DecodeClient([]byte(tc.data))
-			if cmd.Drop != nil || cmd.Admin != nil || errMsg == nil {
+			if cmd.Drop != nil || cmd.Admin != nil || cmd.Place != nil || cmd.Buy != nil || errMsg == nil {
 				t.Fatalf("got command %+v, want error frame", cmd)
 			}
 			if errMsg.GetType() != TypeError || errMsg.GetCode() != tc.wantCode || errMsg.GetActionId() != tc.wantActionID {

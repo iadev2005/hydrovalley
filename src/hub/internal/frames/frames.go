@@ -64,12 +64,50 @@ type Admin struct {
 	Enabled  bool
 }
 
+// Valores de `type` de las compras (RF-07).
+const (
+	TypePlaceInstallation = "place_installation"
+	TypeBuyUpgrade        = "buy_upgrade"
+)
+
 // Command es un mensaje del navegador ya validado: exactamente uno de los
-// dos campos está presente.
+// campos está presente.
 type Command struct {
 	Drop  *Drop
 	Admin *Admin
+	Place *Place
+	Buy   *Buy
 }
+
+// Place es la compra y colocación de una instalación ya validada: action_id
+// es un UUID y Kind uno de los tres tipos del contrato. Que las coordenadas
+// estén dentro del valle lo decide el simulador.
+type Place struct {
+	ActionID string
+	Kind     worldv1.InstallationKind
+	X, Y     uint32
+}
+
+// Buy es la compra de una mejora ya validada: action_id es un UUID y Kind
+// una de las dos mejoras del contrato.
+type Buy struct {
+	ActionID string
+	Kind     worldv1.UpgradeKind
+}
+
+// Nombres de las instalaciones y de las mejoras en JSON (play.proto); el hub
+// los traduce a los enums de world.proto.
+var (
+	installationKinds = map[string]worldv1.InstallationKind{
+		"sprinkler":       worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER,
+		"drip":            worldv1.InstallationKind_INSTALLATION_KIND_DRIP,
+		"treatment_plant": worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT,
+	}
+	upgradeKinds = map[string]worldv1.UpgradeKind{
+		"bigger_drop": worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_DROP,
+		"bigger_tank": worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_TANK,
+	}
+)
 
 // Drop es una gota ya validada: action_id es un UUID.
 type Drop struct {
@@ -87,11 +125,12 @@ var (
 // DecodeClient interpreta un mensaje del navegador. Devuelve el comando o el
 // mensaje de error que hay que responder (nunca los dos).
 //
-// Se admiten `drop` y los comandos de administración (`set_demo_mode` y
-// `reset_valley`); si el jugador puede ejecutarlos lo decide el hub con el
-// rol del token, no este decodificador. Los demás comandos de play.proto
-// (place_installation, buy_upgrade) responden `unknown_type` hasta que el hub
-// los soporte: el contrato no tiene un código para «no soportado».
+// Se admiten `drop`, las compras (`place_installation` y `buy_upgrade`) y los
+// comandos de administración (`set_demo_mode` y `reset_valley`); si el
+// jugador puede ejecutarlos lo decide el hub con el rol del token, no este
+// decodificador. El nombre del tipo de instalación o de mejora debe ser
+// exactamente uno de los del contrato (en minúsculas); si falta o es otro, el
+// mensaje es `invalid_message`.
 func DecodeClient(data []byte) (Command, *playv1.ErrorMessage) {
 	var env playv1.Envelope
 	if err := envelopeDecoder.Unmarshal(data, &env); err != nil || env.GetType() == "" {
@@ -107,6 +146,26 @@ func DecodeClient(data []byte) (Command, *playv1.ErrorMessage) {
 			return invalid()
 		}
 		return Command{Drop: &Drop{ActionID: msg.GetActionId(), X: msg.GetX(), Y: msg.GetY()}}, nil
+	case TypePlaceInstallation:
+		var msg playv1.PlaceInstallationMessage
+		if err := commandDecoder.Unmarshal(data, &msg); err != nil || !IsUUID(msg.GetActionId()) {
+			return invalid()
+		}
+		kind, ok := installationKinds[msg.GetInstallation()]
+		if !ok {
+			return invalid()
+		}
+		return Command{Place: &Place{ActionID: msg.GetActionId(), Kind: kind, X: msg.GetX(), Y: msg.GetY()}}, nil
+	case TypeBuyUpgrade:
+		var msg playv1.BuyUpgradeMessage
+		if err := commandDecoder.Unmarshal(data, &msg); err != nil || !IsUUID(msg.GetActionId()) {
+			return invalid()
+		}
+		kind, ok := upgradeKinds[msg.GetUpgrade()]
+		if !ok {
+			return invalid()
+		}
+		return Command{Buy: &Buy{ActionID: msg.GetActionId(), Kind: kind}}, nil
 	case TypeSetDemoMode:
 		var msg playv1.SetDemoModeMessage
 		if err := commandDecoder.Unmarshal(data, &msg); err != nil || !IsUUID(msg.GetActionId()) {

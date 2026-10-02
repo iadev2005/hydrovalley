@@ -182,7 +182,8 @@ type queued struct {
 }
 
 // isDrop dice si el comando es una gota: solo las gotas consumen el límite
-// de 15/s y cuentan como gotas aceptadas.
+// de 15/s y cuentan como gotas aceptadas (las compras y los comandos de
+// administración no).
 func (q queued) isDrop() bool { return q.cmd.GetDrop() != nil }
 
 type confirmEntry struct {
@@ -337,6 +338,29 @@ func (h *Hub) playerLocked(id string) *player {
 func (h *Hub) SubmitDrop(s *Session, d frames.Drop) Outcome {
 	return h.submit(s, d.ActionID, func() (*worldv1.Command, Outcome) {
 		return &worldv1.Command{Kind: &worldv1.Command_Drop{Drop: &worldv1.DropCommand{X: d.X, Y: d.Y}}}, Admitted
+	})
+}
+
+// SubmitPlace filtra la compra y colocación de una instalación (RF-04,
+// RF-07). Pasa por la misma admisión que la gota (sesión, pending, confirmed
+// y cola llena), pero no es una gota: no consume el límite de 15 por segundo
+// ni cuenta como gota aceptada. Qué cuesta y si hay hojas o sitio lo decide el
+// simulador, que responde con un rechazo y su motivo si no se puede.
+func (h *Hub) SubmitPlace(s *Session, p frames.Place) Outcome {
+	return h.submit(s, p.ActionID, func() (*worldv1.Command, Outcome) {
+		return &worldv1.Command{Kind: &worldv1.Command_PlaceInstallation{
+			PlaceInstallation: &worldv1.PlaceInstallationCommand{Kind: p.Kind, X: p.X, Y: p.Y},
+		}}, Admitted
+	})
+}
+
+// SubmitBuy filtra la compra de una mejora (RF-07), con las mismas reglas
+// que SubmitPlace.
+func (h *Hub) SubmitBuy(s *Session, b frames.Buy) Outcome {
+	return h.submit(s, b.ActionID, func() (*worldv1.Command, Outcome) {
+		return &worldv1.Command{Kind: &worldv1.Command_BuyUpgrade{
+			BuyUpgrade: &worldv1.BuyUpgradeCommand{Kind: b.Kind},
+		}}, Admitted
 	})
 }
 
