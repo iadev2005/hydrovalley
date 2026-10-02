@@ -696,7 +696,7 @@ mod tests {
         world.step(&[drop(0, 0), drop(31, 31)]);
         let mut parts = world.parts();
         parts.epoch = 3;
-        parts.rng_state = vec![1, 2, 3];
+        parts.rng_state = vec![1, 2, 3, 4, 5, 6, 7, 8];
         parts.tiles[5] = Tile {
             stage: TileStage::Flowers,
             humidity: 40,
@@ -737,6 +737,25 @@ mod tests {
 
         let restored = decode_snapshot(snapshot, Catalog::d01()).unwrap();
         assert_eq!(restored.parts(), world.parts());
+    }
+
+    #[test]
+    fn world_state_and_snapshot_carry_the_fires_and_the_generator_state() {
+        let world = rich_world();
+        let state = world_state(&world);
+        let fire = state.tiles[5].fire.expect("la casilla 5 arde");
+        assert_eq!((fire.drops_received, fire.burning_ticks), (2, 90));
+        assert_eq!(state.tiles.iter().filter(|t| t.fire.is_some()).count(), 1);
+
+        let snapshot = encode_snapshot(&world);
+        let inner = pb::WorldSnapshot::decode(snapshot.world_state.as_slice()).unwrap();
+        assert_eq!(inner.rng_state, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        let restored = decode_snapshot(snapshot, Catalog::d01()).unwrap();
+        assert_eq!(restored.parts().rng_state, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(
+            restored.tile(5, 0).unwrap().fire,
+            world.tile(5, 0).unwrap().fire
+        );
     }
 
     #[test]

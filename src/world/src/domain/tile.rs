@@ -48,8 +48,7 @@ pub enum UpgradeKind {
     BiggerTank,
 }
 
-/// Incendio en curso. Se guarda para que la instantánea viaje completa,
-/// aunque el simulador todavía no enciende ni apaga fuegos.
+/// Incendio en curso: gotas recibidas desde que arde y ticks ardiendo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fire {
     pub drops_received: u32,

@@ -63,6 +63,9 @@ enum State {
 
 pub struct Simulator<S> {
     boot_id: String,
+    /// Semilla del generador de azar cuando el valle empieza de cero. Si hay
+    /// instantánea manda el estado guardado en ella, no esta semilla.
+    seed: u64,
     store: Arc<S>,
     state: Mutex<State>,
     /// Hay un guardado en curso (como mucho uno).
@@ -82,9 +85,10 @@ const RESET_CATALOG_TIMEOUT: Duration = Duration::from_millis(100);
 const SAVE_POLL: Duration = Duration::from_millis(10);
 
 impl<S: PersistenceStore> Simulator<S> {
-    pub fn new(store: Arc<S>) -> Self {
+    pub fn new(store: Arc<S>, seed: u64) -> Self {
         Self {
             boot_id: Uuid::new_v4().to_string(),
+            seed,
             store,
             state: Mutex::new(State::Loading),
             saving: Arc::new(AtomicBool::new(false)),
@@ -141,8 +145,11 @@ impl<S: PersistenceStore> Simulator<S> {
         let (world, restored_tick) = loop {
             match self.store.load().await {
                 Ok(None) => {
-                    tracing::info!("no hay instantáneas: el valle empieza en el tick 0");
-                    break (World::new(catalog.clone()), 0);
+                    tracing::info!(
+                        seed = self.seed,
+                        "no hay instantáneas: el valle empieza en el tick 0 (con esta semilla se repite la partida)"
+                    );
+                    break (World::with_seed(catalog.clone(), self.seed), 0);
                 }
                 Ok(Some(snapshot)) => {
                     let tick = snapshot.tick;
@@ -340,6 +347,8 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use prost::Message;
+
+    use crate::domain::rng::SplitMix64;
     use tokio::sync::Semaphore;
 
     use super::*;
@@ -417,7 +426,7 @@ mod tests {
 
     async fn ready(store: FakeStore) -> (Simulator<FakeStore>, Arc<FakeStore>) {
         let store = Arc::new(store);
-        let simulator = Simulator::new(store.clone());
+        let simulator = Simulator::new(store.clone(), 0);
         simulator.load(fast()).await;
         (simulator, store)
     }
@@ -439,7 +448,7 @@ mod tests {
     }
 
     fn snapshot_at(tick: u64) -> Snapshot {
-        let mut world = World::new(Catalog::d01());
+        let mut world = World::with_seed(Catalog::d01(), 0);
         world.step(&[Command {
             action_id: "00000000-0000-4000-8000-000000000001".to_string(),
             player_id: ANA.to_string(),
@@ -465,8 +474,8 @@ mod tests {
     #[test]
     fn boot_id_is_a_fresh_uuid_v4() {
         let store = Arc::new(FakeStore::default());
-        let a = Simulator::new(store.clone());
-        let b = Simulator::new(store);
+        let a = Simulator::new(store.clone(), 0);
+        let b = Simulator::new(store, 0);
         let parsed = Uuid::parse_str(a.boot_id()).unwrap();
         assert_eq!(parsed.get_version_num(), 4);
         assert_ne!(a.boot_id(), b.boot_id());
@@ -474,7 +483,7 @@ mod tests {
 
     #[test]
     fn step_is_unavailable_until_the_world_is_loaded() {
-        let simulator = Simulator::new(Arc::new(FakeStore::default()));
+        let simulator = Simulator::new(Arc::new(FakeStore::default()), 0);
         assert!(!simulator.is_ready());
         assert_eq!(simulator.step(&[], |_| ()).unwrap_err(), NotReady);
     }
@@ -489,6 +498,26 @@ mod tests {
         assert_eq!(report.outcome.tick, 1);
         assert_eq!(report.restored_tick, 0);
         assert_eq!(report.view, 0);
+    }
+
+    #[tokio::test]
+    async fn an_empty_world_starts_from_the_configured_seed_and_a_snapshot_keeps_its_own() {
+        let seeded = |seed, loads| async move {
+            let simulator = Simulator::new(Arc::new(FakeStore::with_loads(loads)), seed);
+            simulator.load(fast()).await;
+            simulator
+                .step(&[], |world| world.parts().rng_state)
+                .unwrap()
+                .view
+        };
+        let fresh = seeded(99, vec![Ok(None)]).await;
+        assert_eq!(fresh, SplitMix64::new(99).to_bytes());
+
+        // La instantánea trae su generador (semilla 0 más ningún sorteo, pues
+        // el valle de la prueba no tiene casillas elegibles): la semilla de
+        // configuración no lo pisa.
+        let restored = seeded(99, vec![Ok(Some(snapshot_at(150)))]).await;
+        assert_eq!(restored, SplitMix64::new(0).to_bytes());
     }
 
     #[tokio::test]
@@ -615,7 +644,7 @@ mod tests {
     #[test]
     fn step_outside_a_tokio_runtime_skips_the_snapshot_without_panicking() {
         let store = Arc::new(FakeStore::default());
-        let simulator = Simulator::new(store.clone());
+        let simulator = Simulator::new(store.clone(), 0);
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
@@ -666,7 +695,7 @@ mod tests {
 
         // Sin mundo cargado no hay nada que guardar.
         let store = Arc::new(FakeStore::default());
-        let loading = Simulator::new(store.clone());
+        let loading = Simulator::new(store.clone(), 0);
         assert!(loading.shutdown(Duration::from_secs(5)).await);
         assert_eq!(store.save_calls.load(Ordering::SeqCst), 0);
     }
@@ -703,7 +732,7 @@ mod tests {
             ),
             ..FakeStore::default()
         });
-        let simulator = Simulator::new(store.clone());
+        let simulator = Simulator::new(store.clone(), 0);
         simulator.load(fast()).await;
 
         assert_eq!(store.catalog_calls.load(Ordering::SeqCst), 3);
@@ -841,9 +870,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_slow_catalog_does_not_hold_the_step_past_its_timeout() {
-        let simulator = Simulator::new(Arc::new(HangingCatalog));
+        let simulator = Simulator::new(Arc::new(HangingCatalog), 0);
         *simulator.state.lock().unwrap() = State::Ready {
-            world: Box::new(World::new(Catalog::d01())),
+            world: Box::new(World::with_seed(Catalog::d01(), 0)),
             restored_tick: 0,
         };
         // Con el reloj en pausa, Tokio lo adelanta solo al quedar inactivo:

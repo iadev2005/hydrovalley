@@ -2,9 +2,11 @@
 
 pub mod catalog;
 pub mod command;
+pub mod fire;
 pub mod growth;
 pub mod limits;
 pub mod player;
+pub mod rng;
 pub mod tile;
 pub mod world;
 

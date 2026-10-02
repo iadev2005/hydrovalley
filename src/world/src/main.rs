@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
-use world::config::Config;
+use world::config::{Config, seed_from_clock};
 use world::server::{Settings, serve};
 
 #[tokio::main]
@@ -37,12 +37,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         persistence = %config.persistence_addr,
         "WorldService escuchando"
     );
-    serve(
-        Settings::new(config.persistence_addr),
-        listener,
-        shutdown_signal(),
-    )
-    .await
+    let seed = config.world_seed.unwrap_or_else(seed_from_clock);
+    tracing::info!(
+        seed,
+        from_env = config.world_seed.is_some(),
+        "semilla del azar (solo se usa si el valle empieza de cero)"
+    );
+    let mut settings = Settings::new(config.persistence_addr);
+    settings.seed = seed;
+    serve(settings, listener, shutdown_signal()).await
 }
 
 async fn shutdown_signal() {

@@ -8,9 +8,11 @@ use super::catalog::Catalog;
 use super::command::{
     Command, CommandKind, CommandOutcome, CommandResult, RejectReason, StepOutcome,
 };
+use super::fire;
 use super::growth;
 use super::limits::{RECENT_ACTIONS_WINDOW_TICKS, TICKS_PER_SECOND, VALLEY_HEIGHT, VALLEY_WIDTH};
 use super::player::{AppliedAction, Player};
+use super::rng::SplitMix64;
 use super::tile::{Installation, InstallationKind, Tile, UpgradeKind};
 
 /// Cada cuántos ticks se toma una instantánea (Capa 5).
@@ -58,6 +60,10 @@ pub enum RestoreError {
         found: usize,
     },
     DuplicatePlayer(String),
+    /// `rng_state` no vacío que no mide los 8 bytes del generador.
+    RngState {
+        len: usize,
+    },
 }
 
 impl std::fmt::Display for RestoreError {
@@ -72,6 +78,11 @@ impl std::fmt::Display for RestoreError {
                 write!(f, "se esperaban {expected} casillas y hay {found}")
             }
             Self::DuplicatePlayer(id) => write!(f, "jugador repetido: {id}"),
+            Self::RngState { len } => write!(
+                f,
+                "el estado del generador mide {len} bytes y debería medir {}",
+                super::rng::STATE_LEN
+            ),
         }
     }
 }
@@ -91,7 +102,7 @@ pub struct World {
     catalog: Catalog,
     tick: u64,
     epoch: u32,
-    rng_state: Vec<u8>,
+    rng: SplitMix64,
     demo_mode: bool,
     humidity_contributed: u64,
     tiles: Vec<Tile>,
@@ -102,16 +113,22 @@ pub struct World {
 }
 
 impl World {
-    /// Valle vacío en el tick 0 (LoadSnapshot devolvió NOT_FOUND).
+    /// Valle vacío en el tick 0 con la semilla 0, solo para las pruebas.
+    #[cfg(test)]
     pub fn new(catalog: Catalog) -> Self {
+        Self::with_seed(catalog, 0)
+    }
+
+    /// Valle vacío en el tick 0 (LoadSnapshot devolvió NOT_FOUND). La
+    /// semilla fija toda la secuencia de incendios (regla 6): quien arranca
+    /// el servicio la elige y la registra.
+    pub fn with_seed(catalog: Catalog, seed: u64) -> Self {
         let tile_count = tile_count(VALLEY_WIDTH, VALLEY_HEIGHT);
         Self {
             catalog,
             tick: 0,
             epoch: 0,
-            // TODO(rng): generador con semilla cuyo estado viaja en la
-            // instantánea (regla 6); llegará con los incendios.
-            rng_state: Vec::new(),
+            rng: SplitMix64::new(seed),
             demo_mode: false,
             humidity_contributed: 0,
             tiles: vec![Tile::default(); tile_count],
@@ -140,6 +157,15 @@ impl World {
                 found: parts.tiles.len(),
             });
         }
+        // Una instantánea anterior a los incendios no trae estado del
+        // generador: se siembra con su tick, que es determinista.
+        let rng = if parts.rng_state.is_empty() {
+            SplitMix64::new(parts.tick)
+        } else {
+            SplitMix64::from_bytes(&parts.rng_state).ok_or(RestoreError::RngState {
+                len: parts.rng_state.len(),
+            })?
+        };
         let mut players = BTreeMap::new();
         for mut record in parts.players {
             record.recent_actions.sort_by_key(|applied| applied.tick);
@@ -160,7 +186,7 @@ impl World {
             catalog,
             tick: parts.tick,
             epoch: parts.epoch,
-            rng_state: parts.rng_state,
+            rng,
             demo_mode: parts.demo_mode,
             humidity_contributed: parts.humidity_contributed,
             tiles: parts.tiles,
@@ -175,7 +201,7 @@ impl World {
             tick: self.tick,
             epoch: self.epoch,
             catalog_version: self.catalog.version.clone(),
-            rng_state: self.rng_state.clone(),
+            rng_state: self.rng.to_bytes(),
             demo_mode: self.demo_mode,
             humidity_contributed: self.humidity_contributed,
             width: VALLEY_WIDTH,
@@ -200,17 +226,23 @@ impl World {
     /// 4. Plantas de tratamiento: litros extra de recarga a su dueño, si `t`
     ///    es múltiplo de su intervalo.
     /// 5. Aspersores: humedad a su área (y hojas a su dueño si algo crece),
-    ///    si `t` es múltiplo de su intervalo.
-    /// 6. Evaporación, si `t` es múltiplo de [`TICKS_PER_SECOND`] (salvo en
-    ///    modo demo), con el goteo dividiéndola en su área.
-    /// 7. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
-    ///    modo demo).
-    /// 8. El tick pasa a `t`.
+    ///    si `t` es múltiplo de su intervalo. Apagan los fuegos de su área.
+    /// 6. Fuego: un tick más a cada casilla que arde; a los 300 se consume
+    ///    y vuelve a tierra seca. También en modo demo.
+    /// 7. Evaporación, si `t` es múltiplo de [`TICKS_PER_SECOND`] (salvo en
+    ///    modo demo), con el goteo dividiéndola en su área. También en las
+    ///    casillas que arden.
+    /// 8. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
+    ///    modo demo y en las que arden).
+    /// 9. Ignición al azar (salvo en modo demo): un sorteo con el generador
+    ///    con semilla por cada casilla elegible, por filas.
+    /// 10. El tick pasa a `t`.
     ///
-    /// Las instalaciones (4, 5 y el goteo de 6) solo actúan mientras su dueño
+    /// Las instalaciones (4, 5 y el goteo de 7) solo actúan mientras su dueño
     /// no lleve ausente más de `offline_installation_seconds` (RF-25).
     ///
-    /// Todo es aritmética entera y no hay azar: mismo estado y mismos
+    /// Solo la ignición usa el azar, y lo toma del generador con semilla del
+    /// mundo, cuyo estado viaja en la instantánea: misma semilla y mismos
     /// comandos dan el mismo valle.
     pub fn step(&mut self, commands: &[Command]) -> StepOutcome {
         self.step_with_reset_catalog(commands, None)
@@ -245,7 +277,6 @@ impl World {
             })
             .collect();
 
-        // TODO(fire): los incendios (D-01) se colgarán de advance_valley.
         self.advance_valley(tick);
         self.tick = tick;
         StepOutcome { tick, results }
@@ -306,7 +337,14 @@ impl World {
     /// aceptada suma exactamente `demo_humidity` y el invariante de RF-30
     /// se cumple con cualquier mejora.
     ///
-    /// TODO(fire): gotas que apagan fuegos (T4).
+    /// Una casilla ardiendo recibe la gota igual (suma humedad, pero no crece)
+    /// y la cuenta: con la que completa `fire.drops_to_extinguish` (3) el
+    /// fuego se apaga, el crecimiento que quedó pendiente se resuelve en ese
+    /// momento y el jugador de esa gota gana `fire.extinguish_bonus_leaves`
+    /// (suma a `leaves` y a `leaves_earned`). Como los comandos se aplican en
+    /// orden de admisión, con varias gotas en el mismo tick el fuego se apaga
+    /// una sola vez y el bono es de quien soltó la tercera. Con la gota más
+    /// grande cuenta como una gota para cada casilla ardiendo que alcanza.
     fn drop(&mut self, player_id: &str, x: u32, y: u32) -> CommandOutcome {
         if self.tile_index(x, y).is_none() {
             return CommandOutcome::Rejected(RejectReason::OutOfBounds);
@@ -333,11 +371,14 @@ impl World {
         let area = area_indices(x, y, side);
         let mut leaves = 0u64;
         for &index in &area {
-            leaves = leaves.saturating_add(growth::add_humidity(
-                &mut self.tiles[index],
-                humidity,
-                &self.catalog.growth,
-            ));
+            let tile = &mut self.tiles[index];
+            leaves =
+                leaves.saturating_add(growth::add_humidity(tile, humidity, &self.catalog.growth));
+            if fire::receive_drop(tile, &self.catalog.fire) {
+                leaves = leaves
+                    .saturating_add(growth::add_humidity(tile, 0, &self.catalog.growth))
+                    .saturating_add(self.catalog.fire.extinguish_bonus_leaves);
+            }
         }
         self.humidity_contributed = self
             .humidity_contributed
@@ -487,7 +528,10 @@ impl World {
     /// (humedad × casillas del valle alcanzadas). Sigue actuando en modo
     /// demo y no toca `humidity_contributed`, que es solo de las gotas.
     ///
-    /// TODO(fire): apagar los fuegos de su zona (T4).
+    /// Al regar apaga los fuegos de su zona (D-01). Es un apagado sin bono:
+    /// el bono es de quien suelta la tercera gota, y el aspersor no cuenta
+    /// gotas. Si el fuego tenía crecimiento pendiente, se resuelve ahí y las
+    /// hojas son del dueño, como con cualquier riego.
     fn run_sprinklers(&mut self, tick: u64) {
         let rules = &self.catalog.sprinkler;
         let interval = u64::from(rules.interval_seconds).saturating_mul(TICKS_PER_SECOND);
@@ -499,12 +543,17 @@ impl World {
             let (x, y) = self.tile_xy(index);
             let area = area_indices(x, y, side);
             let mut leaves = 0u64;
-            for &tile in &area {
+            for &index in &area {
+                let tile = &mut self.tiles[index];
                 leaves = leaves.saturating_add(growth::add_humidity(
-                    &mut self.tiles[tile],
+                    tile,
                     humidity,
                     &self.catalog.growth,
                 ));
+                if fire::extinguish(tile) {
+                    leaves =
+                        leaves.saturating_add(growth::add_humidity(tile, 0, &self.catalog.growth));
+                }
             }
             let player = &mut self.player_slot(&owner).record;
             player.leaves = player.leaves.saturating_add(leaves);
@@ -523,7 +572,8 @@ impl World {
     /// el ahorro se acredita al primero en orden de casilla. `water_reduced`
     /// suma la humedad que la casilla habría perdido de más sin goteo:
     /// `min(humedad, evaporación) - min(humedad, evaporación reducida)`. Una
-    /// casilla ardiendo no se evapora y no ahorra nada.
+    /// casilla ardiendo se evapora (y ahorra) como cualquier otra: el fuego
+    /// congela la etapa, no la humedad.
     fn evaporate_valley(&mut self, tick: u64) {
         let amount = self.catalog.evaporation.humidity_per_second;
         let reduced = amount / u64::from(self.catalog.drip.evaporation_divisor).max(1);
@@ -543,10 +593,8 @@ impl World {
                 growth::evaporate(tile, amount);
                 continue;
             };
-            if tile.fire.is_none() {
-                let h = tile.humidity;
-                saved[n] = saved[n].saturating_add(h.min(amount) - h.min(reduced));
-            }
+            let h = tile.humidity;
+            saved[n] = saved[n].saturating_add(h.min(amount) - h.min(reduced));
             growth::evaporate(tile, reduced);
         }
         for ((_, owner), amount) in drips.iter().zip(saved) {
@@ -561,9 +609,12 @@ impl World {
         self.refill_tanks(tick);
         self.run_treatment_plants(tick);
         self.run_sprinklers(tick);
-        // El modo demo congela el valle: sin evaporación ni marchitamiento
-        // (y, cuando lleguen, sin incendios). Las instalaciones de arriba
-        // siguen actuando; el goteo no tiene qué frenar.
+        // Los fuegos avanzan también en modo demo: un fuego siempre se
+        // resuelve (gotas, aspersor o consumirse).
+        self.burn_fires();
+        // El modo demo congela el valle: sin evaporación, marchitamiento ni
+        // incendios nuevos. Las instalaciones de arriba siguen actuando; el
+        // goteo no tiene qué frenar.
         if self.demo_mode {
             return;
         }
@@ -574,6 +625,31 @@ impl World {
         }
         for tile in &mut self.tiles {
             growth::wither(tile, &self.catalog.evaporation);
+        }
+        self.ignite_fires();
+    }
+
+    /// Un tick más de fuego en cada casilla que arde; las que llegan a
+    /// `fire.burn_out_ticks` (300) se consumen y vuelven a tierra seca.
+    fn burn_fires(&mut self) {
+        for tile in &mut self.tiles {
+            fire::burn(tile, &self.catalog.fire);
+        }
+    }
+
+    /// Ignición al azar (RF-29): recorre las casillas por filas y, por cada
+    /// una elegible (con planta, humedad 0 y sin fuego), hace un sorteo con
+    /// `fire.ignition_chance_ppm` partes por millón. Un sorteo por casilla
+    /// elegible y en ese orden fijo: con la misma semilla y el mismo estado
+    /// la secuencia es siempre la misma. Va al final del tick, así que una
+    /// casilla que acaba de marchitarse a tierra seca ya no cuenta y una
+    /// recién encendida empieza a contar sus ticks en el siguiente.
+    fn ignite_fires(&mut self) {
+        let ppm = self.catalog.fire.ignition_chance_ppm;
+        for tile in &mut self.tiles {
+            if fire::is_eligible(tile) && self.rng.chance_ppm(ppm) {
+                fire::ignite(tile);
+            }
         }
     }
 
@@ -721,6 +797,10 @@ fn tile_count(width: u32, height: u32) -> usize {
 fn is_uuid(text: &str) -> bool {
     Uuid::try_parse(text).is_ok()
 }
+
+#[cfg(test)]
+#[path = "world_fire_tests.rs"]
+mod fire_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1448,7 +1528,7 @@ mod tests {
     }
 
     #[test]
-    fn a_burning_tile_is_frozen_by_the_tick_rules() {
+    fn a_burning_tile_freezes_its_stage_but_keeps_evaporating() {
         let mut w = world();
         let mut parts = w.parts();
         parts.tiles[0] = Tile {
@@ -1469,9 +1549,9 @@ mod tests {
             installation: None,
         };
         w = World::restore(Catalog::d01(), parts).unwrap();
-        advance_to(&mut w, 200);
+        advance_to(&mut w, 20);
         let burning = w.tile(0, 0).unwrap();
-        assert_eq!((burning.humidity, burning.stage), (10, TileStage::Grass));
+        assert_eq!((burning.humidity, burning.stage), (6, TileStage::Grass));
         let frozen = w.tile(1, 0).unwrap();
         assert_eq!((frozen.dry_ticks, frozen.stage), (90, TileStage::Grass));
     }
@@ -2137,7 +2217,7 @@ mod tests {
     }
 
     #[test]
-    fn drip_saves_nothing_on_a_burning_tile() {
+    fn drip_also_saves_on_a_burning_tile_because_it_still_evaporates() {
         let mut w = rich(&[(ANA, 25)]);
         w.step(&[place_cmd(&action(1), ANA, Drip, 10, 10)]);
         let mut parts = w.parts();
@@ -2148,8 +2228,8 @@ mod tests {
         });
         w = World::restore(Catalog::d01(), parts).unwrap();
         advance_to(&mut w, 10);
-        assert_eq!(humidity(&w, 10, 10), 10);
-        assert_eq!(w.player(ANA).unwrap().water_reduced, 0);
+        assert_eq!(humidity(&w, 10, 10), 9);
+        assert_eq!(w.player(ANA).unwrap().water_reduced, 1);
     }
 
     // -- Planta de tratamiento (Reciclar)

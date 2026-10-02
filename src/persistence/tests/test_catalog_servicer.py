@@ -94,11 +94,11 @@ def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
     assert catalog.offline_installation_seconds == 7200
 
 
-def test_an_undefined_ignition_chance_is_delivered_as_zero(stub):
-    assert get_catalog(stub).fire.ignition_chance_ppm == 0
+def test_the_seeded_ignition_chance_is_delivered(stub):
+    assert get_catalog(stub).fire.ignition_chance_ppm == 50
 
 
-def test_a_defined_ignition_chance_is_delivered(stub, catalog_repository):
+def test_a_changed_ignition_chance_is_delivered(stub, catalog_repository):
     document = json.loads(REPO_CATALOG.read_text(encoding="utf-8"))
     document["rules"]["fire"]["ignition_chance_ppm"] = 500
     from persistence.catalog import parse_catalog
