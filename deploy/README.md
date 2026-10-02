@@ -94,4 +94,4 @@ Los destinos se resuelven en cada petición con el DNS de Docker (`NGINX_RESOLVE
 tests/e2e/run.sh
 ```
 
-Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, espera al tick 50, comprueba que hay una fila en `snapshots` y lo baja todo con `down -v`.
+Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots` y lo baja todo con `down -v`.

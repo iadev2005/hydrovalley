@@ -28,11 +28,49 @@
       </section>
       <p class="meta">Conexión: <span id="conn">desconectado</span></p>
       <p class="meta" id="state">Sin estado todavía.</p>
-      <form id="drop-form">
-        <label>x <input id="x" type="number" min="0" step="1" required /></label>
-        <label>y <input id="y" type="number" min="0" step="1" required /></label>
-        <button id="drop" type="submit" disabled>Soltar gota</button>
-      </form>
+      <section id="game" aria-labelledby="valley-title">
+        <h2 id="valley-title">Valle</h2>
+        <div class="layout">
+          <canvas id="valley" width="512" height="512" aria-label="Valle de 32 por 32 casillas"></canvas>
+          <div class="panel">
+            <p class="meta">Casilla: <strong id="selected">ninguna</strong></p>
+            <p class="meta" id="tile-info">Haz clic en una casilla.</p>
+            <p class="meta">Agua: <strong id="water">—</strong> <progress id="water-bar" max="1" value="0"></progress></p>
+            <p class="meta">Hojas: <strong id="leaves">—</strong></p>
+            <div class="actions">
+              <button id="drop" type="button" disabled>Soltar gota</button>
+              <button id="place-sprinkler" type="button" disabled>Colocar aspersor (<span id="price-sprinkler">—</span> hojas)</button>
+              <button id="place-drip" type="button" disabled>Colocar riego por goteo (<span id="price-drip">—</span> hojas)</button>
+              <button id="place-treatment_plant" type="button" disabled>Colocar planta de tratamiento (<span id="price-treatment_plant">—</span> hojas)</button>
+              <button id="buy-bigger_drop" type="button" disabled>Comprar gota grande</button>
+              <button id="buy-bigger_tank" type="button" disabled>Comprar depósito mayor</button>
+            </div>
+            <p class="meta" id="action-message" role="status"></p>
+            <p class="meta">Acciones pendientes: <span id="pending">0</span></p>
+            <section id="admin-panel" hidden aria-labelledby="admin-title">
+              <h3 id="admin-title">Administración</h3>
+              <div class="actions">
+                <button id="demo-toggle" type="button" disabled>Activar modo demo</button>
+                <button id="reset" type="button" disabled>Reiniciar valle</button>
+              </div>
+              <p id="reset-confirm" class="meta" hidden>
+                Se borrará el progreso de todos los jugadores. ¿Confirmas?
+                <button id="reset-yes" type="button">Sí, reiniciar</button>
+                <button id="reset-no" type="button">Cancelar</button>
+              </p>
+            </section>
+          </div>
+        </div>
+        <ul class="legend" aria-label="Leyenda">
+          <li><span class="swatch" style="background:#8d6e4a"></span>tierra seca</li>
+          <li><span class="swatch" style="background:#9ccc65"></span>pasto</li>
+          <li><span class="swatch" style="background:#558b2f"></span>arbusto</li>
+          <li><span class="swatch" style="background:#f06292"></span>flores</li>
+          <li><span class="swatch" style="background:#1b5e20"></span>árbol</li>
+          <li><span class="swatch" style="background:#e53935"></span>fuego</li>
+          <li>A aspersor · G goteo · P planta</li>
+        </ul>
+      </section>
       <h2>Registro</h2>
       <ol id="log" reversed></ol>
     </main>

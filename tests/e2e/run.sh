@@ -8,6 +8,8 @@
 #   HV_HTTP_PORT        puerto del host para nginx (8080)
 #   E2E_SKIP_BUILD=1    no construir: usar las imágenes ya cargadas (CI)
 #   E2E_KEEP=1          no bajar el stack al terminar (para depurar)
+#   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
+#                       propio; sin ellas se genera uno efímero
 # Requiere Docker con Compose v2 y Node 22 o superior.
 set -euo pipefail
 
@@ -40,6 +42,32 @@ if [[ -z "${TOKEN_PUBLIC_KEY:-}" ]]; then
     exit 1
   fi
   export TOKEN_PUBLIC_KEY
+fi
+
+# Los parámetros de Argon2id (m=19456, t=2, p=1) deben ser los de la API:
+# src/api/src/passwords.ts.
+# Cuenta de administrador para la prueba (RF-31): contraseña efímera y su hash
+# Argon2id, calculado con la imagen de la API (como en deploy/README.md). Ni la
+# contraseña ni el hash se guardan en disco. Si ya vienen definidos en el
+# entorno, se respetan (en ese caso E2E_ADMIN_PASSWORD también debe venir).
+if [[ -z "${ADMIN_PASSWORD_HASH:-}" ]]; then
+  export ADMIN_USERNAME="e2e-admin"
+  E2E_ADMIN_PASSWORD="$(openssl rand -hex 16)"
+  export E2E_ADMIN_PASSWORD
+  if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
+    # La imagen de la API tiene que existir antes de calcular el hash.
+    docker compose build api
+  fi
+  api_image="${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}"
+  ADMIN_PASSWORD_HASH="$(printf '%s' "${E2E_ADMIN_PASSWORD}" | docker run --rm -i "${api_image}" node --input-type=module -e '
+import { hash } from "@node-rs/argon2";
+let pw = ""; for await (const c of process.stdin) pw += c;
+console.log(await hash(pw, { algorithm: 2, memoryCost: 19456, timeCost: 2, parallelism: 1 }));')"
+  if [[ "${ADMIN_PASSWORD_HASH}" != '$argon2id$'* ]]; then
+    echo "run.sh: no se pudo calcular el hash Argon2id del administrador" >&2
+    exit 1
+  fi
+  export ADMIN_PASSWORD_HASH
 fi
 
 cleanup() {

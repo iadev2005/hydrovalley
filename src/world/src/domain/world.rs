@@ -345,6 +345,8 @@ impl World {
     /// orden de admisión, con varias gotas en el mismo tick el fuego se apaga
     /// una sola vez y el bono es de quien soltó la tercera. Con la gota más
     /// grande cuenta como una gota para cada casilla ardiendo que alcanza.
+    /// Si completa la tercera gota de varios fuegos, paga el bono una vez por
+    /// cada fuego apagado (cada uno es una extinción distinta).
     fn drop(&mut self, player_id: &str, x: u32, y: u32) -> CommandOutcome {
         if self.tile_index(x, y).is_none() {
             return CommandOutcome::Rejected(RejectReason::OutOfBounds);

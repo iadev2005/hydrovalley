@@ -58,14 +58,15 @@ export function decideOnClose({ code, current, expiresAt, now }) {
 
 /**
  * Dirección del WebSocket en el mismo origen que la página (nginx la
- * reenvía al hub). La identidad sale solo del token firmado. Sin mapa:
- * esta página no dibuja el valle.
+ * reenvía al hub). La identidad sale solo del token firmado. Con
+ * `map: true` (por defecto) el estado trae el mapa del valle.
  * @param {{protocol: string, host: string}} location
  * @param {string} token
+ * @param {{map?: boolean}} [options]
  */
-export function buildPlayUrl(location, token) {
+export function buildPlayUrl(location, token, { map = true } = {}) {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  const query = new URLSearchParams({ token, map: "false" });
+  const query = new URLSearchParams({ token, map: String(map) });
   return `${scheme}//${location.host}/play?${query.toString()}`;
 }
 
@@ -75,6 +76,11 @@ export function buildPlayUrl(location, token) {
  * @param {{x: number, y: number, actionId: string}} drop
  */
 export function buildDropFrame({ x, y, actionId }) {
+  assertCoordinates(x, y);
+  return JSON.stringify({ type: "drop", action_id: actionId, x, y });
+}
+
+function assertCoordinates(x, y) {
   for (const [name, v] of [
     ["x", x],
     ["y", y],
@@ -83,7 +89,48 @@ export function buildDropFrame({ x, y, actionId }) {
       throw new RangeError(`${name} must be a non-negative integer, got ${v}`);
     }
   }
-  return JSON.stringify({ type: "drop", action_id: actionId, x, y });
+}
+
+/** Instalaciones y mejoras que acepta el hub (play.proto). */
+export const INSTALLATIONS = ["sprinkler", "drip", "treatment_plant"];
+export const UPGRADES = ["bigger_drop", "bigger_tank"];
+
+/**
+ * `PlaceInstallationMessage` en JSON.
+ * @param {{installation: string, x: number, y: number, actionId: string}} command
+ */
+export function buildPlaceInstallationFrame({ installation, x, y, actionId }) {
+  if (!INSTALLATIONS.includes(installation)) {
+    throw new RangeError(`unknown installation ${installation}`);
+  }
+  assertCoordinates(x, y);
+  return JSON.stringify({ type: "place_installation", action_id: actionId, installation, x, y });
+}
+
+/**
+ * `BuyUpgradeMessage` en JSON.
+ * @param {{upgrade: string, actionId: string}} command
+ */
+export function buildBuyUpgradeFrame({ upgrade, actionId }) {
+  if (!UPGRADES.includes(upgrade)) throw new RangeError(`unknown upgrade ${upgrade}`);
+  return JSON.stringify({ type: "buy_upgrade", action_id: actionId, upgrade });
+}
+
+/**
+ * `SetDemoModeMessage` en JSON (solo administrador, RF-31).
+ * @param {{enabled: boolean, actionId: string}} command
+ */
+export function buildSetDemoModeFrame({ enabled, actionId }) {
+  if (typeof enabled !== "boolean") throw new TypeError("enabled must be a boolean");
+  return JSON.stringify({ type: "set_demo_mode", action_id: actionId, enabled });
+}
+
+/**
+ * `ResetValleyMessage` en JSON (solo administrador, RF-31).
+ * @param {{actionId: string}} command
+ */
+export function buildResetValleyFrame({ actionId }) {
+  return JSON.stringify({ type: "reset_valley", action_id: actionId });
 }
 
 /** uint64 de protojson: texto (o número si es pequeño); ausente → 0. */
@@ -127,16 +174,37 @@ export function parseFrame(text) {
       return { type: "error", action_id: str(msg.action_id), code: str(msg.code) };
     case "state": {
       const p = msg.player;
+      const list = (value) => (Array.isArray(value) ? value : []);
       return {
         type: "state",
         tick: toBigInt(msg.tick),
         paused: msg.paused === true,
+        demo_mode: msg.demo_mode === true,
+        width: Number(msg.width) || 0,
+        height: Number(msg.height) || 0,
+        stages: list(msg.stages).map((v) => Number(v) || 0),
+        humidity: list(msg.humidity).map(toBigInt),
+        fires: list(msg.fires).map((f) => ({
+          x: Number(f?.x) || 0,
+          y: Number(f?.y) || 0,
+          drops_received: Number(f?.drops_received) || 0,
+        })),
+        installations: list(msg.installations).map((i) => ({
+          x: Number(i?.x) || 0,
+          y: Number(i?.y) || 0,
+          installation: str(i?.installation),
+          owner_id: str(i?.owner_id),
+        })),
         player:
           p && typeof p === "object"
             ? {
                 water: toBigInt(p.water),
                 tank_capacity: toBigInt(p.tank_capacity),
                 leaves: toBigInt(p.leaves),
+                upgrades: list(p.upgrades).filter((u) => typeof u === "string"),
+                next_sprinkler_price: toBigInt(p.next_sprinkler_price),
+                next_drip_price: toBigInt(p.next_drip_price),
+                next_treatment_plant_price: toBigInt(p.next_treatment_plant_price),
               }
             : null,
       };
