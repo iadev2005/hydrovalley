@@ -5,6 +5,8 @@ import {
   InvalidAccountError,
   UsernameTakenError,
 } from "../../src/account-directory.js";
+import type { RankingSource, Ranking } from "../../src/ranking-source.js";
+import type { Report, ReportQuery, ReportSource, ReportTotals } from "../../src/report-source.js";
 
 interface Stored extends Account {
   username: string;
@@ -61,3 +63,45 @@ export class FakeAccountDirectory implements AccountDirectory {
 
 export const unavailable = () => new DirectoryUnavailableError("persistence unavailable");
 export const invalid = () => new InvalidAccountError("bad account");
+
+/** Ranking en memoria: guarda el `limit` de cada llamada y puede fallar. */
+export class FakeRankingSource implements RankingSource {
+  readonly limits: number[] = [];
+  ranking: Ranking = { tick: 0n, entries: [] };
+  error: Error | undefined;
+
+  getRanking(limit: number) {
+    this.limits.push(limit);
+    if (this.error) return Promise.reject(this.error);
+    return Promise.resolve(this.ranking);
+  }
+}
+
+const ZERO_TOTALS: ReportTotals = {
+  waterReduced: 0n,
+  waterReused: 0n,
+  waterRecycled: 0n,
+  waterRefilled: 0n,
+  waterSpent: 0n,
+  leavesEarned: 0n,
+  leavesSpent: 0n,
+};
+
+/** Reportes en memoria: guarda las consultas y puede fallar. */
+export class FakeReportSource implements ReportSource {
+  readonly queries: ReportQuery[] = [];
+  report: Report = {
+    playerId: "",
+    epoch: 1,
+    fromTick: 0n,
+    toTick: 0n,
+    totals: ZERO_TOTALS,
+  };
+  error: Error | undefined;
+
+  getReport(query: ReportQuery) {
+    this.queries.push(query);
+    if (this.error) return Promise.reject(this.error);
+    return Promise.resolve(this.report);
+  }
+}

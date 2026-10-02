@@ -1,6 +1,6 @@
 # API
 
-Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con token firmado, y atenderá el catálogo, el ranking y los reportes por REST, documentado con Swagger (RES-04). Por ahora expone la salud del proceso, el registro, el acceso y la página de Swagger (ver [Pendiente](#pendiente)).
+Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con token firmado, y atiende el ranking y el reporte de las 3R por REST, documentado con Swagger (RES-04); falta el catálogo. Por ahora expone la salud del proceso, el registro, el acceso, el ranking, el reporte y la página de Swagger (ver [Pendiente](#pendiente)).
 
 ## Por qué Fastify
 
@@ -15,10 +15,15 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | `src/app.ts` | Montaje de la aplicación: rutas y documentación OpenAPI. No escucha: las pruebas la usan con `inject` |
 | `src/config.ts` | Variables de entorno; valida la clave del token al arrancar |
 | `src/auth-routes.ts` | `POST /api/auth/register` y `POST /api/auth/login`, con sus esquemas OpenAPI y la traducción de errores |
+| `src/read-routes.ts` | `GET /api/ranking` y `GET /api/report`: token, límite por IP, esquemas OpenAPI y traducción de errores |
 | `src/account-directory.ts` | Puerto `AccountDirectory` y sus errores; las rutas dependen de él, no de gRPC |
-| `src/grpc-account-directory.ts` | Adaptador gRPC de `AccountService`: plazo de 2 s y reintentos acotados |
+| `src/ranking-source.ts`, `src/report-source.ts`, `src/source-errors.ts` | Puertos `RankingSource` y `ReportSource` y sus errores de dominio (`SourceUnavailableError`, `SourceNotFoundError`, `SourceInvalidRequestError`) |
+| `src/grpc-retry.ts` | Plazo, reintentos y presupuesto compartidos por todos los adaptadores gRPC |
+| `src/grpc-account-directory.ts` | Adaptador gRPC de `AccountService` |
+| `src/grpc-ranking-source.ts` | Adaptador gRPC de `WorldService.GetRanking` (`WORLD_ADDR`) |
+| `src/grpc-report-source.ts` | Adaptador gRPC de `ReportService.GetReport` (`PERSISTENCE_ADDR`) |
 | `src/passwords.ts` | Argon2id (`@node-rs/argon2`) y hash de relleno |
-| `src/tokens.ts` | Firma del JWT EdDSA con `jose` |
+| `src/tokens.ts` | Firma y verificación del JWT EdDSA con `jose` |
 | `src/rate-limit.ts` | Limitador de intentos en memoria (ventana fija) |
 | `src/limits.ts` | Constantes de los límites (acceso, registro, vigencia máxima del token); las usan `main.ts`, OpenAPI y este README |
 | `src/gen/` | Copia local del código generado desde `proto/` (no se versiona; ver [Código generado](#código-generado)) |
@@ -33,6 +38,7 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | --- | --- | --- | --- |
 | `API_LISTEN` | No | `0.0.0.0:3000` | Dirección y puerto del HTTP (`host:puerto`, `:puerto` o `[ipv6]:puerto`) |
 | `PERSISTENCE_ADDR` | Sí | — | `host:puerto` del gRPC de la persistencia (plan B: `persistence:50051`; plan A: `10.68.17.x:50051`). Sin valor por defecto: ninguna dirección va en el código |
+| `WORLD_ADDR` | Sí | — | `host:puerto` del gRPC del simulador, para el ranking (plan B: `world:50051`; plan A: `10.68.17.x:50051`). Sin valor por defecto: ninguna dirección va en el código |
 | `TOKEN_PRIVATE_KEY` | Sí | — | Clave privada Ed25519 en PKCS#8 con la que se firman los tokens. Se admite el PEM tal cual, con los saltos de línea escritos como `\n`, o **el base64 del PEM completo** (una sola línea, a salvo de las comillas de un `.env`). Si falta o no es Ed25519, el arranque se detiene con un mensaje que nombra la variable, sin repetir el valor |
 | `TOKEN_TTL_SECONDS` | No | `43200` (12 h) | Vigencia del token, en segundos: entero positivo de como máximo `604800` (7 días); un valor mayor detiene el arranque |
 | `TOKEN_KEY_ID` | No | — | Se escribe como `kid` en la cabecera del token |
@@ -50,7 +56,7 @@ openssl pkey -in token-private.pem -pubout -out token-public.pem
 base64 < token-private.pem | tr -d '\n'
 ```
 
-`TOKEN_PRIVATE_KEY` recibe la privada (PEM o su base64) y el hub recibe la pública. Ninguna va en el repositorio y la API no expone claves por HTTP.
+`TOKEN_PRIVATE_KEY` recibe la privada (PEM o su base64) y el hub recibe la pública. Ninguna va en el repositorio y la API no expone claves por HTTP. Para verificar el token de `/api/ranking` y `/api/report`, la API **deriva la pública de su propia privada** (`createPublicKey`): no hay otra variable que configurar.
 
 ## Rutas
 
@@ -59,6 +65,8 @@ base64 < token-private.pem | tr -d '\n'
 | `GET /api/health` | `200 {"status": "ok"}` mientras el proceso atiende |
 | `POST /api/auth/register` | `201 {"token", "expires_at", "player_id", "username"}` (ya con sesión, sin pasar por el acceso); `400` datos no válidos; `409` el nombre ya existe; `503` persistencia no disponible |
 | `POST /api/auth/login` | `200 {"token", "expires_at"}` (ISO 8601 en UTC); `400` cuerpo mal formado; `401` usuario o contraseña incorrectos; `429` demasiados intentos; `503` persistencia no disponible |
+| `GET /api/ranking?limit=N` | `200 {"tick", "entries": [{"rank", "player_id", "username", "leaves_earned"}]}`; `400` parámetros no válidos; `401` sin token o inválido; `429` demasiadas consultas; `503` el simulador no está disponible |
+| `GET /api/report?scope=me\|global&from_tick=&to_tick=` | `200 {"scope", "player_id" (solo `me`), "epoch", "from_tick", "to_tick", "totals": {…}}`; `400` parámetros no válidos; `401`; `404` sin instantáneas o sin cuenta; `429`; `503` |
 | `GET /api/docs` | Página de Swagger UI |
 | `GET /api/docs/json` | Documento OpenAPI 3.1 |
 
@@ -80,9 +88,21 @@ Todas cuelgan de `/api` porque nginx reenvía `/api/` sin reescribir la ruta. Lo
 - **Validación:** el registro aplica las reglas de nombre y contraseña; el acceso solo exige usuario (1 a 64 caracteres) y contraseña (1 a 128), a propósito, para que un nombre que nunca pudo registrarse reciba el mismo 401 que uno inexistente.
 - Ni las contraseñas ni los hashes se escriben en el registro ni se devuelven; las respuestas solo llevan los campos declarados en su esquema.
 
-### Llamadas a la persistencia
+### Ranking y reporte
 
-Plazo de 2 s por intento, dentro de un presupuesto total de 3 s por llamada: el plazo de cada intento se recorta a lo que queda y no se empieza una espera que lo agotaría. `GetAccount` y `GetUsernames` (idempotentes) se reintentan hasta 3 veces, con esperas de 100, 200 y 400 ms más hasta un 25 % de azar, solo ante `UNAVAILABLE` o plazo agotado. `ALREADY_EXISTS` → `409`, `INVALID_ARGUMENT` → `400`, `UNAVAILABLE` o plazo agotado → `503`; cualquier otro error → `500` con un mensaje genérico.
+Las dos rutas siguen el documento inicial (`GET /api/ranking`, `GET /api/report`; la tarea hablaba de `/api/reports/me` y `/api/reports/global`, que se resuelven con `scope`). Ambas exigen `Authorization: Bearer <token>` (el mismo del acceso) y comparten un límite por IP.
+
+- **Token:** se verifica con la clave pública derivada de `TOKEN_PRIVATE_KEY`, solo `EdDSA`, y se exigen `iss` (`hydrovalley-api`), `aud` (`hydrovalley-play`), `exp` y los campos `player_id`, `username` y `role`, como hace el hub. Cualquier fallo es `401` con `WWW-Authenticate: Bearer`, sin decir el motivo.
+- **Ranking:** `limit` de 1 a 100 (por defecto 20; cualquier otro valor es `400`). El orden, las posiciones con empate (1, 2, 2, 4) y el tope los decide el simulador (`WorldService.GetRanking`); la API solo completa `username` con **una** llamada a `AccountService.GetUsernames` por petición. Si un nombre no aparece, o la llamada falla, el ranking sale igual: el nombre es `jugador-` y los 8 primeros caracteres del identificador, y el fallo se registra como aviso.
+- **Reporte:** `scope=me` (por defecto) toma el `player_id` del token, no de la petición, así que nadie consulta el reporte de otro jugador; `scope=global` suma a todos. `from_tick` y `to_tick` (enteros sin signo de hasta 64 bits, como texto) son opcionales; `from_tick` mayor que `to_tick` es `400`. Totales: `water_reduced` (Reducir, goteo), `water_reused` (Reutilizar, aspersores), `water_recycled` (Reciclar, planta) y los saldos de RF-27 (`water_refilled`, `water_spent`, `leaves_earned`, `leaves_spent`). Las semánticas (época actual, "en o antes de", cuenta sin filas con ceros) son las de `ReportService` (ver el README de la persistencia); el reporte puede ir hasta 5 s por detrás del valle.
+- **Enteros de 64 bits:** `tick`, `leaves_earned`, `from_tick`, `to_tick` y los totales viajan como **texto** en el JSON (regla 7 de CLAUDE.md); `rank` y `epoch` son números normales.
+- **Errores:** `NOT_FOUND` → `404`, `INVALID_ARGUMENT` → `400`, `UNAVAILABLE` o plazo agotado → `503`; cualquier otro → `500` con un mensaje genérico.
+- **Límite por IP:** 60 consultas por minuto (`READ_LIMIT_PER_IP` en `src/limits.ts`), compartido entre las dos rutas, en memoria y por instancia, con `429` y `Retry-After`. Se comprueba antes que el token, así que una IP sin sesión tampoco puede forzar verificaciones de firma sin tope.
+- Las tres llamadas (`GetRanking`, `GetReport`, `GetUsernames`) son idempotentes y usan la política de abajo.
+
+### Llamadas a los demás servicios
+
+Plazo de 2 s por intento, dentro de un presupuesto total de 3 s por llamada: el plazo de cada intento se recorta a lo que queda y no se empieza una espera que lo agotaría. `GetAccount`, `GetUsernames`, `GetRanking` y `GetReport` (idempotentes) se reintentan hasta 3 veces, con esperas de 100, 200 y 400 ms más hasta un 25 % de azar, solo ante `UNAVAILABLE` o plazo agotado. `ALREADY_EXISTS` → `409`, `INVALID_ARGUMENT` → `400`, `UNAVAILABLE` o plazo agotado → `503`; cualquier otro error → `500` con un mensaje genérico.
 
 ## Código generado
 
@@ -132,4 +152,4 @@ Genera el código de `proto/` con `bufbuild/buf` (necesita acceso a buf.build), 
 
 ## Pendiente
 
-- Catálogo, ranking (`WorldService.GetRanking` y `AccountService.GetUsernames`) y reportes.
+- Catálogo (`GET /api/catalog`).

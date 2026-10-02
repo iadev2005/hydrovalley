@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastif
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { type AuthDeps, authRoutes } from "./auth-routes.js";
+import { type ReadDeps, readRoutes } from "./read-routes.js";
 
 const healthSchema = {
   summary: "Estado del proceso",
@@ -32,6 +33,7 @@ export function trustHops(hops: number): (address: string, hop: number) => boole
 export async function buildApp(
   options: FastifyServerOptions = {},
   auth?: AuthDeps,
+  read?: ReadDeps,
 ): Promise<FastifyInstance> {
   // Sin coerción de tipos: un número no se acepta como nombre de usuario.
   const app = Fastify({
@@ -45,13 +47,28 @@ export async function buildApp(
       info: {
         title: "hydrovalley API",
         description:
-          "Registro, acceso, catálogo, ranking y reportes. Por ahora expone la salud del servicio, el registro y el acceso.",
+          "Registro, acceso, catálogo, ranking y reportes. Por ahora expone la salud del servicio, el registro, el acceso, el ranking y el reporte de las 3R.",
         version: "0.1.0",
       },
       tags: [
         { name: "system", description: "Operación del servicio" },
         { name: "auth", description: "Registro y acceso con token firmado" },
+        { name: "ranking", description: "Ranking global por hojas ganadas" },
+        {
+          name: "reports",
+          description: "Reporte de las 3R, por jugador y global",
+        },
       ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: "http",
+            scheme: "bearer",
+            bearerFormat: "JWT",
+            description: "Token firmado que devuelve el acceso o el registro.",
+          },
+        },
+      },
     },
   });
   await app.register(swaggerUi, { routePrefix: "/api/docs" });
@@ -64,7 +81,11 @@ export async function buildApp(
     await app.register(authRoutes, auth);
   }
 
-  // TODO: catálogo, ranking y reportes.
+  if (read) {
+    await app.register(readRoutes, read);
+  }
+
+  // TODO: catálogo.
 
   return app;
 }
