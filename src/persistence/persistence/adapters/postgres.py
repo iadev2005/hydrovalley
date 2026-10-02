@@ -42,17 +42,22 @@ from persistence.domain import (
     InvalidAccountError,
     ConcurrentSnapshotChangeError,
     InvalidSnapshotError,
+    NoSnapshotError,
+    Report,
+    ReportTotals,
     RepositoryUnavailableError,
     Role,
     SaveOutcome,
     Snapshot,
     SnapshotConflictError,
+    UnknownPlayerError,
 )
 from persistence.migrations import (
     DEFAULT_MIGRATION_TIMEOUT_MS,
     DEFAULT_MIGRATIONS_DIR,
     apply_migrations,
 )
+from persistence.reports import resolve_period
 from persistence.retention import ticks_to_prune
 
 log = logging.getLogger(__name__)
@@ -358,6 +363,7 @@ class PostgresSnapshotRepository:
                     params,
                 ).fetchone()
                 if inserted is not None:
+                    self._insert_players(conn, snapshot)
                     return SaveOutcome.INSERTED
                 existing = conn.execute(
                     "SELECT epoch, world_state_sha256 FROM snapshots WHERE tick = %s",
@@ -374,6 +380,46 @@ class PostgresSnapshotRepository:
             )
 
         return self._call(work)
+
+    @staticmethod
+    def _insert_players(conn: psycopg.Connection, snapshot: Snapshot) -> None:
+        """Inserta las filas de snapshot_players en la transacción del
+        guardado. Omite, con un aviso, a los jugadores sin cuenta (la clave
+        foránea a accounts): no se pierde la instantánea por ellos."""
+        if not snapshot.players:
+            return
+        ids = [player.player_id for player in snapshot.players]
+        known = {
+            row[0] for row in conn.execute("SELECT id FROM accounts WHERE id = ANY(%s)", (ids,))
+        }
+        rows = [p for p in snapshot.players if p.player_id in known]
+        if len(rows) < len(snapshot.players):
+            log.warning(
+                "instantánea %d: %d jugadores sin cuenta omitidos de snapshot_players (%s)",
+                snapshot.tick,
+                len(snapshot.players) - len(rows),
+                ", ".join(str(i) for i in ids if i not in known),
+            )
+        if not rows:
+            return
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO snapshot_players (tick, player_id, water, leaves, water_refilled,"
+                " water_spent, leaves_earned, leaves_spent, water_reduced, water_reused,"
+                " water_recycled) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                [
+                    (
+                        Decimal(snapshot.tick),
+                        p.player_id,
+                        *(Decimal(v) for v in (
+                            p.water, p.leaves, p.water_refilled, p.water_spent,
+                            p.leaves_earned, p.leaves_spent, p.water_reduced, p.water_reused,
+                            p.water_recycled,
+                        )),
+                    )
+                    for p in rows
+                ],
+            )
 
     def load_latest(self) -> Snapshot | None:
         def work(conn: psycopg.Connection) -> Snapshot | None:
@@ -404,6 +450,56 @@ class PostgresSnapshotRepository:
                 ([Decimal(tick) for tick in doomed],),
             )
             return len(doomed)
+
+        return self._call(work)
+
+    # --- Puerto ReportRepository --------------------------------------------
+
+    _TOTALS_SQL = (
+        "SELECT COALESCE(sum(water_reduced), 0), COALESCE(sum(water_reused), 0),"
+        " COALESCE(sum(water_recycled), 0), COALESCE(sum(water_refilled), 0),"
+        " COALESCE(sum(water_spent), 0), COALESCE(sum(leaves_earned), 0),"
+        " COALESCE(sum(leaves_spent), 0) FROM snapshot_players WHERE tick = %s"
+    )
+
+    def report(
+        self, player_id: uuid.UUID | None, from_tick: int | None, to_tick: int | None
+    ) -> Report:
+        def totals_at(conn: psycopg.Connection, tick: int | None) -> ReportTotals:
+            if tick is None:
+                return ReportTotals(0, 0, 0, 0, 0, 0, 0)
+            sql, params = self._TOTALS_SQL, [Decimal(tick)]
+            if player_id is not None:
+                sql, params = sql + " AND player_id = %s", [*params, player_id]
+            return ReportTotals(*(int(value) for value in conn.execute(sql, params).fetchone()))
+
+        def work(conn: psycopg.Connection) -> Report:
+            # Lectura coherente aunque la poda borre filas a la vez.
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            latest = conn.execute(
+                "SELECT epoch FROM snapshots ORDER BY tick DESC LIMIT 1"
+            ).fetchone()
+            if latest is None:
+                raise NoSnapshotError("no hay ninguna instantánea")
+            epoch = latest[0]
+            if player_id is not None and conn.execute(
+                "SELECT 1 FROM accounts WHERE id = %s", (player_id,)
+            ).fetchone() is None:
+                raise UnknownPlayerError("la cuenta no existe")
+            epoch_ticks = [
+                int(row[0])
+                for row in conn.execute(
+                    "SELECT tick FROM snapshots WHERE epoch = %s ORDER BY tick", (epoch,)
+                )
+            ]
+            start, end = resolve_period(epoch_ticks, from_tick, to_tick)
+            return Report(
+                player_id=player_id,
+                epoch=epoch,
+                from_tick=start or 0,
+                to_tick=end,
+                totals=totals_at(conn, end).minus(totals_at(conn, start)),
+            )
 
         return self._call(work)
 

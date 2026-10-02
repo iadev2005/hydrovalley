@@ -1,19 +1,21 @@
 # Persistencia
 
-Servicio en Python que es la única puerta a PostgreSQL (regla 5 de `CLAUDE.md`). Por ahora sirve `PersistenceService` (`SaveSnapshot` y `LoadSnapshot`, Capa 5), `AccountService` (`Register`, `GetAccount` y `GetUsernames`), `CatalogService` (`GetCatalog`) y el servicio estándar de salud `grpc.health.v1.Health`. `ReportService` llegará en otro pull request: todavía no se registra, así que gRPC responde `UNIMPLEMENTED` a sus métodos.
+Servicio en Python que es la única puerta a PostgreSQL (regla 5 de `CLAUDE.md`). Por ahora sirve `PersistenceService` (`SaveSnapshot` y `LoadSnapshot`, Capa 5), `AccountService` (`Register`, `GetAccount` y `GetUsernames`), `CatalogService` (`GetCatalog`), `ReportService` (`GetReport`, RF-12) y el servicio estándar de salud `grpc.health.v1.Health`.
 
 ## Estructura
 
 | Ruta | Qué contiene |
 | --- | --- |
-| `persistence/domain.py` | `Snapshot`, resultados y errores del dominio |
+| `persistence/domain.py` | `Snapshot`, `SnapshotPlayer`, `Report`, resultados y errores del dominio |
 | `persistence/catalog.py` | Catálogo del juego: lectura de `catalog/catalog.json`, validación de cada cifra y `catalog_version` (función pura) |
-| `persistence/ports.py` | Puertos `SnapshotRepository`, `AccountRepository` y `CatalogRepository` |
+| `persistence/ports.py` | Puertos `SnapshotRepository`, `AccountRepository`, `CatalogRepository` y `ReportRepository` |
 | `persistence/retention.py` | Regla de retención (función pura) |
-| `persistence/adapters/postgres.py` | Adaptador de PostgreSQL (psycopg 3) de los tres puertos, con reconexión en segundo plano y siembra del administrador y del catálogo |
+| `persistence/adapters/postgres.py` | Adaptador de PostgreSQL (psycopg 3) de los cuatro puertos, con reconexión en segundo plano y siembra del administrador y del catálogo |
 | `persistence/adapters/memory.py` | Repositorios en memoria para las pruebas |
 | `persistence/servicer.py` | Servidor gRPC de `PersistenceService`: traduce mensajes y errores a códigos de gRPC |
 | `persistence/account_servicer.py` | Servidor gRPC de `AccountService`: validación y traducción de errores |
+| `persistence/reports.py` | Elección de instantáneas de un reporte (función pura) |
+| `persistence/report_servicer.py` | Servidor gRPC de `ReportService`: validación y traducción de errores |
 | `persistence/catalog_servicer.py` | Servidor gRPC de `CatalogService`: traduce las cifras validadas a los mensajes de `catalog.proto` |
 | `persistence/server.py` | Montaje del servidor y del servicio de salud |
 | `migrations/` | Migraciones SQL versionadas (`NNNN_descripcion.sql`) |
@@ -76,13 +78,13 @@ El servicio arranca aunque PostgreSQL no esté (regla 5 de portabilidad): el gRP
 
 ## Comportamiento
 
-- **SaveSnapshot**: `INSERT ... ON CONFLICT (tick) DO NOTHING` en una transacción. Si la fila ya existía, compara `epoch` y `world_state_sha256`: iguales → OK (reintento); distintos → `ALREADY_EXISTS`. Si la fila que choca desaparece antes de leerla (la poda la borró a la vez), se reintenta el `INSERT` una vez; si vuelve a pasar → `ABORTED`. Antes de tocar la base de datos se valida la petición: sin `snapshot`, con `epoch` mayor que 2^31 − 1 (la columna es `INTEGER`), con `catalog_version` de más de 128 caracteres o con el carácter NUL → `INVALID_ARGUMENT`. `catalog_version` vacía también se admite (no se valida contra `catalog_entries`; el simulador envía la versión del catálogo que cargó). `tick` es `uint64` en el contrato y la columna admite todo su rango. Tras insertar una fila nueva, poda la retención en otra transacción; si la poda falla, se registra y el guardado sigue siendo correcto.
+- **SaveSnapshot**: `INSERT ... ON CONFLICT (tick) DO NOTHING` en una transacción, que incluye las filas de `snapshot_players` (ver Reportes). Si la fila ya existía, compara `epoch` y `world_state_sha256`: iguales → OK (reintento); distintos → `ALREADY_EXISTS`. Si la fila que choca desaparece antes de leerla (la poda la borró a la vez), se reintenta el `INSERT` una vez; si vuelve a pasar → `ABORTED`. Antes de tocar la base de datos se valida la petición: sin `snapshot`, con `epoch` mayor que 2^31 − 1 (la columna es `INTEGER`), con `catalog_version` de más de 128 caracteres o con el carácter NUL → `INVALID_ARGUMENT`. `catalog_version` vacía también se admite (no se valida contra `catalog_entries`; el simulador envía la versión del catálogo que cargó). `tick` es `uint64` en el contrato y la columna admite todo su rango. Tras insertar una fila nueva, poda la retención en otra transacción; si la poda falla, se registra y el guardado sigue siendo correcto.
 - **LoadSnapshot**: la instantánea de mayor tick, o `NOT_FOUND` si la tabla está vacía.
 - **Errores**: sin conexión, caída o plazo agotado → `UNAVAILABLE`; datos que el esquema no admite (`DataError`, `IntegrityError` de psycopg) → `INVALID_ARGUMENT`; conflicto de contenido → `ALREADY_EXISTS`; cambio concurrente no resuelto → `ABORTED`; cualquier otro error → `INTERNAL`, que se registra con su traza. Nunca `UNKNOWN`.
 - **Register no es idempotente**: el identificador de la cuenta lo genera el servidor, así que quien llama no debe reintentarlo automáticamente; un reintento tras `UNAVAILABLE` puede devolver `ALREADY_EXISTS` para una cuenta que en realidad sí se creó.
 - **Retención**: todas las instantáneas de la última hora (tick mayor que el último menos 36.000, es decir, 720) y, de las anteriores, la primera de cada hora de tick (`tick // 36.000`).
 - **Migraciones**: cada archivo de `migrations/` es una versión; las aplicadas se anotan en `schema_migrations`. Se aplican al conectar, en una transacción y bajo un cerrojo consultivo, así que repetir el arranque no cambia nada. Esa transacción no usa el `statement_timeout` de 2 s de la conexión del servicio: lleva su propio plazo (`SET LOCAL` de `statement_timeout` y `lock_timeout`, 10 min por defecto) para las sentencias y para esperar el cerrojo.
-- Existen las tablas `snapshots`, `accounts` y `catalog_entries`; `snapshot_players` (y el campo `players` del contrato) llegará con `ReportService`; su `player_id` ya puede referenciar a `accounts`.
+- Existen las tablas `snapshots`, `snapshot_players`, `accounts` y `catalog_entries`.
 
 ## Cuentas (`AccountService`)
 
@@ -107,6 +109,20 @@ Las cifras del juego (D-01) viven en `catalog/catalog.json` (forma y significado
 - **Siembra**: justo después de las migraciones y del administrador, y antes de pasar a `SERVING`, una sola transacción deja `catalog_entries` igual que el archivo: inserta las filas nuevas, actualiza solo las que cambiaron (así `updated_at` marca el último cambio real) y borra las que ya no están. Repetir el arranque no cambia nada. Para aplicar un cambio de cifras hay que reiniciar la persistencia y luego el simulador.
 - **`catalog_version`**: SHA-256, en hexadecimal minúscula, del JSON canónico del catálogo: los tres grupos del archivo con claves ordenadas, sin espacios y solo ASCII. No depende del formato del archivo ni del orden de las filas; cualquier cambio de cifra la cambia. `GetCatalog` la calcula sobre lo que hay en la base, no sobre el archivo, así que coincide con lo que sirve.
 - **GetCatalog**: lee todas las filas, las revalida y las traduce a `Catalog`. Errores: sin conexión o plazo agotado → `UNAVAILABLE` (`base de datos no disponible`); un catálogo guardado que no valida, o cualquier fallo inesperado → `INTERNAL` (`error interno`). Nunca `UNKNOWN`, y el mensaje no cita SQL ni cifras. La salud de `CatalogService` sigue a la de la base de datos, igual que la de los otros servicios.
+
+## Reportes (`ReportService`)
+
+`GetReport` (RF-12) no tiene tabla propia: lee `snapshot_players`, la copia en columnas de los contadores de cada jugador que Rust envía en `Snapshot.players` (diagrama 07). Solo usa las instantáneas de la **época actual**, la de la instantánea de mayor tick: cada reinicio del valle sube la época y pone los contadores a cero. Un reporte puede ir hasta 5 s por detrás del valle.
+
+- **Tabla `snapshot_players`** (`migrations/0004_create_snapshot_players.sql`): clave `(tick, player_id)`; nueve contadores `NUMERIC(20,0)` con `CHECK` del rango u64; clave foránea a `snapshots(tick)` con `ON DELETE CASCADE` (la poda de retención arrastra sus filas) y a `accounts(id)`.
+- **Guardado atómico**: la fila de `snapshots` y todas las de `snapshot_players` van en la misma transacción. Un reintento idéntico (mismo tick, época y `world_state`) responde OK sin insertar filas de jugadores otra vez; un valor fuera de rango deshace toda la instantánea (`INVALID_ARGUMENT`). En `SaveSnapshot`, un `player_id` que no sea un UUID de 36 caracteres, o repetido dentro de la misma instantánea, es `INVALID_ARGUMENT`.
+- **Jugadores sin cuenta**: si una instantánea trae un `player_id` sin fila en `accounts`, esa fila se **omite con un aviso** en el registro (con el identificador) y el resto de la instantánea se guarda. Así un jugador huérfano no hace perder las instantáneas, pero sus contadores no entran en los reportes (ni en el global).
+- **Instantáneas usadas ("en o antes de")**: un tick pedido se resuelve a la instantánea de mayor tick menor o igual a él dentro de la época actual. Sin `to_tick`, la última; sin `from_tick` (o con 0), el inicio de la época, con los contadores a cero. `from_tick` y `to_tick` de la respuesta son los ticks de las instantáneas realmente usadas (`from_tick` = 0: inicio de la época).
+- **Totales**: por jugador, su fila; global, la suma de las filas de todos los jugadores; con periodo, la diferencia entre la instantánea final y la inicial (un jugador que no estaba en la inicial cuenta desde cero; nunca baja de 0). Son los siete contadores de `ReportTotals` (3R y saldos de RF-27).
+- **Errores**: sin ninguna instantánea → `NOT_FOUND`; `player_id` con una cuenta que no existe → `NOT_FOUND`; `player_id` que no es un UUID, `from_tick` mayor que `to_tick`, o un tick anterior a la primera instantánea de la época actual (incluye ticks de épocas anteriores) → `INVALID_ARGUMENT`; sin conexión → `UNAVAILABLE`; cualquier otro → `INTERNAL`. Los detalles son fijos y nunca citan SQL.
+- **Cuenta sin filas**: un jugador cuya cuenta existe pero que aún no está en las instantáneas (se registró y no ha jugado) recibe **ceros**, no `NOT_FOUND`: así la API no tiene que tratar ese caso como un error.
+- **Lectura coherente**: `GetReport` lee en una sola transacción `REPEATABLE READ` de solo lectura, así que una poda concurrente no deja el reporte a medias. Con la retención, un tick muy antiguo puede resolverse a una instantánea anterior a la pedida.
+- `player_id` de la respuesta sale en minúsculas (forma canónica); vacío en el global.
 
 ## Imagen de Docker
 

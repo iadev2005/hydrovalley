@@ -30,7 +30,7 @@ Fuera de alcance: la equivalencia litro ↔ humedad (sigue siendo `[DATO]`; los 
 ## Tareas
 
 - [x] T1 · Rust: `GetRanking`. Evidencia: RED (9 de dominio + 4 de integración); world 231 pruebas; clippy/fmt limpios. Empates por `player_id` y rango 1, 2, 2, 4; tope de 1.000 entradas; jugadores con 0 hojas incluidos.
-- [ ] T2 · Persistencia: `snapshot_players` y `ReportService.GetReport`.
+- [x] T2 · Persistencia: `snapshot_players` y `ReportService.GetReport`. Evidencia: RED (ImportError en la recolección); 218 unit / 259 con PostgreSQL; e2e 9/9. Jugadores sin cuenta se omiten con aviso; "en o antes de" para los ticks del periodo; cuenta sin filas → ceros, sin cuenta → NOT_FOUND (comentario de `report.proto` alineado). Va en el mismo PR que T1.
 - [ ] T3 · API: `/api/ranking` y `/api/reports/*` autenticados.
 - [ ] T4 · Página y e2e.
 
@@ -46,4 +46,4 @@ Fuera de alcance: la equivalencia litro ↔ humedad (sigue siendo `[DATO]`; los 
 
 ## Progreso
 
-- T1 en `feature/ranking-world` (ruta delegada).
+- T1 y T2 en `feature/ranking-world` (ruta delegada), un solo PR: la T1 quedó por debajo del tamaño que pide revisión propia y se revisa junto con la T2.

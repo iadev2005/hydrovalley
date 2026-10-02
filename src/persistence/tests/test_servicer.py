@@ -152,16 +152,6 @@ def test_health_reports_serving_state(running):
     assert check(SERVICE_NAME) == health_pb2.HealthCheckResponse.NOT_SERVING
 
 
-def test_report_service_is_not_registered_yet(running):
-    _, channel, _ = running
-    get_report = channel.unary_unary(
-        "/hydrovalley.persistence.v1.ReportService/GetReport",
-        request_serializer=lambda _: b"",
-        response_deserializer=lambda raw: raw,
-    )
-    assert status_of(lambda: get_report(None, timeout=2)) == grpc.StatusCode.UNIMPLEMENTED
-
-
 # --- Validación y traducción de errores ------------------------------------
 
 
@@ -229,3 +219,50 @@ def test_error_details_are_fixed_and_never_echo_the_exception(stub, repository, 
         with pytest.raises(grpc.RpcError) as error:
             call()
         assert error.value.details() == expected
+
+
+# --- Jugadores de la instantánea (snapshot_players) --------------------------
+
+import uuid  # noqa: E402
+
+PLAYER_A = str(uuid.uuid4())
+PLAYER_B = str(uuid.uuid4())
+
+
+def with_players(message: pb.Snapshot, *players: pb.SnapshotPlayer) -> pb.Snapshot:
+    message.players.extend(players)
+    return message
+
+
+def test_players_are_stored_with_the_snapshot(stub, repository):
+    save(stub, with_players(
+        snapshot_msg(50),
+        pb.SnapshotPlayer(player_id=PLAYER_A.upper(), water_reduced=7, leaves_earned=3),
+    ))
+    (row,) = repository.load_latest().players
+    assert row.player_id == uuid.UUID(PLAYER_A)
+    assert (row.water_reduced, row.leaves_earned) == (7, 3)
+
+
+@pytest.mark.parametrize("bad", ["", "no-uuid", "123"])
+def test_malformed_player_id_in_a_snapshot_is_invalid_argument(stub, repository, bad):
+    message = with_players(snapshot_msg(50), pb.SnapshotPlayer(player_id=bad))
+    assert status_of(lambda: save(stub, message)) == grpc.StatusCode.INVALID_ARGUMENT
+    assert repository.ticks() == []
+
+
+def test_duplicate_player_ids_in_a_snapshot_are_invalid_argument(stub, repository):
+    message = with_players(
+        snapshot_msg(50),
+        pb.SnapshotPlayer(player_id=PLAYER_A),
+        pb.SnapshotPlayer(player_id=PLAYER_A.upper()),
+    )
+    assert status_of(lambda: save(stub, message)) == grpc.StatusCode.INVALID_ARGUMENT
+    assert repository.ticks() == []
+
+
+def test_identical_retry_with_players_is_ok(stub, repository):
+    message = with_players(snapshot_msg(50), pb.SnapshotPlayer(player_id=PLAYER_A))
+    save(stub, message)
+    save(stub, message)
+    assert repository.ticks() == [50]

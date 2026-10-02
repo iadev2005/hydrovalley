@@ -24,15 +24,15 @@ def main() -> int:
         log.error("%s", error)
         return 2
 
-    # Un mismo adaptador de PostgreSQL sirve los tres puertos (instantáneas,
-    # cuentas y catálogo) y siembra el catálogo al conectar.
+    # Un mismo adaptador de PostgreSQL sirve los cuatro puertos (instantáneas,
+    # cuentas, catálogo y reportes) y siembra el catálogo al conectar.
     store = PostgresSnapshotRepository(
         settings.database_url,
         admin_seed=settings.admin_seed,
         catalog=settings.catalog,
     )
     server, port, health = create_server(
-        store, settings.listen, accounts=store, catalog=store
+        store, settings.listen, accounts=store, catalog=store, reports=store
     )
     store.on_ready_change = lambda ready: set_serving(health, ready)
 

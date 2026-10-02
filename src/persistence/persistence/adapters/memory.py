@@ -3,24 +3,52 @@ y AccountRepository."""
 
 import threading
 import uuid
+from dataclasses import replace
 
 from persistence.catalog import Catalog, CatalogEntry
 from persistence.domain import (
     Account,
     AccountAlreadyExistsError,
+    NoSnapshotError,
+    Report,
+    ReportTotals,
     RepositoryUnavailableError,
     Role,
     SaveOutcome,
     Snapshot,
     SnapshotConflictError,
+    SnapshotPlayer,
+    UnknownPlayerError,
 )
+from persistence.reports import resolve_period
 from persistence.retention import ticks_to_prune
 
 
+def _totals_of(players: list[SnapshotPlayer]) -> ReportTotals:
+    return ReportTotals(
+        water_reduced=sum(p.water_reduced for p in players),
+        water_reused=sum(p.water_reused for p in players),
+        water_recycled=sum(p.water_recycled for p in players),
+        water_refilled=sum(p.water_refilled for p in players),
+        water_spent=sum(p.water_spent for p in players),
+        leaves_earned=sum(p.leaves_earned for p in players),
+        leaves_spent=sum(p.leaves_spent for p in players),
+    )
+
+
 class InMemorySnapshotRepository:
-    def __init__(self) -> None:
+    """Doble de pruebas de SnapshotRepository y ReportRepository.
+
+    Con `accounts`, imita las claves foráneas de PostgreSQL: omite las filas
+    de jugadores sin cuenta y rechaza el reporte de una cuenta desconocida.
+    """
+
+    def __init__(self, accounts: "InMemoryAccountRepository | None" = None) -> None:
         self._rows: dict[int, Snapshot] = {}
+        self._accounts = accounts
         self._lock = threading.Lock()
+        # Si existe, report lanza esta excepción.
+        self.report_error: Exception | None = None
         # Interruptores para simular fallos en las pruebas.
         self.available = True
         self.fail_prune = False
@@ -39,7 +67,7 @@ class InMemorySnapshotRepository:
         with self._lock:
             existing = self._rows.get(snapshot.tick)
             if existing is None:
-                self._rows[snapshot.tick] = snapshot
+                self._rows[snapshot.tick] = self._without_unknown_players(snapshot)
                 return SaveOutcome.INSERTED
             same = (
                 existing.epoch == snapshot.epoch
@@ -49,12 +77,51 @@ class InMemorySnapshotRepository:
                 raise SnapshotConflictError(f"tick {snapshot.tick} ya existe con otro contenido")
             return SaveOutcome.ALREADY_STORED
 
+    def _without_unknown_players(self, snapshot: Snapshot) -> Snapshot:
+        if self._accounts is None:
+            return snapshot
+        known = set(self._accounts.get_usernames([p.player_id for p in snapshot.players]))
+        kept = tuple(p for p in snapshot.players if p.player_id in known)
+        return replace(snapshot, players=kept)
+
     def load_latest(self) -> Snapshot | None:
         self._check_available()
         if self.load_error is not None:
             raise self.load_error
         with self._lock:
             return self._rows[max(self._rows)] if self._rows else None
+
+    def report(
+        self, player_id: uuid.UUID | None, from_tick: int | None, to_tick: int | None
+    ) -> Report:
+        self._check_available()
+        if self.report_error is not None:
+            raise self.report_error
+        with self._lock:
+            if not self._rows:
+                raise NoSnapshotError("no hay ninguna instantánea")
+            epoch = self._rows[max(self._rows)].epoch
+            epoch_ticks = sorted(t for t, s in self._rows.items() if s.epoch == epoch)
+            if player_id is not None and self._accounts is not None:
+                if player_id not in self._accounts.get_usernames([player_id]):
+                    raise UnknownPlayerError("la cuenta no existe")
+            start, end = resolve_period(epoch_ticks, from_tick, to_tick)
+
+            def totals_at(tick: int | None) -> ReportTotals:
+                if tick is None:
+                    return _totals_of([])
+                rows = [
+                    p for p in self._rows[tick].players if player_id in (None, p.player_id)
+                ]
+                return _totals_of(rows)
+
+            return Report(
+                player_id=player_id,
+                epoch=epoch,
+                from_tick=start or 0,
+                to_tick=end,
+                totals=totals_at(end).minus(totals_at(start)),
+            )
 
     def prune(self) -> int:
         self._check_available()

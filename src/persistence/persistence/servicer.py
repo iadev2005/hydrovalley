@@ -6,6 +6,7 @@ PostgreSQL: depende solo del puerto SnapshotRepository.
 """
 
 import logging
+import uuid
 
 import grpc
 
@@ -18,6 +19,7 @@ from persistence.domain import (
     SaveOutcome,
     Snapshot,
     SnapshotConflictError,
+    SnapshotPlayer,
 )
 from persistence.ports import SnapshotRepository
 
@@ -42,7 +44,26 @@ def _validate(message: pb.Snapshot) -> str | None:
         return f"catalog_version con más de {MAX_CATALOG_VERSION_LENGTH} caracteres"
     if "\x00" in message.catalog_version:
         return "catalog_version contiene el carácter NUL"
+    seen: set[uuid.UUID] = set()
+    for player in message.players:
+        player_id = parse_uuid(player.player_id)
+        if player_id is None:
+            return "players contiene un player_id que no es un UUID"
+        if player_id in seen:
+            return "players repite un player_id"
+        seen.add(player_id)
     return None
+
+
+def parse_uuid(text: str) -> uuid.UUID | None:
+    """UUID en texto de 36 caracteres (con guiones, en mayúsculas o minúsculas)
+    o None. Rechaza las demás grafías que admite uuid.UUID (llaves, urn:)."""
+    if len(text) != 36:
+        return None
+    try:
+        return uuid.UUID(text)
+    except ValueError:
+        return None
 
 
 def _status_for(error: Exception) -> grpc.StatusCode:
@@ -86,6 +107,21 @@ class PersistenceServicer(pb_grpc.PersistenceServiceServicer):
             epoch=message.epoch,
             catalog_version=message.catalog_version,
             world_state=message.world_state,
+            players=tuple(
+                SnapshotPlayer(
+                    player_id=uuid.UUID(p.player_id),
+                    water=p.water,
+                    leaves=p.leaves,
+                    water_refilled=p.water_refilled,
+                    water_spent=p.water_spent,
+                    leaves_earned=p.leaves_earned,
+                    leaves_spent=p.leaves_spent,
+                    water_reduced=p.water_reduced,
+                    water_reused=p.water_reused,
+                    water_recycled=p.water_recycled,
+                )
+                for p in message.players
+            ),
         )
         # context.abort lanza su propia excepción: se llama fuera del try
         # para que el except genérico no la capture.
