@@ -151,24 +151,31 @@ describe("walking skeleton (CP-01-lite)", () => {
       }
     }, 2000);
 
-    const actionId = randomUUID();
-    session.send({ type: "drop", action_id: actionId, x: 3, y: 4 });
-    const result = await session.first(
-      `the result of ${actionId}`,
-      (f) => f.type === "result" && f.action_id === actionId,
-      10_000,
-    );
-    assert.equal(result.status, "applied", JSON.stringify(result));
-    console.log(`drop ${actionId} -> ${result.status}`);
+    // Tres gotas seguidas: cada una cuesta 1 L de los 20 iniciales (D-01).
+    const actionIds = [randomUUID(), randomUUID(), randomUUID()];
+    for (const actionId of actionIds) {
+      session.send({ type: "drop", action_id: actionId, x: 3, y: 4 });
+    }
+    for (const actionId of actionIds) {
+      const result = await session.first(
+        `the result of ${actionId}`,
+        (f) => f.type === "result" && f.action_id === actionId,
+        10_000,
+      );
+      assert.equal(result.status, "applied", JSON.stringify(result));
+      console.log(`drop ${actionId} -> ${result.status}`);
+    }
 
-    // La gota cuesta 1 L de los 20 iniciales (D-01). Solo cuenta un estado
-    // que llegue después del resultado: los anteriores aún tienen 20 L.
+    // Solo cuenta un estado que llegue después de los resultados. El depósito
+    // se recarga 1 L cada 2 s (catálogo) y el estado se difunde cada segundo,
+    // así que entre las gotas y ese estado cabe como mucho una recarga:
+    // quedan 17 L, o 18 si cayó un tick de recarga.
     const state = await session.waitFor(
       "a state with the player",
       (f) => f.type === "state" && f.player !== undefined,
       5000,
     );
-    assert.equal(state.player.water, "19");
+    assert.ok(["17", "18"].includes(state.player.water), `water ${state.player.water}`);
     assert.equal(state.player.tank_capacity, "20");
     assert.ok(account.player_id, "the API returns the player_id of the token");
   });

@@ -84,6 +84,7 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     let bigger_drop = section(catalog.bigger_drop, "bigger_drop")?;
     let bigger_tank = section(catalog.bigger_tank, "bigger_tank")?;
 
+    positive(drop.demo_humidity, "drop.demo_humidity")?;
     positive(tank.refill_interval_seconds, "tank.refill_interval_seconds")?;
     positive(growth.humidity_per_stage, "growth.humidity_per_stage")?;
     positive(
@@ -104,6 +105,7 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
         drop: dc::DropRules {
             water_cost: drop.water_cost,
             humidity: drop.humidity,
+            demo_humidity: drop.demo_humidity,
         },
         tank: dc::TankRules {
             capacity: tank.capacity,
@@ -676,6 +678,42 @@ mod tests {
     }
 
     #[test]
+    fn the_state_produced_by_the_tick_rules_survives_the_wire() {
+        // dry_ticks, época, modo demo y contadores de RF-27 salen de las
+        // reglas, no de una instantánea armada a mano.
+        let admin = "aaaaaaaa-0000-4000-8000-000000000001";
+        let command = |n: u32, player: &str, kind: CommandKind| Command {
+            action_id: format!("00000000-0000-4000-8000-{n:012}"),
+            player_id: player.to_string(),
+            kind: Some(kind),
+        };
+        let mut world = World::new(Catalog::d01());
+        world.step(&[command(1, admin, CommandKind::ResetValley)]);
+        let growing: Vec<Command> = (10..14)
+            .map(|n| command(n, ANA, CommandKind::Drop { x: 4, y: 4 }))
+            .collect();
+        world.step(&growing); // pasto con humedad 0: empieza a secarse
+        for _ in 0..30 {
+            world.step(&[]);
+        }
+        world.step(&[command(
+            2,
+            admin,
+            CommandKind::SetDemoMode { enabled: true },
+        )]);
+
+        let restored = decode_snapshot(encode_snapshot(&world), Catalog::d01()).unwrap();
+        assert_eq!(restored.parts(), world.parts());
+        let parts = restored.parts();
+        assert_eq!(parts.epoch, 1);
+        assert!(parts.demo_mode);
+        assert_eq!(parts.tiles[4 * 32 + 4].dry_ticks, 31);
+        let ana = parts.players.iter().find(|p| p.player_id == ANA).unwrap();
+        assert_eq!((ana.leaves, ana.leaves_earned), (1, 1));
+        assert_eq!((ana.water_refilled, ana.water_spent), (21, 4));
+    }
+
+    #[test]
     fn decode_rejects_garbage_and_inconsistent_rows() {
         let world = World::new(Catalog::d01());
 
@@ -717,70 +755,81 @@ mod tests {
         ));
     }
 
-    /// El catálogo de D-01 tal como lo entrega `GetCatalog`.
+    /// El catálogo de D-01 tal como lo entrega `GetCatalog`. Se deriva de
+    /// `Catalog::d01`, la única copia de las cifras para las pruebas
+    /// unitarias.
     fn d01_message() -> persistence_pb::Catalog {
         use persistence_pb as p;
+        let c = Catalog::d01();
         p::Catalog {
-            catalog_version: Catalog::D01_VERSION.to_string(),
+            catalog_version: c.version,
             drop: Some(p::DropRules {
-                water_cost: 1,
-                humidity: 25,
+                water_cost: c.drop.water_cost,
+                humidity: c.drop.humidity,
+                demo_humidity: c.drop.demo_humidity,
             }),
             tank: Some(p::TankRules {
-                capacity: 20,
-                refill_amount: 1,
-                refill_interval_seconds: 2,
+                capacity: c.tank.capacity,
+                refill_amount: c.tank.refill_amount,
+                refill_interval_seconds: c.tank.refill_interval_seconds,
             }),
             growth: Some(p::GrowthRules {
-                humidity_per_stage: 100,
-                leaves_grass: 1,
-                leaves_shrub: 2,
-                leaves_flowers: 4,
-                leaves_tree: 8,
-                tree_max_humidity: 100,
+                humidity_per_stage: c.growth.humidity_per_stage,
+                leaves_grass: c.growth.leaves_grass,
+                leaves_shrub: c.growth.leaves_shrub,
+                leaves_flowers: c.growth.leaves_flowers,
+                leaves_tree: c.growth.leaves_tree,
+                tree_max_humidity: c.growth.tree_max_humidity,
             }),
             evaporation: Some(p::EvaporationRules {
-                humidity_per_second: 2,
-                wither_after_ticks: 100,
+                humidity_per_second: c.evaporation.humidity_per_second,
+                wither_after_ticks: c.evaporation.wither_after_ticks,
             }),
             fire: Some(p::FireRules {
-                drops_to_extinguish: 3,
-                extinguish_bonus_leaves: 5,
-                burn_out_ticks: 300,
-                ignition_chance_ppm: 0,
+                drops_to_extinguish: c.fire.drops_to_extinguish,
+                extinguish_bonus_leaves: c.fire.extinguish_bonus_leaves,
+                burn_out_ticks: c.fire.burn_out_ticks,
+                ignition_chance_ppm: c.fire.ignition_chance_ppm,
             }),
             sprinkler: Some(p::SprinklerRules {
-                price: 10,
-                area_side: 3,
-                humidity: 25,
-                interval_seconds: 2,
+                price: c.sprinkler.price,
+                area_side: c.sprinkler.area_side,
+                humidity: c.sprinkler.humidity,
+                interval_seconds: c.sprinkler.interval_seconds,
             }),
             drip: Some(p::DripRules {
-                price: 25,
-                area_side: 5,
-                evaporation_divisor: 2,
+                price: c.drip.price,
+                area_side: c.drip.area_side,
+                evaporation_divisor: c.drip.evaporation_divisor,
             }),
             treatment_plant: Some(p::TreatmentPlantRules {
-                price: 40,
-                refill_amount: 1,
-                interval_seconds: 2,
+                price: c.treatment_plant.price,
+                refill_amount: c.treatment_plant.refill_amount,
+                interval_seconds: c.treatment_plant.interval_seconds,
             }),
-            installation_price_increase_percent: 15,
+            installation_price_increase_percent: c.installation_price_increase_percent,
             bigger_drop: Some(p::BiggerDropRules {
-                price: 30,
-                area_side: 3,
+                price: c.bigger_drop.price,
+                area_side: c.bigger_drop.area_side,
             }),
             bigger_tank: Some(p::BiggerTankRules {
-                price: 20,
-                extra_capacity: 10,
+                price: c.bigger_tank.price,
+                extra_capacity: c.bigger_tank.extra_capacity,
             }),
-            offline_installation_seconds: 7200,
+            offline_installation_seconds: c.offline_installation_seconds,
         }
     }
 
     #[test]
     fn a_catalog_message_becomes_the_domain_catalog() {
         assert_eq!(catalog_from_proto(d01_message()).unwrap(), Catalog::d01());
+    }
+
+    #[test]
+    fn the_demo_humidity_of_the_drop_is_carried_over() {
+        let mut message = d01_message();
+        message.drop.as_mut().unwrap().demo_humidity = 7;
+        assert_eq!(catalog_from_proto(message).unwrap().drop.demo_humidity, 7);
     }
 
     #[test]
@@ -796,7 +845,7 @@ mod tests {
     #[test]
     fn an_incomplete_or_impossible_catalog_is_rejected() {
         type Break = fn(&mut persistence_pb::Catalog);
-        let breaks: [(&str, Break); 16] = [
+        let breaks: [(&str, Break); 17] = [
             ("version", |c| c.catalog_version.clear()),
             ("drop", |c| c.drop = None),
             ("tank", |c| c.tank = None),
@@ -819,6 +868,9 @@ mod tests {
             }),
             ("drip divisor", |c| {
                 c.drip.as_mut().unwrap().evaporation_divisor = 0
+            }),
+            ("demo humidity", |c| {
+                c.drop.as_mut().unwrap().demo_humidity = 0
             }),
             ("refill interval", |c| {
                 c.tank.as_mut().unwrap().refill_interval_seconds = 0

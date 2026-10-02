@@ -29,3 +29,26 @@ pub struct Player {
     /// Aplicados dentro de la ventana, en orden de tick.
     pub recent_actions: Vec<AppliedAction>,
 }
+
+impl Player {
+    /// Jugador recién llegado (o reiniciado): depósito lleno y todo a cero.
+    /// El depósito inicial cuenta como recargado, para que se cumpla
+    /// RF-27: `water = water_refilled - water_spent`.
+    pub fn starting(player_id: &str, tank_capacity: u64) -> Self {
+        Self {
+            player_id: player_id.to_string(),
+            water: tank_capacity,
+            tank_capacity,
+            water_refilled: tank_capacity,
+            ..Self::default()
+        }
+    }
+
+    /// Conserva de `previous` lo que no es estado de juego: el momento de su
+    /// última acción y la ventana de `action_id` aplicados.
+    pub fn keeping_actions_of(mut self, previous: Self) -> Self {
+        self.last_action_tick = previous.last_action_tick;
+        self.recent_actions = previous.recent_actions;
+        self
+    }
+}

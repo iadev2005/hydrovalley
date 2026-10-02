@@ -13,6 +13,7 @@ pub fn catalog() -> p::Catalog {
         drop: Some(p::DropRules {
             water_cost: 1,
             humidity: 25,
+            demo_humidity: 1,
         }),
         tank: Some(p::TankRules {
             capacity: 20,

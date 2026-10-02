@@ -374,7 +374,8 @@ async fn restores_the_latest_snapshot_at_startup() {
         response.boot_id,
         first.step(Vec::new()).await.unwrap().boot_id
     );
-    assert_eq!(response.state.unwrap().tiles[3 * 32 + 3].humidity, 25);
+    // 25 de la gota menos 5 evaporaciones de 2 (ticks 10, 20, 30, 40 y 50).
+    assert_eq!(response.state.unwrap().tiles[3 * 32 + 3].humidity, 15);
 
     let again = second.step(vec![drop_command(1, 3, 3)]).await.unwrap();
     assert_eq!(again.results[0].status(), pb::CommandStatus::Duplicate);
@@ -445,4 +446,59 @@ async fn the_world_is_not_ready_until_the_catalog_is_available() {
     assert_eq!(response.tick, 1);
     assert_eq!(h.persistence.load_calls.load(Ordering::SeqCst), 1);
     h.stop().await;
+}
+
+fn admin_command(n: u32, kind: pb::command::Kind) -> pb::Command {
+    pb::Command {
+        action_id: format!("00000000-0000-4000-8000-{n:012}"),
+        player_id: ANA.to_string(),
+        kind: Some(kind),
+    }
+}
+
+#[tokio::test]
+async fn admin_commands_switch_demo_mode_and_reset_the_valley_refetching_the_catalog() {
+    use pb::command::Kind;
+    let mut h = start(LoadMode::NotFound).await;
+    h.first_step().await;
+    assert_eq!(h.persistence.catalog_calls.load(Ordering::SeqCst), 1);
+
+    let demo = h
+        .step(vec![
+            admin_command(
+                1,
+                Kind::SetDemoMode(pb::SetDemoModeCommand { enabled: true }),
+            ),
+            drop_command(2, 3, 3),
+        ])
+        .await
+        .unwrap();
+    assert!(
+        demo.results
+            .iter()
+            .all(|r| r.status() == pb::CommandStatus::Applied)
+    );
+    let state = demo.state.unwrap();
+    assert!(state.demo_mode);
+    assert_eq!(state.tiles[3 * 32 + 3].humidity, 1);
+    assert_eq!(state.humidity_contributed, 1);
+    assert_eq!(h.persistence.catalog_calls.load(Ordering::SeqCst), 1);
+
+    let reset = h
+        .step(vec![admin_command(
+            3,
+            Kind::ResetValley(pb::ResetValleyCommand {}),
+        )])
+        .await
+        .unwrap();
+    assert_eq!(reset.results[0].status(), pb::CommandStatus::Applied);
+    assert_eq!(reset.tick, demo.tick + 1, "the tick keeps growing");
+    let state = reset.state.unwrap();
+    assert_eq!(state.epoch, 1);
+    assert_eq!(state.tiles[3 * 32 + 3].humidity, 0);
+    assert_eq!(
+        h.persistence.catalog_calls.load(Ordering::SeqCst),
+        2,
+        "the reset asks for the catalog again"
+    );
 }

@@ -1,7 +1,7 @@
 //! Servicio de aplicación: guarda el mundo, decide cuándo está listo y
 //! envía las instantáneas en segundo plano.
 //!
-//! No conoce gRPC más allá del puerto [`SnapshotStore`] (instantáneas y
+//! No conoce gRPC más allá del puerto [`PersistenceStore`] (instantáneas y
 //! catálogo): la capa de red
 //! (`crate::grpc`) traduce las peticiones y llama aquí.
 
@@ -12,8 +12,8 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::codec;
-use crate::domain::{Catalog, Command, StepOutcome, World, is_snapshot_tick};
-use crate::store::SnapshotStore;
+use crate::domain::{Catalog, Command, CommandKind, StepOutcome, World, is_snapshot_tick};
+use crate::store::PersistenceStore;
 
 /// Esperas entre intentos de `GetCatalog` y `LoadSnapshot` al arrancar: 1 s, 2 s, 4 s y
 /// luego 5 s indefinidamente.
@@ -72,11 +72,16 @@ pub struct Simulator<S> {
     saved_tick: Arc<AtomicU64>,
 }
 
+/// Plazo para volver a pedir el catálogo al reiniciar el valle. Es la mitad
+/// del plazo de `Step` (200 ms): si la persistencia no contesta a tiempo, el
+/// reinicio se aplica con el catálogo vigente en vez de hacer fallar el tick.
+const RESET_CATALOG_TIMEOUT: Duration = Duration::from_millis(100);
+
 /// Cada cuánto se comprueba, durante la parada, si terminó el guardado en
 /// curso.
 const SAVE_POLL: Duration = Duration::from_millis(10);
 
-impl<S: SnapshotStore> Simulator<S> {
+impl<S: PersistenceStore> Simulator<S> {
     pub fn new(store: Arc<S>) -> Self {
         Self {
             boot_id: Uuid::new_v4().to_string(),
@@ -177,10 +182,52 @@ impl<S: SnapshotStore> Simulator<S> {
         }
     }
 
+    /// Catálogo fresco para un tick que trae un `ResetValley` (RF-31): el
+    /// reinicio vuelve a pedirlo para que un cambio de cifras en `catalog/`
+    /// surta efecto sin reiniciar Rust. Hace un solo intento, con plazo de
+    /// [`RESET_CATALOG_TIMEOUT`], antes de tomar el bloqueo del mundo: si la
+    /// persistencia falla o tarda, devuelve `None` y el reinicio se aplica con
+    /// el catálogo vigente (se registra el aviso). Sin reinicio (o con el
+    /// mundo sin cargar) no llama a la persistencia.
+    pub async fn catalog_for(&self, commands: &[Command]) -> Option<Catalog> {
+        let resets = commands
+            .iter()
+            .any(|command| matches!(command.kind, Some(CommandKind::ResetValley)));
+        if !resets || !self.is_ready() {
+            return None;
+        }
+        match tokio::time::timeout(RESET_CATALOG_TIMEOUT, self.store.get_catalog()).await {
+            Ok(Ok(catalog)) => {
+                tracing::info!(catalog_version = %catalog.version, "catálogo recargado para el reinicio");
+                Some(catalog)
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "GetCatalog falló al reiniciar: se usa el catálogo vigente");
+                None
+            }
+            Err(_) => {
+                tracing::warn!(timeout = ?RESET_CATALOG_TIMEOUT, "GetCatalog tardó demasiado al reiniciar: se usa el catálogo vigente");
+                None
+            }
+        }
+    }
+
     /// Aplica un tick. `view` lee el mundo resultante con el bloqueo tomado.
     pub fn step<R>(
         &self,
         commands: &[Command],
+        view: impl FnOnce(&World) -> R,
+    ) -> Result<StepReport<R>, NotReady> {
+        self.step_with(commands, None, view)
+    }
+
+    /// Como [`step`](Self::step), pero ofrece `catalog` (lo devuelve
+    /// [`catalog_for`](Self::catalog_for)) al reinicio del tick: el mundo lo
+    /// adopta solo si el `ResetValley` se aplica.
+    pub fn step_with<R>(
+        &self,
+        commands: &[Command],
+        catalog: Option<Catalog>,
         view: impl FnOnce(&World) -> R,
     ) -> Result<StepReport<R>, NotReady> {
         let mut state = self.lock();
@@ -191,7 +238,7 @@ impl<S: SnapshotStore> Simulator<S> {
         else {
             return Err(NotReady);
         };
-        let outcome = world.step(commands);
+        let outcome = world.step_with_reset_catalog(commands, catalog);
         if is_snapshot_tick(outcome.tick) {
             self.schedule_snapshot(world);
         }
@@ -267,7 +314,7 @@ impl<S: SnapshotStore> Simulator<S> {
 }
 
 /// Serializa la copia del mundo, la guarda y, si sale bien, anota su tick.
-async fn save_copy<S: SnapshotStore>(store: &S, saved_tick: &AtomicU64, copy: &World) {
+async fn save_copy<S: PersistenceStore>(store: &S, saved_tick: &AtomicU64, copy: &World) {
     let tick = copy.tick();
     let snapshot = codec::encode_snapshot(copy);
     match store.save(snapshot).await {
@@ -331,7 +378,7 @@ mod tests {
         }
     }
 
-    impl SnapshotStore for FakeStore {
+    impl PersistenceStore for FakeStore {
         async fn get_catalog(&self) -> Result<Catalog, StoreError> {
             self.catalog_calls.fetch_add(1, Ordering::SeqCst);
             self.calls.lock().unwrap().push("catalog");
@@ -712,5 +759,136 @@ mod tests {
             })
             .unwrap();
         assert_eq!(report.view, ("nuevo".to_string(), 40));
+    }
+
+    fn reset_command() -> Command {
+        Command {
+            action_id: "00000000-0000-4000-8000-0000000000aa".to_string(),
+            player_id: ANA.to_string(),
+            kind: Some(CommandKind::ResetValley),
+        }
+    }
+
+    fn version_of(world: &World) -> String {
+        world.catalog_version().to_string()
+    }
+
+    #[tokio::test]
+    async fn a_reset_fetches_the_catalog_again_and_the_world_applies_it() {
+        let mut next = Catalog::d01();
+        next.version = "v2".to_string();
+        let store = FakeStore::default();
+        store
+            .catalogs
+            .lock()
+            .unwrap()
+            .extend([Ok(Catalog::d01()), Ok(next)]);
+        let (simulator, store) = ready(store).await;
+        assert_eq!(store.catalog_calls.load(Ordering::SeqCst), 1);
+
+        let commands = [reset_command()];
+        let fresh = simulator.catalog_for(&commands).await;
+        assert_eq!(store.catalog_calls.load(Ordering::SeqCst), 2);
+        let report = simulator.step_with(&commands, fresh, version_of).unwrap();
+        assert_eq!(report.view, "v2");
+        assert_eq!(report.outcome.results[0].outcome, CommandOutcome::Applied);
+    }
+
+    #[tokio::test]
+    async fn without_a_reset_the_catalog_is_not_fetched() {
+        let (simulator, store) = ready(FakeStore::default()).await;
+        let commands = [Command {
+            action_id: "00000000-0000-4000-8000-000000000001".to_string(),
+            player_id: ANA.to_string(),
+            kind: Some(CommandKind::Drop { x: 1, y: 1 }),
+        }];
+        assert!(simulator.catalog_for(&commands).await.is_none());
+        assert!(simulator.catalog_for(&[]).await.is_none());
+        assert_eq!(store.catalog_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_reset_still_applies_when_the_catalog_cannot_be_fetched() {
+        let store = FakeStore::default();
+        store.catalogs.lock().unwrap().extend([
+            Ok(Catalog::d01()),
+            Err(StoreError::Unavailable("sin persistencia".to_string())),
+        ]);
+        let (simulator, _) = ready(store).await;
+
+        let commands = [reset_command()];
+        let fresh = simulator.catalog_for(&commands).await;
+        assert!(fresh.is_none(), "keeps the current catalog");
+        let report = simulator.step_with(&commands, fresh, version_of).unwrap();
+        assert_eq!(report.view, Catalog::D01_VERSION);
+        assert_eq!(report.outcome.results[0].outcome, CommandOutcome::Applied);
+    }
+
+    /// Persistencia cuyo catálogo nunca responde.
+    struct HangingCatalog;
+
+    impl PersistenceStore for HangingCatalog {
+        async fn get_catalog(&self) -> Result<Catalog, StoreError> {
+            std::future::pending().await
+        }
+        async fn load(&self) -> Result<Option<Snapshot>, StoreError> {
+            Ok(None)
+        }
+        async fn save(&self, _: Snapshot) -> Result<(), StoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_catalog_does_not_hold_the_step_past_its_timeout() {
+        let simulator = Simulator::new(Arc::new(HangingCatalog));
+        *simulator.state.lock().unwrap() = State::Ready {
+            world: Box::new(World::new(Catalog::d01())),
+            restored_tick: 0,
+        };
+        // Con el reloj en pausa, Tokio lo adelanta solo al quedar inactivo:
+        // el tiempo transcurrido es exactamente el plazo.
+        let started = tokio::time::Instant::now();
+        let fresh = simulator.catalog_for(&[reset_command()]).await;
+        assert!(fresh.is_none());
+        assert_eq!(started.elapsed(), RESET_CATALOG_TIMEOUT);
+        assert!(RESET_CATALOG_TIMEOUT < Duration::from_millis(200));
+    }
+
+    #[tokio::test]
+    async fn a_duplicate_or_rejected_reset_does_not_swap_the_catalog() {
+        let mut next = Catalog::d01();
+        next.version = "v2".to_string();
+        let store = FakeStore::default();
+        store
+            .catalogs
+            .lock()
+            .unwrap()
+            .extend([Ok(Catalog::d01()), Ok(next.clone()), Ok(next)]);
+        let (simulator, _) = ready(store).await;
+
+        let applied = [reset_command()];
+        simulator.step(&applied, |_| ()).unwrap();
+
+        let duplicate = simulator.catalog_for(&applied).await;
+        assert!(duplicate.is_some());
+        let report = simulator
+            .step_with(&applied, duplicate, version_of)
+            .unwrap();
+        assert_eq!(report.outcome.results[0].outcome, CommandOutcome::Duplicate);
+        assert_eq!(report.view, Catalog::D01_VERSION);
+
+        let rejected = [Command {
+            action_id: "not-a-uuid".to_string(),
+            ..reset_command()
+        }];
+        let fresh = simulator.catalog_for(&rejected).await;
+        assert!(fresh.is_some());
+        let report = simulator.step_with(&rejected, fresh, version_of).unwrap();
+        assert!(matches!(
+            report.outcome.results[0].outcome,
+            CommandOutcome::Rejected(_)
+        ));
+        assert_eq!(report.view, Catalog::D01_VERSION);
     }
 }

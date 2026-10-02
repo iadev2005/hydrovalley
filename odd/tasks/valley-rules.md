@@ -31,7 +31,7 @@ Fuera de alcance: propagación del fuego, obras comunitarias (nivel 2), React y 
 ## Tareas
 
 - [x] T1 · Catálogo: `catalog/` con las cifras de D-01, siembra en la persistencia, `CatalogService.GetCatalog`, y Rust carga el catálogo al arrancar. Evidencia: RED por módulos inexistentes; persistencia 174 unit / 201 con PostgreSQL; world 59+8+11; e2e 6/6. `catalog_version` = SHA-256 del JSON canónico. Huecos: probabilidad de incendio sin cifra en D-01 (`null`, [DATO]); la humedad de la gota en modo demo no tiene campo en el contrato (pasa a T2).
-- [ ] T2 · Reglas base en Rust: recarga, evaporación, crecimiento y marchitamiento, hojas, modo demo y reinicio del valle.
+- [x] T2 · Reglas base en Rust: recarga, evaporación, crecimiento y marchitamiento, hojas, modo demo y reinicio del valle. Evidencia: RED en cuatro pasos; world 133 pruebas; persistencia 176; `buf breaking` limpio; e2e 6/6. Orden del tick: comandos (el crecimiento se resuelve con cada gota) → recarga cada 20 ticks → evaporación cada 10 ticks → marchitamiento. Las hojas son para quien lleva la casilla al umbral. El reinicio conserva tick, modo demo, `humidity_contributed` y jugadores; sube `epoch`. `demo_humidity` añadida al contrato.
 - [ ] T3 · Instalaciones y mejoras en Rust, y sus comandos en el hub.
 - [ ] T4 · Incendios en Rust con el generador con semilla.
 - [ ] T5 · Página y e2e: ver etapas, hojas e incendios; prueba de extremo a extremo del crecimiento.

@@ -26,7 +26,11 @@ def document() -> dict:
 def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
     catalog = parse_catalog(document)
     values = {entry.key: entry.value for entry in catalog.entries}
-    assert values["drop"] == {"water_cost_liters": 1, "humidity_points": 25}
+    assert values["drop"] == {
+        "water_cost_liters": 1,
+        "humidity_points": 25,
+        "demo_humidity_points": 1,
+    }
     assert values["tank"]["capacity_liters"] == 20
     assert values["growth"]["humidity_per_stage_points"] == 100
     assert values["sprinkler"]["price_leaves"] == 10
@@ -107,6 +111,9 @@ def mutate(document, path, value):
         (("rules", "drop", "humidity_points"), True),  # booleano
         (("rules", "drop", "humidity_points"), "25"),  # texto
         (("rules", "drop", "humidity_points"), None),  # nulo donde no se admite
+        (("rules", "drop", "demo_humidity_points"), 1.5),  # decimal
+        (("rules", "drop", "demo_humidity_points"), -1),  # negativo
+        (("rules", "drop", "demo_humidity_points"), 0),  # la gota demo suma algo
         (("rules", "drop", "humidity_points"), -1),  # negativo
         (("rules", "tank", "refill_interval_seconds"), 2**32),  # no cabe en uint32
         (("rules", "tank", "refill_interval_seconds"), 0),  # intervalo cero

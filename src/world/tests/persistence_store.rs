@@ -1,4 +1,4 @@
-//! Prueba de integración del adaptador `GrpcSnapshotStore` contra una
+//! Prueba de integración del adaptador `GrpcPersistenceStore` contra una
 //! persistencia falsa servida con tonic: reintentos acotados solo ante
 //! UNAVAILABLE o DEADLINE_EXCEEDED y plazo por intento.
 
@@ -20,7 +20,7 @@ use world::proto::persistence::v1::persistence_service_server::{
 mod common;
 
 use world::proto::persistence::v1::catalog_service_server::{CatalogService, CatalogServiceServer};
-use world::store::{CallPolicy, GrpcSnapshotStore, SnapshotStore, StoreError};
+use world::store::{CallPolicy, GrpcPersistenceStore, PersistenceStore, StoreError};
 
 /// Qué hace la persistencia falsa en un intento concreto.
 #[derive(Clone, Copy)]
@@ -108,7 +108,7 @@ impl CatalogService for FakeService {
 }
 
 struct Harness {
-    store: GrpcSnapshotStore,
+    store: GrpcPersistenceStore,
     script: Arc<Script>,
     _stop: oneshot::Sender<()>,
 }
@@ -140,7 +140,7 @@ async fn start(steps: impl IntoIterator<Item = Step>) -> Harness {
             .await
             .unwrap();
     });
-    let store = GrpcSnapshotStore::connect_lazy(&addr.to_string(), policy()).unwrap();
+    let store = GrpcPersistenceStore::connect_lazy(&addr.to_string(), policy()).unwrap();
     Harness {
         store,
         script,

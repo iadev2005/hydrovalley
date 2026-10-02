@@ -10,9 +10,6 @@ pub const VALLEY_HEIGHT: u32 = 32;
 /// Ticks durante los que se recuerda un `action_id` aplicado (Capa 3).
 pub const RECENT_ACTIONS_WINDOW_TICKS: u64 = 600;
 
-/// Humedad que suma una gota en modo demo (D-01: 1, para verificar el total
-/// a ojo).
-///
-/// TODO(catalog): `DropRules` de `catalog.proto` no tiene campo para esta
-/// cifra; cuando lo tenga, pasará al catálogo.
-pub const DEMO_DROP_HUMIDITY: u64 = 1;
+/// Ticks por segundo: el tick dura 100 ms (regla 3 de `CLAUDE.md`). Convierte
+/// las cifras del catálogo expresadas en segundos a ticks sin decimales.
+pub const TICKS_PER_SECOND: u64 = 10;
