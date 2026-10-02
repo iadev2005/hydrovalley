@@ -186,6 +186,13 @@ async fn start_with(persistence: Arc<FakePersistence>) -> Harness {
 }
 
 impl Harness {
+    async fn ranking(&mut self, limit: u32) -> Result<pb::GetRankingResponse, Status> {
+        self.world
+            .get_ranking(pb::GetRankingRequest { limit })
+            .await
+            .map(Response::into_inner)
+    }
+
     async fn step(&mut self, commands: Vec<pb::Command>) -> Result<pb::StepResponse, Status> {
         self.world
             .step(pb::StepRequest { commands })
@@ -502,4 +509,77 @@ async fn admin_commands_switch_demo_mode_and_reset_the_valley_refetching_the_cat
         2,
         "the reset asks for the catalog again"
     );
+}
+
+const BOB: &str = "0a0a0a0a-2d0e-4f4e-9c1e-0c6c2d9b8a02";
+const CARL: &str = "ffffffff-2d0e-4f4e-9c1e-0c6c2d9b8a03";
+
+/// `count` gotas de `player` sobre la casilla `(x, y)`; con 4 gotas de 25
+/// la casilla pasa a pasto y quien la hizo crecer gana 1 hoja.
+fn drops_by(player: &str, first: u32, count: u32, x: u32, y: u32) -> Vec<pb::Command> {
+    (first..first + count)
+        .map(|n| pb::Command {
+            action_id: format!("00000000-0000-4000-8000-{n:012}"),
+            player_id: player.to_string(),
+            kind: Some(pb::command::Kind::Drop(pb::DropCommand { x, y })),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn ranking_is_unavailable_until_the_world_is_loaded() {
+    let mut h = start(LoadMode::Unavailable).await;
+    let status = h.ranking(0).await.unwrap_err();
+    assert_eq!(status.code(), Code::Unavailable);
+}
+
+#[tokio::test]
+async fn ranking_of_an_empty_valley_is_empty_and_carries_the_tick() {
+    let mut h = start(LoadMode::NotFound).await;
+    h.first_step().await;
+    let response = h.ranking(0).await.unwrap();
+    assert_eq!(response.tick, 1);
+    assert!(response.entries.is_empty());
+}
+
+#[tokio::test]
+async fn ranking_orders_by_leaves_earned_with_ties_sharing_the_rank() {
+    let mut h = start(LoadMode::NotFound).await;
+    h.first_step().await;
+    let mut commands = drops_by(ANA, 1, 8, 0, 0); // 4 gotas: pasto (+1 hoja), 8: arbusto (+2)
+    commands.extend(drops_by(BOB, 100, 4, 5, 5)); // 1 hoja
+    commands.extend(drops_by(CARL, 200, 1, 9, 9)); // 0 hojas
+    h.step(commands).await.unwrap();
+
+    let response = h.ranking(0).await.unwrap();
+    assert_eq!(response.tick, 2);
+    let rows: Vec<_> = response
+        .entries
+        .iter()
+        .map(|e| (e.rank, e.player_id.as_str(), e.leaves_earned))
+        .collect();
+    assert_eq!(rows, vec![(1, ANA, 3), (2, BOB, 1), (3, CARL, 0)]);
+}
+
+#[tokio::test]
+async fn ranking_applies_the_limit_and_does_not_mutate_the_world() {
+    let mut h = start(LoadMode::NotFound).await;
+    h.first_step().await;
+    let mut commands = drops_by(ANA, 1, 4, 0, 0);
+    commands.extend(drops_by(BOB, 100, 4, 5, 5));
+    commands.extend(drops_by(CARL, 200, 1, 9, 9));
+    h.step(commands).await.unwrap();
+
+    let top = h.ranking(2).await.unwrap();
+    // Empate ANA/BOB con 1 hoja: ambos primeros; manda el player_id (BOB < ANA).
+    let rows: Vec<_> = top
+        .entries
+        .iter()
+        .map(|e| (e.rank, e.player_id.as_str()))
+        .collect();
+    assert_eq!(rows, vec![(1, BOB), (1, ANA)]);
+
+    // Leer el ranking no avanza el tick.
+    assert_eq!(h.ranking(0).await.unwrap().tick, top.tick);
+    assert_eq!(h.step(Vec::new()).await.unwrap().tick, top.tick + 1);
 }
