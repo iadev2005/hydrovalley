@@ -8,6 +8,7 @@ import { createGrpcRankingSource } from "./grpc-ranking-source.js";
 import { createGrpcReportSource } from "./grpc-report-source.js";
 import { createPasswordService } from "./passwords.js";
 import {
+  ADMIN_LIMIT_PER_ADMIN,
   LIMITER_MAX_KEYS,
   LOGIN_LIMIT_PER_IP,
   LOGIN_LIMIT_PER_USER_IP,
@@ -32,6 +33,16 @@ try {
 const accounts = createGrpcAccountDirectory({
   address: config.persistenceAddr,
 });
+const passwords = await createPasswordService();
+const tokenVerifier = createTokenVerifier({
+  // La pública se deriva de la privada: no hay otra variable que configurar.
+  publicKey: createPublicKey(config.tokenPrivateKey),
+});
+const tokenService = createTokenService({
+  privateKey: config.tokenPrivateKey,
+  ttlSeconds: config.tokenTtlSeconds,
+  keyId: config.tokenKeyId,
+});
 const app = await buildApp(
   {
     logger: { level: config.logLevel },
@@ -40,12 +51,8 @@ const app = await buildApp(
   {
     accounts,
     // Calcula el hash de relleno una sola vez, antes de escuchar.
-    passwords: await createPasswordService(),
-    tokens: createTokenService({
-      privateKey: config.tokenPrivateKey,
-      ttlSeconds: config.tokenTtlSeconds,
-      keyId: config.tokenKeyId,
-    }),
+    passwords,
+    tokens: tokenService,
     // Límites de limits.ts; en memoria y por instancia.
     loginLimiter: limiter(LOGIN_LIMIT_PER_USER_IP),
     loginIpLimiter: limiter(LOGIN_LIMIT_PER_IP),
@@ -55,11 +62,15 @@ const app = await buildApp(
     ranking: createGrpcRankingSource({ address: config.worldAddr }),
     reports: createGrpcReportSource({ address: config.persistenceAddr }),
     accounts,
-    // La pública se deriva de la privada: no hay otra variable que configurar.
-    tokens: createTokenVerifier({
-      publicKey: createPublicKey(config.tokenPrivateKey),
-    }),
+    tokens: tokenVerifier,
     readLimiter: limiter(READ_LIMIT_PER_IP),
+  },
+  {
+    accounts,
+    passwords,
+    tokens: tokenService,
+    verifier: tokenVerifier,
+    adminLimiter: limiter(ADMIN_LIMIT_PER_ADMIN),
   },
 );
 
