@@ -34,7 +34,7 @@ Fuera de alcance: k6 (el bot de carga es el nuestro, en Go), el panel del sistem
 - [x] T2 · Bots: cliente común y escenario de vecinos. Evidencia: RED por compilación; `go test -race` ok (35 funciones); vet/staticcheck/gofmt limpios; `docker build` ok. Prueba real de 30 s con 3 vecinos contra el hub: 21 gotas enviadas, 21 `applied`. Revisión: riesgo medio, aprobada sin hallazgos (commit fb1588a).
 - [x] T3 · Bots: prueba de carga (CP-11) con métricas e informe. Evidencia: RED por compilación (hub y bots); `go test -race` ok en ambos módulos; vet/staticcheck/gofmt limpios; `buf lint` ok. Ejecución real (Mac, despliegue de demostración, no el laboratorio): 30 bots · 60 s, 7.156 enviadas y 7.156 aceptadas, 119,3 gotas/s, mediana 53,2 ms, p95 99,3 ms, humedad aportada 7.156 = gotas aceptadas del hub. RNF-02 se evalúa como fracción de gotas resueltas en < 200 ms (las no resueltas cuentan como lentas).
 - [x] T4 · Bots: tramposo (CP-03) y bombero (CP-04). Evidencia: RED por compilación; `go test -race`, vet, staticcheck y gofmt limpios. Ejecución real del tramposo: 501 enviadas en 10 s, 150 admitidas (15,0/s, máximo 15 en un segundo), 351 `rate_limited`; RF-09 aplicada 1 vez con 2 `duplicate`; RF-06 `invalid_message` y `unknown_type` sin cortar la conexión. Bombero: 120 s con 3 bots (y 40 s sembrando plantas) sin ningún incendio en la ventana; CP-04 solo queda cubierto por las pruebas con mundo simulado. Pendiente: ejercitarlo contra un valle con casillas secas con planta.
-- [ ] T5 · Despliegue: servicio con perfil, CI y e2e corta.
+- [x] T5 · Despliegue: servicio con perfil, CI y e2e corta. Evidencia: RED del alias `load-test`; `go test -race`, vet, staticcheck, gofmt y actionlint limpios; `docker compose config` sin `bots` por defecto y con él bajo `--profile bots`; e2e 13/13 (nuevo caso del tramposo, `Resultado: CUMPLE`). Hallazgo: `ci.yml` aún no publica imágenes en `ghcr.io`, aunque `CLAUDE.md` lo da por hecho; queda como tarea aparte.
 
 ## Criterios de aceptación
 
@@ -48,5 +48,5 @@ Fuera de alcance: k6 (el bot de carga es el nuestro, en Go), el panel del sistem
 
 ## Progreso
 
-- T1 (PR #34) y T2 (PR #35) fusionadas en `dev`. T3 en `feature/bots-load` (ruta delegada: hub, contrato y bots); revisión de riesgo medio aprobada sin hallazgos (PR #36, fusionada). T4 en `feature/bots-cheater-firefighter` (ruta delegada); revisión de riesgo medio aprobada sin hallazgos.
+- T1 (PR #34) y T2 (PR #35) fusionadas en `dev`. T3 en `feature/bots-load` (ruta delegada: hub, contrato y bots); revisión de riesgo medio aprobada sin hallazgos (PR #36, fusionada). T4 fusionada (PR #37), revisión aprobada sin hallazgos. T5 en `feature/bots-deploy` (ruta delegada); al fusionar, añadir `bots` a las comprobaciones obligatorias.
 - Decisión T3: el bot de carga es cliente y no ve `humidity_contributed` ni las gotas aceptadas del hub (solo se registraban en el log). Se añaden ambos al mensaje `state` de `/play` (campos nuevos, aditivos); el panel del sistema también los necesita. El invariante se comprueba por diferencias entre el inicio y el final de la prueba.
