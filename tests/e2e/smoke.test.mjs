@@ -11,6 +11,8 @@
 //   E2E_READY_TIMEOUT_S  espera máxima a que el stack esté listo (180)
 //   ADMIN_USERNAME, E2E_ADMIN_PASSWORD  cuenta de administrador sembrada para
 //                        la prueba (run.sh las genera; ver RF-31)
+// Bots (CP-03): el tramposo corre con la imagen de los bots (`docker compose
+// --profile bots run`) y el administrador efímero; no necesita variables nuevas.
 // La sesión de /play está en play-session.mjs, con pruebas propias que no
 // necesitan el stack (play-session.test.mjs).
 // La consulta a PostgreSQL usa `docker compose exec`, con COMPOSE_PROJECT_NAME,
@@ -462,5 +464,45 @@ describe("administration (RF-31)", () => {
       (f) => f.type === "state" && f.stages?.length === 32 * 32 && f.stages[tileIndex(f, 5, 5)] === 1,
       10_000,
     );
+  });
+});
+
+// Los bots son clientes: entran por nginx desde la red de Compose. El tramposo
+// (CP-03) dura unos segundos y sus criterios no dependen de la velocidad del
+// equipo: el límite de 15 gotas/s lo aplica el hub.
+describe("cheater bot (CP-03)", () => {
+  const adminUsername = process.env.ADMIN_USERNAME;
+  const adminPassword = process.env.E2E_ADMIN_PASSWORD;
+
+  before(async () => {
+    assert.ok(
+      adminUsername && adminPassword,
+      "falta ADMIN_USERNAME o E2E_ADMIN_PASSWORD: tests/e2e/run.sh las genera",
+    );
+    await waitForHealthyStack();
+    await eventually("persistence healthy", 120_000, persistenceHealthy);
+  });
+
+  it("passes its three phases against the stack", { timeout: 120_000 }, async () => {
+    // -T: sin TTY. La contraseña entra por el entorno del proceso, no por
+    // argumentos (no queda en la lista de procesos).
+    const { stdout } = await run(
+      "docker",
+      ["compose", "--profile", "bots", "run", "--rm", "-T", "bots", "cheater"],
+      {
+        env: {
+          ...process.env,
+          HV_ADMIN_USERNAME: adminUsername,
+          HV_ADMIN_PASSWORD: adminPassword,
+          BOTS_DURATION: "5s",
+        },
+        timeout: 100_000,
+      },
+    );
+    // execFile rechaza con código distinto de 0: llegar aquí ya es éxito. El
+    // resumen se comprueba con la línea completa, porque «NO CUMPLE» también
+    // contiene «CUMPLE».
+    assert.match(stdout, /^Resultado: CUMPLE$/m, stdout);
+    console.log(stdout.split("\n").filter((l) => /CP-03|Resultado/.test(l)).join("\n"));
   });
 });

@@ -2,7 +2,7 @@
 
 Jugadores simulados en Go. Un bot **se hace pasar por un jugador**: entra por el proxy (`/api/*` y `/play`), como cualquier navegador, y nunca llama por gRPC a los servicios internos. Por eso lo que aguantan los bots lo aguanta el sistema de verdad. Contexto: sección «Los bots» de `docs/documento-inicial.md`.
 
-Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos), `load` (prueba de carga, CP-11), `cheater` (tramposo, CP-03) y `firefighter` (bomberos, CP-04). Falta su servicio en Compose y el CI (`odd/tasks/bots.md`).
+Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos), `load` (prueba de carga, CP-11), `cheater` (tramposo, CP-03) y `firefighter` (bomberos, CP-04). Están en `deploy/compose.yml` (perfil `bots`, ver `deploy/README.md`), con su job de CI y un caso de extremo a extremo.
 
 ## Estructura
 
@@ -121,4 +121,4 @@ docker build -f src/bots/Dockerfile -t hydrovalley-bots .
 docker run --rm -e HV_BASE_URL=http://host:8080 -e HV_ADMIN_USERNAME=admin -e HV_ADMIN_PASSWORD=... hydrovalley-bots neighbors
 ```
 
-Binario estático en `golang:1.26` sobre `gcr.io/distroless/static-debian13:nonroot`. Aún no está en `deploy/compose.yml` ni en el CI (tarea T5).
+Binario estático en `golang:1.26` sobre `gcr.io/distroless/static-debian13:nonroot`. En Compose es el servicio `bots`, bajo el perfil del mismo nombre: `docker compose -f deploy/compose.yml --profile bots run --rm bots load-test` (`load-test` es alias de `load`).

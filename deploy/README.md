@@ -68,9 +68,34 @@ ADMIN_PASSWORD_HASH=
 
 # Vigencia del token en segundos (opcional; 43200 = 12 h, máximo 604800).
 # TOKEN_TTL_SECONDS=43200
+
+# Bots (opcionales; solo con el perfil «bots», ver «Bots»). La contraseña va
+# en claro y es la del administrador de ADMIN_USERNAME, no su hash.
+# HV_ADMIN_USERNAME=
+# HV_ADMIN_PASSWORD=
+# BOTS_COUNT=
+# BOTS_DURATION=
+# BOTS_SEED=
+# BOTS_RESET=
+# BOTS_REPORT_PATH=
 ```
 
 `tests/e2e/run.sh` no lee estas claves de `.env.example`: genera un par efímero en cada ejecución.
+
+## Bots
+
+El servicio `bots` (`src/bots/`) está en `compose.yml` bajo el perfil `bots`: `up` no lo arranca. Corre, imprime su resumen y termina; habla solo con nginx dentro de la red de Compose (`HV_BASE_URL=http://nginx:8080`), como cualquier jugador. Necesita un administrador (RF-31) para crear sus cuentas: `HV_ADMIN_USERNAME` es el `ADMIN_USERNAME` sembrado y `HV_ADMIN_PASSWORD` su contraseña en claro (no el hash). El stack tiene que estar levantado.
+
+```
+docker compose -f deploy/compose.yml --profile bots run --rm bots neighbors     # vecinos (hasta Ctrl-C si BOTS_DURATION=0)
+docker compose -f deploy/compose.yml --profile bots run --rm bots load-test     # CP-11: 30 bots, 60 s (también `load`)
+docker compose -f deploy/compose.yml --profile bots run --rm bots cheater       # CP-03: un tramposo, 10 s de inundación
+docker compose -f deploy/compose.yml --profile bots run --rm bots firefighter   # CP-04: 3 bomberos, 120 s
+```
+
+Las variables (`HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD`, `BOTS_COUNT`, `BOTS_DURATION`, `BOTS_SEED`, `BOTS_RESET`, `BOTS_REPORT_PATH`) salen de `deploy/.env` o del entorno del comando; vacías, cada escenario usa su valor por defecto (ver `src/bots/README.md`). Sin las del administrador el binario se detiene con un mensaje que las nombra. Salida: 0 si el escenario cumple, 1 si no. `load-test`, `cheater` y `firefighter` imprimen `Resultado: CUMPLE` o `Resultado: NO CUMPLE`.
+
+El informe JSON (`BOTS_REPORT_PATH`) se escribe dentro del contenedor, que no tiene carpeta compartida (regla 3) y se borra con `--rm`: para conservarlo, quitar `--rm` y copiarlo con `docker cp`, o dejarse con el resumen por la salida estándar.
 
 ## Proxy (nginx)
 
@@ -94,4 +119,4 @@ Los destinos se resuelven en cada petición con el DNS de Docker (`NGINX_RESOLVE
 tests/e2e/run.sh
 ```
 
-Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots` y lo baja todo con `down -v`.
+Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`.
