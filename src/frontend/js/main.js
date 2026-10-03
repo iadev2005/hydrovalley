@@ -160,22 +160,29 @@ async function refreshReadPanels() {
   }
   const run = refreshRun;
   const fetchFn = window.fetch.bind(window);
-  const [ranking, report] = await Promise.all([
-    loadRanking(fetchFn, session.token, session.username),
-    loadReport(fetchFn, session.token, reportScope),
-  ]);
-  if (run !== refreshRun) return; // salió, entró otra sesión o cambió de pestaña
-  const failed = [ranking, report].find((r) => !r.ok && r.error.kind === "session");
-  if (failed) {
-    disconnect();
-    clearSession(window.localStorage);
-    stopRefresh();
-    showAccessPanel(failed.error.message);
-    return;
+  let wait = 0;
+  try {
+    const [ranking, report] = await Promise.all([
+      loadRanking(fetchFn, session.token, session.username),
+      loadReport(fetchFn, session.token, reportScope),
+    ]);
+    if (run !== refreshRun) return; // salió, entró otra sesión o cambió de pestaña
+    const failed = [ranking, report].find((r) => !r.ok && r.error.kind === "session");
+    if (failed) {
+      disconnect();
+      clearSession(window.localStorage);
+      stopRefresh();
+      showAccessPanel(failed.error.message);
+      return;
+    }
+    renderRanking(ranking);
+    renderReport(report);
+    wait = Math.max(0, ...[ranking, report].map((r) => (r.ok ? 0 : r.error.waitMs)));
+  } catch (error) {
+    // Un fallo inesperado no debe detener el refresco para el resto de la sesión.
+    console.error("no se pudieron actualizar el ranking y el reporte", error);
   }
-  renderRanking(ranking);
-  renderReport(report);
-  const wait = Math.max(0, ...[ranking, report].map((r) => (r.ok ? 0 : r.error.waitMs)));
+  if (run !== refreshRun) return;
   refreshTimer = setTimeout(refreshReadPanels, Math.max(REFRESH_MS, wait));
 }
 
