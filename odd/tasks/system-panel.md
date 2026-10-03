@@ -30,7 +30,7 @@ Fuera de alcance: Prometheus y Grafana (nivel 2), históricos y gráficos.
 
 ## Tareas
 
-- [ ] T1 · Hub: métricas y `GET /stats`.
+- [x] T1 · Hub: métricas y `GET /stats`. Evidencia: RED por compilación y `/stats = 404`; `go test -race`, vet, staticcheck y gofmt limpios. Real (despliegue de demostración, 5 vecinos): `sessions` 6, `goroutines` 25, 1,1 acciones/s, latencia p50 77,8 ms y p95 107,3 ms, `Step` p95 2,57 ms, sin fallos. Ventanas: acciones y latencia, 10 s; `Step`, últimas 600 llamadas.
 - [ ] T2 · API: `GET /api/system` (agregador con estado por servicio).
 - [ ] T3 · Página del panel y e2e.
 
