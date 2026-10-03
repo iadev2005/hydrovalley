@@ -32,7 +32,7 @@ Fuera de alcance: la equivalencia litro ↔ humedad (sigue siendo `[DATO]`; los 
 - [x] T1 · Rust: `GetRanking`. Evidencia: RED (9 de dominio + 4 de integración); world 231 pruebas; clippy/fmt limpios. Empates por `player_id` y rango 1, 2, 2, 4; tope de 1.000 entradas; jugadores con 0 hojas incluidos.
 - [x] T2 · Persistencia: `snapshot_players` y `ReportService.GetReport`. Evidencia: RED (ImportError en la recolección); 218 unit / 259 con PostgreSQL; e2e 9/9. Jugadores sin cuenta se omiten con aviso; "en o antes de" para los ticks del periodo; cuenta sin filas → ceros, sin cuenta → NOT_FOUND (comentario de `report.proto` alineado). Va en el mismo PR que T1.
 - [x] T3 · API: `/api/ranking` y `/api/report?scope=me|global` autenticados. Evidencia: RED (15 pruebas en 4 archivos); `npm test` 194; lint/typecheck/build ok; e2e verde. Clave pública derivada de la privada; ranking con nombre de respaldo si `GetUsernames` falla; límite de 60/min por IP; `WORLD_ADDR` en el `compose.yml`.
-- [ ] T4 · Página y e2e.
+- [x] T4 · Página y e2e. Evidencia: ver Progreso (pruebas del frontend y e2e dos veces). Pendiente: comprobar el dibujo en un navegador.
 
 ## Criterios de aceptación
 

@@ -28,6 +28,7 @@ import {
   parseFrame,
   UPGRADES,
 } from "./play.js";
+import { loadRanking, loadReport, REFRESH_MS } from "./reports.js";
 import {
   buildTiles,
   createPendingActions,
@@ -90,6 +91,108 @@ function showSession(session) {
   $("session-panel").hidden = false;
   $("session-user").textContent = session.username;
   showError("");
+}
+
+// Ranking y reporte: se refrescan cada 10 s mientras hay sesión y a petición.
+let reportScope = "me";
+let refreshTimer = null;
+let refreshRun = 0; // invalida las respuestas de una sesión o pestaña anterior
+
+function fillRows(tbody, rows) {
+  tbody.replaceChildren(...rows);
+}
+
+function cell(tag, text) {
+  const el = document.createElement(tag);
+  el.textContent = text;
+  return el;
+}
+
+function stopRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = null;
+  refreshRun += 1;
+  $("ranking-panel").hidden = true;
+  $("report-panel").hidden = true;
+  fillRows($("ranking-body"), []);
+  fillRows($("report-rows"), []);
+}
+
+function renderRanking(result) {
+  $("ranking-status").textContent = result.ok ? `Tick ${result.view.tick}` : result.error.message;
+  if (!result.ok) return;
+  fillRows(
+    $("ranking-body"),
+    result.view.rows.map((row) => {
+      const tr = document.createElement("tr");
+      if (row.isMe) tr.className = "me";
+      tr.append(cell("td", String(row.rank)), cell("td", row.username), cell("td", row.leaves));
+      return tr;
+    }),
+  );
+}
+
+function renderReport(result) {
+  $("report-status").textContent = result.ok ? "" : result.error.message;
+  if (!result.ok) {
+    fillRows($("report-rows"), []);
+    $("report-period").textContent = "";
+    return;
+  }
+  $("report-period").textContent = result.view.period;
+  $("report-note").textContent = result.view.note;
+  fillRows(
+    $("report-rows"),
+    result.view.rows.map((row) => {
+      const tr = document.createElement("tr");
+      tr.append(cell("th", row.label), cell("td", row.value));
+      return tr;
+    }),
+  );
+}
+
+async function refreshReadPanels() {
+  clearTimeout(refreshTimer);
+  const session = loadSession(window.localStorage, Date.now());
+  if (!session) {
+    stopRefresh();
+    return;
+  }
+  const run = refreshRun;
+  const fetchFn = window.fetch.bind(window);
+  const [ranking, report] = await Promise.all([
+    loadRanking(fetchFn, session.token, session.username),
+    loadReport(fetchFn, session.token, reportScope),
+  ]);
+  if (run !== refreshRun) return; // salió, entró otra sesión o cambió de pestaña
+  const failed = [ranking, report].find((r) => !r.ok && r.error.kind === "session");
+  if (failed) {
+    disconnect();
+    clearSession(window.localStorage);
+    stopRefresh();
+    showAccessPanel(failed.error.message);
+    return;
+  }
+  renderRanking(ranking);
+  renderReport(report);
+  const wait = Math.max(0, ...[ranking, report].map((r) => (r.ok ? 0 : r.error.waitMs)));
+  refreshTimer = setTimeout(refreshReadPanels, Math.max(REFRESH_MS, wait));
+}
+
+function startRefresh() {
+  stopRefresh();
+  $("ranking-panel").hidden = false;
+  $("report-panel").hidden = false;
+  refreshReadPanels();
+}
+
+function selectReportTab(scope) {
+  if (scope === reportScope) return;
+  reportScope = scope;
+  $("tab-me").setAttribute("aria-selected", String(scope === "me"));
+  $("tab-global").setAttribute("aria-selected", String(scope === "global"));
+  refreshRun += 1; // descarta la respuesta de la pestaña anterior
+  refreshReadPanels();
 }
 
 /** Cierra la conexión sin que se reintente. */
@@ -255,6 +358,7 @@ function connect(session) {
       // Token inválido o sesión vencida: no se reintenta, hay que volver a entrar.
       socket = null;
       clearSession(window.localStorage);
+      stopRefresh();
       $("conn").textContent = "desconectado";
       showAccessPanel("la sesión caducó, vuelve a entrar");
       return;
@@ -273,6 +377,7 @@ function start(session) {
   pending = createPendingActions();
   backoff = createReconnectBackoff();
   connect(session);
+  startRefresh();
 }
 
 let accessTimer = null;
@@ -314,6 +419,7 @@ $("auth-form").addEventListener("submit", (event) => {
 });
 $("register").addEventListener("click", () => submitAccess(register));
 $("logout").addEventListener("click", () => {
+  stopRefresh();
   disconnect();
   clearSession(window.localStorage);
   admin = false;
@@ -323,6 +429,13 @@ $("logout").addEventListener("click", () => {
   renderState();
   showAccessPanel();
 });
+
+$("refresh").addEventListener("click", () => {
+  refreshRun += 1;
+  refreshReadPanels();
+});
+$("tab-me").addEventListener("click", () => selectReportTab("me"));
+$("tab-global").addEventListener("click", () => selectReportTab("global"));
 
 $("valley").addEventListener("click", (event) => {
   const rect = $("valley").getBoundingClientRect();
@@ -375,6 +488,7 @@ if (saved) {
   showSession(saved);
   setSessionRole(saved);
   connect(saved);
+  startRefresh();
 } else {
   showAccessPanel();
 }

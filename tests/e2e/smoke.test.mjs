@@ -280,6 +280,13 @@ async function dropAndWait(player, x, y) {
   assert.equal(result.status, "applied", JSON.stringify(result));
 }
 
+// Jugador que hizo crecer una casilla en la prueba de crecimiento; las pruebas
+// de ranking y reportes lo reutilizan para no gastar más registros (límite de
+// 5 por 10 minutos por IP).
+let grownAccount;
+// Tick del estado más reciente visto tras las gotas del crecimiento.
+let dropsTick = 0n;
+
 describe("growth end to end (RF-04, RF-05)", () => {
   let player;
 
@@ -288,6 +295,7 @@ describe("growth end to end (RF-04, RF-05)", () => {
 
   it("grows a tile and pays leaves after four drops on it", async () => {
     const account = await registerPlayer();
+    grownAccount = account;
     player = await openReadySession(account.token, { map: true });
     const x = 25;
     const y = 6;
@@ -311,7 +319,64 @@ describe("growth end to end (RF-04, RF-05)", () => {
         BigInt(f.player?.leaves ?? "0") >= 1n,
       10_000,
     );
+    dropsTick = BigInt(grown.tick);
     console.log(`tile (${x}, ${y}) stage ${grown.stages[tileIndex(grown, x, y)]}, leaves ${grown.player.leaves}`);
+  });
+});
+
+// RF-10, RF-11 y RF-12. Va antes de la administración: reiniciar el valle
+// abre una época nueva y pone los contadores a cero.
+describe("ranking and reports (RF-10, RF-11, RF-12)", () => {
+  before(waitForHealthyStack);
+
+  const get = (path, token) =>
+    fetch(`${BASE_URL}${path}`, token ? { headers: { authorization: `Bearer ${token}` } } : {});
+
+  it("answers 401 without a token or with a bad one", async () => {
+    assert.equal((await get("/api/ranking")).status, 401);
+    assert.equal((await get("/api/report?scope=me")).status, 401);
+    assert.equal((await get("/api/ranking", "not.a.token")).status, 401);
+  });
+
+  it("lists the player who earned leaves with their username", async () => {
+    assert.ok(grownAccount, "needs the account of the growth test");
+    // El ranking sale del simulador en vivo, sin esperar a la instantánea.
+    const entry = await eventually("the player in the ranking", 15_000, async () => {
+      const res = await get("/api/ranking?limit=10", grownAccount.token);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(typeof body.tick, "string");
+      const found = body.entries.find((e) => e.player_id === grownAccount.player_id);
+      return found && BigInt(found.leaves_earned) >= 1n ? found : undefined;
+    });
+    assert.equal(entry.username, grownAccount.username);
+    assert.ok(entry.rank >= 1);
+  });
+
+  it("reports the drops spent for the player and the valley once the snapshot lands", async () => {
+    assert.ok(dropsTick > 0n, "needs the tick of the growth test");
+    // El reporte sale de las instantáneas (cada 50 ticks): se espera a la
+    // primera que se toma después de las gotas.
+    const me = await eventually("a report snapshot after the drops", 30_000, async () => {
+      const res = await get("/api/report?scope=me", grownAccount.token);
+      if (res.status === 404) return undefined;
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      return BigInt(body.to_tick) > dropsTick ? body : undefined;
+    });
+    assert.equal(me.scope, "me");
+    assert.equal(me.player_id, grownAccount.player_id);
+    assert.ok(BigInt(me.totals.water_spent) >= 6n, JSON.stringify(me.totals));
+    assert.ok(BigInt(me.totals.leaves_earned) >= 1n, JSON.stringify(me.totals));
+
+    const res = await get("/api/report?scope=global", grownAccount.token);
+    assert.equal(res.status, 200);
+    const global = await res.json();
+    assert.equal(global.scope, "global");
+    assert.equal(global.epoch, me.epoch);
+    for (const key of Object.keys(me.totals)) {
+      assert.ok(BigInt(global.totals[key]) >= BigInt(me.totals[key]), `${key}: ${JSON.stringify(global.totals)}`);
+    }
   });
 });
 

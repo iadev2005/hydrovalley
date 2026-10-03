@@ -71,6 +71,28 @@
           <li>A aspersor · G goteo · P planta</li>
         </ul>
       </section>
+      <section id="ranking-panel" aria-labelledby="ranking-title" hidden>
+        <h2 id="ranking-title">Ranking</h2>
+        <p class="meta">Los diez que más hojas han ganado. <button id="refresh" type="button">Actualizar</button></p>
+        <table id="ranking-table">
+          <thead><tr><th scope="col">Puesto</th><th scope="col">Jugador</th><th scope="col">Hojas ganadas</th></tr></thead>
+          <tbody id="ranking-body"></tbody>
+        </table>
+        <p class="meta" id="ranking-status" role="status"></p>
+      </section>
+      <section id="report-panel" aria-labelledby="report-title" hidden>
+        <h2 id="report-title">Reporte de las 3R</h2>
+        <div role="tablist" aria-label="Alcance del reporte">
+          <button id="tab-me" type="button" role="tab" aria-selected="true" aria-controls="report-body">Mis 3R</button>
+          <button id="tab-global" type="button" role="tab" aria-selected="false" aria-controls="report-body">Valle</button>
+        </div>
+        <p class="meta" id="report-period"></p>
+        <table id="report-body" role="tabpanel">
+          <tbody id="report-rows"></tbody>
+        </table>
+        <p class="meta" id="report-note"></p>
+        <p class="meta" id="report-status" role="status"></p>
+      </section>
       <h2>Registro</h2>
       <ol id="log" reversed></ol>
     </main>
