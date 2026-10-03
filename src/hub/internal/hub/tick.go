@@ -291,10 +291,11 @@ func (h *Hub) maybeBroadcastLocked() {
 
 // broadcastLocked difunde el estado a todas las conexiones (RF-03). El
 // mapa se calcula una vez y cada conexión recibe la vista de su jugador. La
-// cuenta de gotas aceptadas no tiene campo en StateMessage: se registra.
+// cuenta de gotas aceptadas y la humedad aportada van en el mensaje y,
+// cuando la cuenta cambia, también se registran.
 func (h *Hub) broadcastLocked() {
 	h.lastBroadcast = h.clock.Now()
-	builder := frames.NewStateBuilder(h.tick, h.paused, h.latestWorld)
+	builder := frames.NewStateBuilder(h.tick, h.paused, h.latestWorld, h.acceptedDrops)
 	for _, p := range h.players {
 		for s := range p.sessions {
 			s.Send(builder.For(s.playerID, s.withMap))

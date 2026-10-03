@@ -10,9 +10,10 @@ import (
 // vista de su jugador. Los mensajes comparten las listas del mapa, así que
 // quien los recibe no debe modificarlas.
 type StateBuilder struct {
-	tick   uint64
-	paused bool
-	world  *worldv1.WorldState
+	tick          uint64
+	paused        bool
+	world         *worldv1.WorldState
+	acceptedDrops uint64
 
 	stages        []uint32
 	humidity      []uint64
@@ -21,10 +22,11 @@ type StateBuilder struct {
 	players       map[string]*worldv1.PlayerState
 }
 
-// NewStateBuilder prepara el estado del tick `tick`. world puede ser nil
-// (todavía no hubo ningún Step correcto): entonces solo van tick y paused.
-func NewStateBuilder(tick uint64, paused bool, world *worldv1.WorldState) *StateBuilder {
-	b := &StateBuilder{tick: tick, paused: paused, world: world}
+// NewStateBuilder prepara el estado del tick `tick`. acceptedDrops es la
+// cuenta de gotas aceptadas del hub. world puede ser nil (todavía no hubo
+// ningún Step correcto): entonces solo van tick, paused y acceptedDrops.
+func NewStateBuilder(tick uint64, paused bool, world *worldv1.WorldState, acceptedDrops uint64) *StateBuilder {
+	b := &StateBuilder{tick: tick, paused: paused, world: world, acceptedDrops: acceptedDrops}
 	if world == nil {
 		return b
 	}
@@ -58,11 +60,12 @@ func NewStateBuilder(tick uint64, paused bool, world *worldv1.WorldState) *State
 // For arma el StateMessage para `playerID`; withMap = false omite los
 // campos del mapa (map=false en /play).
 func (b *StateBuilder) For(playerID string, withMap bool) *playv1.StateMessage {
-	msg := &playv1.StateMessage{Type: TypeState, Tick: b.tick, Paused: b.paused}
+	msg := &playv1.StateMessage{Type: TypeState, Tick: b.tick, Paused: b.paused, AcceptedDrops: b.acceptedDrops}
 	if b.world == nil {
 		return msg
 	}
 	msg.DemoMode = b.world.GetDemoMode()
+	msg.HumidityContributed = b.world.GetHumidityContributed()
 	msg.Width = b.world.GetWidth()
 	msg.Height = b.world.GetHeight()
 	if withMap {

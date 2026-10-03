@@ -133,6 +133,10 @@ type State struct {
 	Fires         []Fire         `json:"fires"`
 	Installations []Installation `json:"installations"`
 	Player        *Player        `json:"player"`
+	// HumidityContributed y AcceptedDrops son los contadores del modo demo
+	// (RF-30): llegan siempre, también con map=false, y un cero se omite.
+	HumidityContributed U64 `json:"humidity_contributed"`
+	AcceptedDrops       U64 `json:"accepted_drops"`
 }
 
 type envelope struct {

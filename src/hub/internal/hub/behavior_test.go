@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	playv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/play/v1"
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
@@ -187,5 +188,32 @@ func TestIdleSweepRunsAtMostOncePerInterval(t *testing.T) {
 func TestDefaultSweepIntervalIsOneSecond(t *testing.T) {
 	if got := DefaultConfig().SweepInterval; got != time.Second {
 		t.Fatalf("SweepInterval = %v, want 1s", got)
+	}
+}
+
+// El estado que se difunde una vez por segundo lleva la cuenta de gotas
+// aceptadas del hub y la humedad aportada del mundo (RF-30, CP-11); los
+// bots las leen por /play.
+func TestStateBroadcastCarriesDemoCounters(t *testing.T) {
+	h := newHarness(t)
+	s := h.hub.Connect(ana, auth.RolePlayer, false)
+	h.world.set(func(w *fakeWorld) { w.humidity = 1 })
+	h.hub.SubmitDrop(s, drop(1))
+	h.tick()
+	var last *playv1.StateMessage
+	for range 11 {
+		h.tick()
+	}
+	for _, st := range states(drain(s)) {
+		last = st
+	}
+	if last == nil {
+		t.Fatal("no state was broadcast")
+	}
+	if last.GetAcceptedDrops() != 1 || last.GetHumidityContributed() != 1 {
+		t.Fatalf("state counters = accepted %d, humidity %d, want 1 and 1", last.GetAcceptedDrops(), last.GetHumidityContributed())
+	}
+	if len(last.GetHumidity()) != 0 {
+		t.Fatal("map=false must still skip the map")
 	}
 }

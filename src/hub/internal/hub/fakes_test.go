@@ -59,6 +59,8 @@ type fakeWorld struct {
 	inFlight int
 	maxInFly int
 	players  []*worldv1.PlayerState
+	// humidity es la humedad aportada que informa el estado del mundo.
+	humidity uint64
 }
 
 func newFakeWorld() *fakeWorld {
@@ -88,7 +90,7 @@ func (w *fakeWorld) Step(ctx context.Context, req *worldv1.StepRequest) (*worldv
 	w.tick++
 	resp := &worldv1.StepResponse{
 		Tick: w.tick, RestoredTick: w.restored, BootId: w.bootID,
-		State: &worldv1.WorldState{Width: 32, Height: 32, Players: w.players},
+		State: &worldv1.WorldState{Width: 32, Height: 32, Players: w.players, HumidityContributed: w.humidity},
 	}
 	for _, c := range req.GetCommands() {
 		status, ok := w.statuses[c.GetActionId()]
