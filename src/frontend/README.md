@@ -12,14 +12,17 @@ Página mínima del esqueleto, sin React ni Phaser todavía: módulos ES de Java
 - **Reconexión**: las acciones pendientes se guardan con su mensaje y se reenvían al reabrir el WebSocket (regla 2 de `CLAUDE.md`); un resultado final, de cualquier clase, las quita. El hub ignora las que siguen en cola y responde `duplicate` a las ya aplicadas.
 - **Administración (RF-31)**: si el token trae `role = admin` (se lee de su carga útil solo para mostrar los controles; el hub decide), aparecen **Activar/Desactivar modo demo** y **Reiniciar valle**, este último con una confirmación dentro de la página.
 
+- **Ranking y reporte (RF-10, RF-11, RF-12)**: con sesión, la página pide `GET /api/ranking?limit=10` y `GET /api/report?scope=me|global` con `Authorization: Bearer`, y los refresca cada 10 s y con el botón **Actualizar**; al salir o caducar la sesión se detienen. El ranking muestra puesto, jugador y hojas ganadas, y resalta al jugador actual. El reporte tiene dos pestañas, **Mis 3R** y **Valle**, con agua reducida, reutilizada, reciclada, recargada y gastada, hojas ganadas y gastadas, y la época y los ticks del periodo. Reducida y reutilizada se muestran en puntos de humedad y reciclada en litros, con una nota: la equivalencia entre litros y humedad sigue pendiente (`[DATO]`) y no se suman. Errores: `401` vuelve al panel de acceso, `429` espera el `Retry-After`, `503` muestra «no disponible» y `404` indica que aún no hay datos (el reporte sale de instantáneas, hasta 5 s por detrás del valle).
+
 | Ruta | Qué contiene |
 | --- | --- |
 | `index.html`, `styles.css` | La página |
 | `js/auth.js` | Registro, entrada y sesión guardada, sin DOM (`fetch`, almacenamiento y reloj inyectados) |
 | `js/play.js` | Mensajes de `play.proto` y utilidades sin DOM (UUID de `action_id`, URL con token, cierre 4401, construir y leer mensajes, espera de reconexión, tamaño del valle) |
 | `js/valley.js` | Vista del valle sin DOM: estado → casillas y panel, resultado → mensaje, rol del token y acciones pendientes |
+| `js/reports.js` | Ranking y reporte sin DOM: peticiones con token, enteros u64 en texto a vista, error a mensaje |
 | `js/main.js` | DOM, lienzo y WebSocket |
-| `test/` | Pruebas de `auth.js` y `play.js` con `node:test` |
+| `test/` | Pruebas de `auth.js`, `play.js`, `valley.js` y `reports.js` con `node:test` |
 
 ## Pruebas
 
@@ -32,5 +35,5 @@ npm test
 ## Pendiente
 
 - React para los paneles y Phaser para el valle isométrico, con su etapa de compilación en la imagen de nginx.
-- El dibujo del lienzo y los clics no tienen prueba automática (solo la lógica pura de `valley.js` y `play.js`); falta comprobar la página en un navegador.
+- El dibujo del lienzo y los clics no tienen prueba automática (solo la lógica pura de `valley.js`, `play.js` y `reports.js`); falta comprobar la página en un navegador.
 - El token viaja en la URL del WebSocket y queda en los registros de nginx (riesgo aceptado, ver `src/hub/README.md`).

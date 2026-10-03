@@ -90,3 +90,25 @@ input {
     color: #a5d6a7;
   }
 }
+
+#ranking-panel table,
+#report-panel table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  min-width: 18rem;
+}
+#ranking-panel th,
+#ranking-panel td,
+#report-panel td {
+  padding: 0.25rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #8884;
+}
+#ranking-body tr.me {
+  font-weight: bold;
+  background: #ffd60033;
+}
+[role="tab"][aria-selected="true"] {
+  font-weight: bold;
+  text-decoration: underline;
+}
