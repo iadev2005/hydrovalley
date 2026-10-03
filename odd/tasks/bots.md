@@ -48,5 +48,5 @@ Fuera de alcance: k6 (el bot de carga es el nuestro, en Go), el panel del sistem
 
 ## Progreso
 
-- T1 (PR #34) y T2 (PR #35) fusionadas en `dev`. T3 en `feature/bots-load` (ruta delegada: hub, contrato y bots).
+- T1 (PR #34) y T2 (PR #35) fusionadas en `dev`. T3 en `feature/bots-load` (ruta delegada: hub, contrato y bots); revisión de riesgo medio aprobada sin hallazgos.
 - Decisión T3: el bot de carga es cliente y no ve `humidity_contributed` ni las gotas aceptadas del hub (solo se registraban en el log). Se añaden ambos al mensaje `state` de `/play` (campos nuevos, aditivos); el panel del sistema también los necesita. El invariante se comprueba por diferencias entre el inicio y el final de la prueba.
