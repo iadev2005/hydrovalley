@@ -10,6 +10,8 @@
 #   E2E_KEEP=1          no bajar el stack al terminar (para depurar)
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
+# smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
+# «bots») con el administrador efímero.
 # Requiere Docker con Compose v2 y Node 22 o superior.
 set -euo pipefail
 
@@ -91,5 +93,10 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   up_args+=(--build)
 fi
 docker compose "${up_args[@]}"
+# Los bots viven bajo el perfil «bots» y `up` no los construye: smoke.test.mjs
+# los lanza con `compose run`, así que su imagen tiene que existir.
+if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
+  docker compose --profile bots build bots
+fi
 
 node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"

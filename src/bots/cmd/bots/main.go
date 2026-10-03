@@ -6,7 +6,7 @@
 //
 //	HV_BASE_URL=http://nginx:8080 HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... bots neighbors
 //
-// Subcomandos: neighbors (vecinos), load (prueba de carga, CP-11), cheater
+// Subcomandos: neighbors (vecinos), load o load-test (prueba de carga, CP-11), cheater
 // (tramposo, CP-03) y firefighter (bomberos, CP-04).
 package main
 
@@ -33,7 +33,7 @@ const usage = `usage: bots <command>
 
 commands:
   neighbors     slow-playing neighbors that make the valley feel alive
-  load          CP-11 load test: demo mode, RNF-01/RNF-02 and the humidity invariant;
+  load          (alias: load-test) CP-11 load test: demo mode, RNF-01/RNF-02 and the humidity invariant;
                 exit code 1 if any check fails
   cheater       CP-03: 50 drops/s, a repeated action_id and invalid frames;
                 exit code 1 if any check fails
@@ -50,7 +50,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	switch cmd := os.Args[1]; cmd {
+	switch cmd := canonicalCommand(os.Args[1]); cmd {
 	case "neighbors":
 		if err := runNeighbors(); err != nil {
 			fmt.Fprintln(os.Stderr, "bots:", err)
@@ -84,6 +84,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "bots: unknown command %q\n\n%s\n", cmd, usage)
 		os.Exit(2)
 	}
+}
+
+// canonicalCommand traduce los alias de los subcomandos a su nombre: la
+// documentación llama a la prueba de carga «load-test» (CP-11).
+func canonicalCommand(cmd string) string {
+	if cmd == "load-test" {
+		return "load"
+	}
+	return cmd
 }
 
 func runNeighbors() error {

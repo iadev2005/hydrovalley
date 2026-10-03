@@ -114,6 +114,34 @@ services:
     ports:
       - "${HV_HTTP_PORT:-8080}:8080"
 
+  # Bots (Go): jugadores simulados que entran por nginx como cualquier
+  # navegador. No arrancan con `up`: viven bajo el perfil «bots» y se lanzan
+  # a demanda (deploy/README.md, «Bots»):
+  #   docker compose --profile bots run --rm bots load-test
+  # Sin restart (corren y terminan) y sin depends_on (regla 5): si nginx aún
+  # no responde, el bot falla con un mensaje claro y se relanza.
+  bots:
+    profiles: ["bots"]
+    networks: [backend]
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-bots:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/bots/Dockerfile
+    environment:
+      # Solo por nginx, dentro de la red de Compose (puerto interno 8080).
+      HV_BASE_URL: http://nginx:8080
+      # Cuenta de administrador (RF-31) para crear las cuentas de los bots; la
+      # contraseña va en claro (no es el hash de ADMIN_PASSWORD_HASH). Sin
+      # ellas el binario se detiene con un mensaje que las nombra.
+      HV_ADMIN_USERNAME: ${HV_ADMIN_USERNAME:-}
+      HV_ADMIN_PASSWORD: ${HV_ADMIN_PASSWORD:-}
+      BOTS_COUNT: ${BOTS_COUNT:-}
+      BOTS_DURATION: ${BOTS_DURATION:-}
+      BOTS_SEED: ${BOTS_SEED:-}
+      BOTS_RESET: ${BOTS_RESET:-}
+      BOTS_REPORT_PATH: ${BOTS_REPORT_PATH:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
 networks:
   backend: {}
 
