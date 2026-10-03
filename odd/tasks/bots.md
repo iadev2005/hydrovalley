@@ -48,5 +48,5 @@ Fuera de alcance: k6 (el bot de carga es el nuestro, en Go), el panel del sistem
 
 ## Progreso
 
-- T1 (PR #34) y T2 (PR #35) fusionadas en `dev`. T3 en `feature/bots-load` (ruta delegada: hub, contrato y bots); revisión de riesgo medio aprobada sin hallazgos (PR #36, fusionada). T4 fusionada (PR #37), revisión aprobada sin hallazgos. T5 en `feature/bots-deploy` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada (una sugerencia informativa de legibilidad en `tests/e2e/run.sh`); al fusionar, añadir `bots` a las comprobaciones obligatorias.
+- T1 (PR #34) y T2 (PR #35) fusionadas en `dev`. T3 en `feature/bots-load` (ruta delegada: hub, contrato y bots); revisión de riesgo medio aprobada sin hallazgos (PR #36, fusionada). T4 fusionada (PR #37), revisión aprobada sin hallazgos. T5 fusionada (PR #38); `bots` es comprobación obligatoria en `dev` y `main`. Funcionalidad completa. Pendientes: publicar imágenes en `ghcr.io` desde el CI y ejercitar CP-04 contra un valle real.
 - Decisión T3: el bot de carga es cliente y no ve `humidity_contributed` ni las gotas aceptadas del hub (solo se registraban en el log). Se añaden ambos al mensaje `state` de `/play` (campos nuevos, aditivos); el panel del sistema también los necesita. El invariante se comprueba por diferencias entre el inicio y el final de la prueba.
