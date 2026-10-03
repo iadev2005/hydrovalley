@@ -12,12 +12,14 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/breaker"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
+	"github.com/iadev2005/hydrovalley/src/hub/internal/metrics"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/ratelimit"
 	"google.golang.org/protobuf/proto"
 )
@@ -237,6 +239,12 @@ type Hub struct {
 	loggedDrops   uint64
 	lastBroadcast time.Time
 	lastSweep     time.Time
+	// Métricas de /stats: tienen su propio candado corto y no dependen de mu.
+	admittedRate *metrics.Rate
+	appliedRate  *metrics.Rate
+	latency      *metrics.Samples
+	stepTimes    *metrics.Samples
+	stepFailures atomic.Uint64
 }
 
 // New crea el hub. El bucle del tick arranca con Run.
@@ -249,6 +257,11 @@ func New(world WorldClient, clock Clock, cfg Config, log *slog.Logger) *Hub {
 		players: make(map[string]*player),
 		breaker: breaker.New(cfg.BreakerThreshold, cfg.ProbeInterval),
 		ledger:  make(map[uint64]uint64),
+
+		admittedRate: metrics.NewRate(StatsWindowSeconds),
+		appliedRate:  metrics.NewRate(StatsWindowSeconds),
+		latency:      metrics.NewSamples(latencySamples, StatsWindowSeconds*time.Second),
+		stepTimes:    metrics.NewSamples(stepSamples, 0),
 	}
 }
 
@@ -430,6 +443,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	p.pending[actionID] = struct{}{}
 	q.admittedAt = now
 	h.queue = append(h.queue, q)
+	h.admittedRate.Add(now)
 	return Admitted
 }
 

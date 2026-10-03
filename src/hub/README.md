@@ -14,7 +14,8 @@ Frontera Go/Rust (CLAUDE.md): **el hub decide si un comando es admisible; el sim
 | `internal/breaker/` | *Circuit Breaker* de `Step` (cerrado, abierto, semiabierto) |
 | `internal/ratelimit/` | Límite de gotas por jugador con ventana deslizante |
 | `internal/frames/` | Mensajes JSON de `play.proto`: decodificación (`Envelope` y después el mensaje), resultados, errores y `StateMessage` |
-| `internal/transport/` | HTTP: WebSocket `/play`, `/healthz` y `/readyz` |
+| `internal/metrics/` | Tasa por segundo en ventana móvil y muestra acotada de duraciones con percentiles (base de `/stats`) |
+| `internal/transport/` | HTTP: WebSocket `/play`, `/healthz`, `/readyz` y `/stats` |
 | `internal/worldclient/` | Adaptador gRPC de `WorldService` |
 | `internal/config/` | Variables de entorno |
 
@@ -29,7 +30,7 @@ Frontera Go/Rust (CLAUDE.md): **el hub decide si un comando es admisible; el sim
 | --- | --- | --- | --- |
 | `WORLD_ADDR` | Sí | — | `host:puerto` de `WorldService`, p. ej. `world:50051` (plan B) o `10.68.17.x:50051` (plan A) |
 | `TOKEN_PUBLIC_KEY` | Sí | — | Clave pública Ed25519 (SPKI) con la que se verifican los tokens de `/play`: el PEM tal cual, con los saltos de línea escritos como `\n`, o **el base64 del PEM completo** (una sola línea), igual que la privada de la API. Si falta o no es una clave Ed25519, el arranque se detiene con un mensaje que nombra la variable, sin repetir el valor |
-| `HUB_LISTEN` | No | `:8081` | Dirección y puerto del HTTP (`/play`, `/healthz`, `/readyz`) |
+| `HUB_LISTEN` | No | `:8081` | Dirección y puerto del HTTP (`/play`, `/healthz`, `/readyz`, `/stats`) |
 | `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn` o `error` |
 | `HUB_ORIGIN_PATTERNS` | No | — | Orígenes, separados por comas (`host[:puerto]`, con comodines), que pueden abrir `/play` además del mismo origen. Los clientes sin cabecera `Origin` (bots) siempre pueden |
 
@@ -96,11 +97,32 @@ Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`
 - **Reinicio de Rust**: el primer `boot_id` visto es la línea base. Cuando cambia, una sola vez y antes de procesar los resultados de esa respuesta, el hub quita de `confirmed` las entradas con tick mayor que `restored_tick` y resta de la cuenta de gotas aceptadas las de esos ticks (CP-05).
 - **Gotas aceptadas**: se cuentan solo con los `applied` de `Step` (incluidos los `DUPLICATE` que se tratan como `applied`, ver arriba), por tick durante 600 ticks. `StateMessage` las lleva como `accepted_drops` y `humidity_contributed` (texto en JSON, también con `map=false`), una vez por segundo con el estado, para que un cliente compruebe el modo demo (RF-30, CP-11) por diferencias entre dos mensajes. Además, el hub las registra cuando la cuenta cambia (como mucho una vez por segundo).
 - **`/healthz`**: 200 mientras el proceso atiende (para Docker Compose). **`/readyz`**: 200 solo con el circuito cerrado y el último `Step` correcto; 503 en otro caso. Devuelve en JSON `ready`, `tick`, `paused`, `breaker` y `queue`.
+- **`/stats`**: métricas en memoria para el panel del sistema (RNF-08), en JSON con `snake_case`. Es interno: **no lleva autenticación**, porque nginx no lo reenvía y el puerto 8081 no se publica; solo lo consulta la API por la red del despliegue (`HUB_STATS_ADDR`). No contiene nombres ni tokens. Medir no frena el tick: cada evento solo incrementa un contador con una sección crítica corta, y los percentiles se calculan al consultar. Los enteros de 64 bits viajan como texto (regla 7); los conteos pequeños, como números. Campos:
+
+  | Campo | Significado |
+  | --- | --- |
+  | `tick` (texto) | Último tick devuelto por `Step` |
+  | `paused` | El valle está en pausa (algún `Step` reciente falló) |
+  | `breaker` | Estado del *Circuit Breaker*: `closed`, `open` o `half_open` (los mismos valores que `/readyz`) |
+  | `queue` | Comandos en la cola del tick |
+  | `sessions` | Conexiones WebSocket abiertas ahora |
+  | `goroutines` | `runtime.NumGoroutine()` del proceso |
+  | `actions_per_second.admitted` | Acciones admitidas por el hub por segundo, promedio de los últimos 10 s (un decimal). Los rechazos inmediatos y los reenvíos ignorados no cuentan |
+  | `actions_per_second.applied` | Resultados finales `applied` por segundo en la misma ventana (incluye el `duplicate` que se trata como `applied` tras un `Step` fallido) |
+  | `actions_per_second.window_seconds` | Tamaño de la ventana: 10. Mientras el hub lleva menos de 10 s en marcha, el promedio subestima la tasa real |
+  | `latency_ms.p50`, `latency_ms.p95` | Milisegundos desde la admisión hasta el resultado final (`applied`, `duplicate`, `rejected` o `expired`), de las acciones resueltas en los últimos 10 s (percentil por rango más cercano) |
+  | `latency_ms.samples` | Muestras usadas; se guardan como mucho las últimas 4096 de la ventana, así que la memoria está acotada |
+  | `step_ms.last` | Duración en milisegundos de la última llamada a `Step` (medida con el reloj del hub, fallidas incluidas) |
+  | `step_ms.p95` | Percentil 95 de las últimas 600 llamadas a `Step` (sin ventana de tiempo) |
+  | `step_ms.failures_total` | `Step` fallidos desde que arrancó el hub |
+  | `humidity_total` (texto) | Suma de la humedad de todas las casillas del último estado del valle (0 antes del primer `Step` correcto); se calcula al consultar |
+  | `humidity_contributed` (texto) | Humedad aportada por las gotas, tal como la informa el simulador |
+  | `accepted_drops` (texto) | Cuenta de gotas aceptadas del hub |
+  | `active_fires` | Casillas que arden en el último estado |
+  | `boot_id` | `boot_id` de la última respuesta de `Step` (cadena vacía antes del primero) |
+  | `generated_at` | Hora de la foto, ISO 8601 en UTC |
+
 - **Parada**: con SIGINT o SIGTERM cierra las conexiones con `StatusGoingAway`, termina el bucle y apaga el HTTP con un plazo de 5 s.
-
-## Pendiente
-
-- Datos para el panel del sistema (duración de cada `Step`, cola, gotas aceptadas).
 
 ## Imagen de Docker
 

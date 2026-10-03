@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -68,9 +70,39 @@ func NewHandler(ctx context.Context, h *hub.Hub, log *slog.Logger, opts Options)
 			"paused": st.Paused, "breaker": st.Breaker, "queue": st.QueueLen,
 		})
 	})
+	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, _ *http.Request) {
+		// Interno: sin autenticación; nginx no lo reenvía.
+		st := h.Stats()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tick": u64(st.Tick), "paused": st.Paused, "breaker": st.Breaker, "queue": st.QueueLen,
+			"sessions": st.Sessions, "goroutines": runtime.NumGoroutine(),
+			"actions_per_second": map[string]any{
+				"admitted": round1(st.AdmittedPerSecond), "applied": round1(st.AppliedPerSecond),
+				"window_seconds": hub.StatsWindowSeconds,
+			},
+			"latency_ms": map[string]any{"p50": ms(st.Latency.P50), "p95": ms(st.Latency.P95), "samples": st.Latency.Count},
+			"step_ms": map[string]any{
+				"last": ms(st.Step.Last), "p95": ms(st.Step.P95), "failures_total": st.Step.FailuresTotal,
+			},
+			"humidity_total": u64(st.HumidityTotal), "humidity_contributed": u64(st.HumidityContributed),
+			"accepted_drops": u64(st.AcceptedDrops), "active_fires": st.ActiveFires,
+			"boot_id":      st.BootID,
+			"generated_at": st.At.UTC().Format(time.RFC3339),
+		})
+	})
 	mux.Handle("GET /play", &playHandler{ctx: ctx, hub: h, log: log, opts: opts})
 	return mux
 }
+
+// u64 escribe un entero sin signo de 64 bits como texto (regla 7).
+func u64(v uint64) string { return strconv.FormatUint(v, 10) }
+
+// ms pasa una duración a milisegundos con dos decimales.
+func ms(d time.Duration) float64 { return math.Round(float64(d)/float64(time.Millisecond)*100) / 100 }
+
+// round1 redondea a un decimal.
+func round1(v float64) float64 { return math.Round(v*10) / 10 }
 
 type playHandler struct {
 	ctx  context.Context

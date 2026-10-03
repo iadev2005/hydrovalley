@@ -245,6 +245,54 @@ func TestReadyzFollowsTheWorld(t *testing.T) {
 	}
 }
 
+func TestStatsExposesMetricsAsJSON(t *testing.T) {
+	e := newEnv(t)
+	conn := e.dial(e.as(ana, "map=false"))
+	e.waitSessions(1)
+	send(t, conn, `{"type":"drop","action_id":"`+actionID+`","x":0,"y":0}`)
+	e.waitQueue(1)
+	e.tick()
+	next(t, conn, "result")
+
+	resp := e.get("/stats")
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
+		t.Fatalf("/stats = %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"tick", "humidity_total", "humidity_contributed", "accepted_drops"} {
+		if _, ok := body[k].(string); !ok {
+			t.Errorf("%s = %#v, want a string (u64 as text)", k, body[k])
+		}
+	}
+	if body["tick"] != "1" || body["accepted_drops"] != "1" || body["boot_id"] != "boot" || body["breaker"] != "closed" || body["paused"] != false {
+		t.Errorf("body = %v", body)
+	}
+	if body["sessions"] != float64(1) || body["queue"] != float64(0) || body["active_fires"] != float64(0) {
+		t.Errorf("counts in %v", body)
+	}
+	if g, _ := body["goroutines"].(float64); g < 1 {
+		t.Errorf("goroutines = %v", body["goroutines"])
+	}
+	aps, _ := body["actions_per_second"].(map[string]any)
+	if aps["window_seconds"] != float64(10) || aps["admitted"] != 0.1 || aps["applied"] != 0.1 {
+		t.Errorf("actions_per_second = %v", aps)
+	}
+	lat, _ := body["latency_ms"].(map[string]any)
+	step, _ := body["step_ms"].(map[string]any)
+	if lat["samples"] != float64(1) || lat["p50"] == nil || lat["p95"] == nil {
+		t.Errorf("latency_ms = %v", lat)
+	}
+	if step["last"] == nil || step["p95"] == nil || step["failures_total"] != float64(0) {
+		t.Errorf("step_ms = %v", step)
+	}
+	if ts, _ := body["generated_at"].(string); !strings.HasSuffix(ts, "Z") {
+		t.Errorf("generated_at = %v, want ISO 8601 UTC", body["generated_at"])
+	}
+}
+
 func TestPlayRejectsInvalidMapParameter(t *testing.T) {
 	e := newEnv(t)
 	if resp := e.get("/play?" + e.as(ana, "map=maybe")); resp.StatusCode != http.StatusBadRequest {
