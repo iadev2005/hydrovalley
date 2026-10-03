@@ -21,6 +21,15 @@ export const REGISTER_LIMIT_PER_IP: RateLimit = { limit: 5, windowMs: 600_000 };
 /** Consultas de ranking y reportes (GET): peticiones por IP. */
 export const READ_LIMIT_PER_IP: RateLimit = { limit: 60, windowMs: 60_000 };
 
+/** Aprovisionamiento de cuentas de bots: peticiones por administrador (por `player_id`). */
+export const ADMIN_LIMIT_PER_ADMIN: RateLimit = { limit: 10, windowMs: 60_000 };
+/** Máximo de cuentas por petición de aprovisionamiento. */
+export const BOT_ACCOUNTS_MAX_COUNT = 100;
+/** Hashes Argon2id que se calculan a la vez al aprovisionar (cada uno usa ~19 MiB). */
+export const BOT_HASH_CONCURRENCY = 4;
+/** Nombres distintos que se prueban por cuenta si el elegido ya existe. */
+export const BOT_NAME_ATTEMPTS = 5;
+
 /** Claves que guarda cada limitador antes de rechazar las nuevas. */
 export const LIMITER_MAX_KEYS = 10_000;
 

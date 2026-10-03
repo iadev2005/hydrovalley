@@ -3,6 +3,7 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import { type AdminDeps, adminRoutes } from "./admin-routes.js";
 import { type AuthDeps, authRoutes } from "./auth-routes.js";
 import { type ReadDeps, readRoutes } from "./read-routes.js";
 
@@ -34,6 +35,7 @@ export async function buildApp(
   options: FastifyServerOptions = {},
   auth?: AuthDeps,
   read?: ReadDeps,
+  admin?: AdminDeps,
 ): Promise<FastifyInstance> {
   // Sin coerción de tipos: un número no se acepta como nombre de usuario.
   const app = Fastify({
@@ -54,6 +56,7 @@ export async function buildApp(
         { name: "system", description: "Operación del servicio" },
         { name: "auth", description: "Registro y acceso con token firmado" },
         { name: "ranking", description: "Ranking global por hojas ganadas" },
+        { name: "admin", description: "Operación reservada a administradores" },
         {
           name: "reports",
           description: "Reporte de las 3R, por jugador y global",
@@ -83,6 +86,10 @@ export async function buildApp(
 
   if (read) {
     await app.register(readRoutes, read);
+  }
+
+  if (admin) {
+    await app.register(adminRoutes, admin);
   }
 
   // TODO: catálogo.
