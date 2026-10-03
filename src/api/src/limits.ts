@@ -18,6 +18,9 @@ export const LOGIN_LIMIT_PER_IP: RateLimit = { limit: 30, windowMs: 60_000 };
 /** Registro: cuentas nuevas por IP. */
 export const REGISTER_LIMIT_PER_IP: RateLimit = { limit: 5, windowMs: 600_000 };
 
+/** Consultas de ranking y reportes (GET): peticiones por IP. */
+export const READ_LIMIT_PER_IP: RateLimit = { limit: 60, windowMs: 60_000 };
+
 /** Claves que guarda cada limitador antes de rechazar las nuevas. */
 export const LIMITER_MAX_KEYS = 10_000;
 

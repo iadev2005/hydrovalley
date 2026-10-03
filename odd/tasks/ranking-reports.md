@@ -12,7 +12,7 @@ Los datos ya existen en el simulador (hojas ganadas, contadores de las 3R y de R
 
 - Rust: `WorldService.GetRanking` (hojas ganadas, de mayor a menor, con `limit`).
 - Persistencia: guardar `snapshot_players` en cada `SaveSnapshot` (diagrama 07) y servir `ReportService.GetReport` por jugador y global, dentro de la época actual.
-- API: `GET /api/ranking` (Rust + `AccountService.GetUsernames`) y `GET /api/reports/me` y `/api/reports/global` con el token del jugador; Swagger.
+- API: `GET /api/ranking` (Rust + `AccountService.GetUsernames`) y `GET /api/report?scope=me|global` (nombres de la tabla de APIs del documento) con el token del jugador; Swagger.
 - Página: paneles de ranking y de reporte; e2e.
 
 Fuera de alcance: la equivalencia litro ↔ humedad (sigue siendo `[DATO]`; los contadores se muestran por separado), gráficos.
@@ -31,7 +31,7 @@ Fuera de alcance: la equivalencia litro ↔ humedad (sigue siendo `[DATO]`; los 
 
 - [x] T1 · Rust: `GetRanking`. Evidencia: RED (9 de dominio + 4 de integración); world 231 pruebas; clippy/fmt limpios. Empates por `player_id` y rango 1, 2, 2, 4; tope de 1.000 entradas; jugadores con 0 hojas incluidos.
 - [x] T2 · Persistencia: `snapshot_players` y `ReportService.GetReport`. Evidencia: RED (ImportError en la recolección); 218 unit / 259 con PostgreSQL; e2e 9/9. Jugadores sin cuenta se omiten con aviso; "en o antes de" para los ticks del periodo; cuenta sin filas → ceros, sin cuenta → NOT_FOUND (comentario de `report.proto` alineado). Va en el mismo PR que T1.
-- [ ] T3 · API: `/api/ranking` y `/api/reports/*` autenticados.
+- [x] T3 · API: `/api/ranking` y `/api/report?scope=me|global` autenticados. Evidencia: RED (15 pruebas en 4 archivos); `npm test` 194; lint/typecheck/build ok; e2e verde. Clave pública derivada de la privada; ranking con nombre de respaldo si `GetUsernames` falla; límite de 60/min por IP; `WORLD_ADDR` en el `compose.yml`.
 - [ ] T4 · Página y e2e.
 
 ## Criterios de aceptación

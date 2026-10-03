@@ -1,18 +1,22 @@
 // Proceso de la API: lee la configuración, escucha y se detiene con SIGINT
 // o SIGTERM.
 import { buildApp, trustHops } from "./app.js";
+import { createPublicKey } from "node:crypto";
 import { type Config, loadConfig } from "./config.js";
 import { createGrpcAccountDirectory } from "./grpc-account-directory.js";
+import { createGrpcRankingSource } from "./grpc-ranking-source.js";
+import { createGrpcReportSource } from "./grpc-report-source.js";
 import { createPasswordService } from "./passwords.js";
 import {
   LIMITER_MAX_KEYS,
   LOGIN_LIMIT_PER_IP,
   LOGIN_LIMIT_PER_USER_IP,
+  READ_LIMIT_PER_IP,
   REGISTER_LIMIT_PER_IP,
   type RateLimit,
 } from "./limits.js";
 import { createAttemptLimiter } from "./rate-limit.js";
-import { createTokenService } from "./tokens.js";
+import { createTokenService, createTokenVerifier } from "./tokens.js";
 
 const limiter = ({ limit, windowMs }: RateLimit) =>
   createAttemptLimiter({ limit, windowMs, maxKeys: LIMITER_MAX_KEYS });
@@ -25,13 +29,16 @@ try {
   console.error(`invalid configuration: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 }
+const accounts = createGrpcAccountDirectory({
+  address: config.persistenceAddr,
+});
 const app = await buildApp(
   {
     logger: { level: config.logLevel },
     trustProxy: config.trustProxy === false ? false : trustHops(config.trustProxy),
   },
   {
-    accounts: createGrpcAccountDirectory({ address: config.persistenceAddr }),
+    accounts,
     // Calcula el hash de relleno una sola vez, antes de escuchar.
     passwords: await createPasswordService(),
     tokens: createTokenService({
@@ -43,6 +50,16 @@ const app = await buildApp(
     loginLimiter: limiter(LOGIN_LIMIT_PER_USER_IP),
     loginIpLimiter: limiter(LOGIN_LIMIT_PER_IP),
     registerIpLimiter: limiter(REGISTER_LIMIT_PER_IP),
+  },
+  {
+    ranking: createGrpcRankingSource({ address: config.worldAddr }),
+    reports: createGrpcReportSource({ address: config.persistenceAddr }),
+    accounts,
+    // La pública se deriva de la privada: no hay otra variable que configurar.
+    tokens: createTokenVerifier({
+      publicKey: createPublicKey(config.tokenPrivateKey),
+    }),
+    readLimiter: limiter(READ_LIMIT_PER_IP),
   },
 );
 

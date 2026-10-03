@@ -6,6 +6,7 @@ import { makeKeyPair } from "./support/keys.js";
 const { pem } = makeKeyPair();
 const REQUIRED = {
   PERSISTENCE_ADDR: "persistence:50051",
+  WORLD_ADDR: "world:50051",
   TOKEN_PRIVATE_KEY: pem,
 };
 
@@ -98,9 +99,30 @@ describe("loadConfig PERSISTENCE_ADDR", () => {
   );
 });
 
+describe("loadConfig WORLD_ADDR", () => {
+  it("is required and has no default host", () => {
+    expect(() => loadConfig({ PERSISTENCE_ADDR: "p:1", TOKEN_PRIVATE_KEY: pem })).toThrow(
+      /WORLD_ADDR/,
+    );
+  });
+
+  it("reads host:port as is", () => {
+    expect(loadConfig(REQUIRED).worldAddr).toBe("world:50051");
+  });
+
+  it.each(["world", "host:", ":50051", "host:0", "host:70000", "http://host:50051", "a b:1"])(
+    "rejects the invalid value %j",
+    (value) => {
+      expect(() => loadConfig({ ...REQUIRED, WORLD_ADDR: value })).toThrow(/WORLD_ADDR/);
+    },
+  );
+});
+
 describe("loadConfig TOKEN_PRIVATE_KEY", () => {
   it("is required and the error names the variable", () => {
-    expect(() => loadConfig({ PERSISTENCE_ADDR: "p:1" })).toThrow(/TOKEN_PRIVATE_KEY/);
+    expect(() => loadConfig({ PERSISTENCE_ADDR: "p:1", WORLD_ADDR: "w:1" })).toThrow(
+      /TOKEN_PRIVATE_KEY/,
+    );
   });
 
   it("accepts a PKCS#8 PEM", () => {

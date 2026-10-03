@@ -91,6 +91,7 @@ services:
       API_LISTEN: 0.0.0.0:3000
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PERSISTENCE_ADDR: persistence:50051
+      WORLD_ADDR: world:50051
       # Clave privada Ed25519 (PEM o su base64) con la que la API firma los
       # tokens. Nunca en el repositorio: va en deploy/.env (RNF-13).
       TOKEN_PRIVATE_KEY: ${TOKEN_PRIVATE_KEY:?define TOKEN_PRIVATE_KEY en deploy/.env}
