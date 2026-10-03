@@ -59,3 +59,40 @@ func TestRequireAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadReadsResetAndReportPath(t *testing.T) {
+	c, err := Load(env(map[string]string{"HV_BASE_URL": "http://x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Reset || c.ReportPath != "" {
+		t.Fatalf("defaults must reset the valley and write no report: %+v", c)
+	}
+	c, err = Load(env(map[string]string{"HV_BASE_URL": "http://x", "BOTS_RESET": "false", "BOTS_REPORT_PATH": "/tmp/r.json"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Reset || c.ReportPath != "/tmp/r.json" {
+		t.Fatalf("unexpected config %+v", c)
+	}
+	if _, err := Load(env(map[string]string{"HV_BASE_URL": "http://x", "BOTS_RESET": "maybe"})); err == nil || !strings.Contains(err.Error(), "BOTS_RESET") {
+		t.Fatalf("want an error naming BOTS_RESET, got %v", err)
+	}
+}
+
+func TestWithLoadDefaultsOnlyFillsWhatWasNotSet(t *testing.T) {
+	c, _ := Load(env(map[string]string{"HV_BASE_URL": "http://x"}))
+	c = c.WithLoadDefaults()
+	if c.Count != 30 || c.Duration != 60*time.Second {
+		t.Fatalf("CP-11 defaults are 30 bots for 60 s, got %d for %v", c.Count, c.Duration)
+	}
+	c, _ = Load(env(map[string]string{"HV_BASE_URL": "http://x", "BOTS_COUNT": "10", "BOTS_DURATION": "5s"}))
+	c = c.WithLoadDefaults()
+	if c.Count != 10 || c.Duration != 5*time.Second {
+		t.Fatalf("explicit values must win, got %d for %v", c.Count, c.Duration)
+	}
+	c, _ = Load(env(map[string]string{"HV_BASE_URL": "http://x", "BOTS_DURATION": "0"}))
+	if c = c.WithLoadDefaults(); c.Duration != 60*time.Second {
+		t.Fatalf("a load test needs a duration, 0 falls back to 60 s, got %v", c.Duration)
+	}
+}

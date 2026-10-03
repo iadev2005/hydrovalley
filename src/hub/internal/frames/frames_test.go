@@ -251,7 +251,7 @@ func sampleWorld() *worldv1.WorldState {
 	tiles[2].Fire = &worldv1.Fire{DropsReceived: 2}
 	tiles[3].Installation = &worldv1.Installation{Kind: worldv1.InstallationKind_INSTALLATION_KIND_DRIP, OwnerId: "owner"}
 	return &worldv1.WorldState{
-		Width: 2, Height: 2, Tiles: tiles, DemoMode: true,
+		Width: 2, Height: 2, Tiles: tiles, DemoMode: true, HumidityContributed: 42,
 		Players: []*worldv1.PlayerState{{
 			PlayerId: "ana", Water: 19, TankCapacity: 20, Leaves: 3,
 			Upgrades: []worldv1.UpgradeKind{worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_TANK},
@@ -265,7 +265,7 @@ func sampleWorld() *worldv1.WorldState {
 }
 
 func TestStateWithMapAndPlayer(t *testing.T) {
-	msg := NewStateBuilder(12345678901234567, false, sampleWorld()).For("ana", true)
+	msg := NewStateBuilder(12345678901234567, false, sampleWorld(), 5).For("ana", true)
 	if msg.GetType() != TypeState || msg.GetTick() != 12345678901234567 || !msg.GetDemoMode() || msg.GetWidth() != 2 || msg.GetHeight() != 2 {
 		t.Fatalf("state header = %v", msg)
 	}
@@ -293,8 +293,33 @@ func TestStateWithMapAndPlayer(t *testing.T) {
 	}
 }
 
+// Los contadores del modo demo (RF-30) viajan como texto (regla 7) y no
+// dependen de map=false: el bot de carga y el panel los leen sin el mapa.
+func TestStateCarriesDemoCountersAsText(t *testing.T) {
+	for _, withMap := range []bool{true, false} {
+		msg := NewStateBuilder(9, false, sampleWorld(), 5).For("bob", withMap)
+		if msg.GetHumidityContributed() != 42 || msg.GetAcceptedDrops() != 5 {
+			t.Fatalf("withMap=%v counters = %d/%d, want 42/5", withMap, msg.GetHumidityContributed(), msg.GetAcceptedDrops())
+		}
+		data, _ := Marshal(msg)
+		got := decodeJSON(t, data)
+		if got["humidity_contributed"] != "42" || got["accepted_drops"] != "5" {
+			t.Fatalf("withMap=%v counters must travel as text, got %#v / %#v", withMap, got["humidity_contributed"], got["accepted_drops"])
+		}
+	}
+}
+
+// Sin mundo todavía no hay humedad que contar, pero las gotas aceptadas
+// son del hub y siempre se informan.
+func TestStateWithoutWorldStillReportsAcceptedDrops(t *testing.T) {
+	msg := NewStateBuilder(0, true, nil, 3).For("ana", true)
+	if msg.GetAcceptedDrops() != 3 || msg.GetHumidityContributed() != 0 {
+		t.Fatalf("counters = %d/%d, want 0 humidity and 3 drops", msg.GetHumidityContributed(), msg.GetAcceptedDrops())
+	}
+}
+
 func TestStateWithoutMap(t *testing.T) {
-	msg := NewStateBuilder(7, true, sampleWorld()).For("ana", false)
+	msg := NewStateBuilder(7, true, sampleWorld(), 5).For("ana", false)
 	if !msg.GetPaused() || msg.GetWidth() != 2 {
 		t.Fatalf("state = %v", msg)
 	}
@@ -307,11 +332,11 @@ func TestStateWithoutMap(t *testing.T) {
 }
 
 func TestStateForUnknownPlayerAndNoWorld(t *testing.T) {
-	msg := NewStateBuilder(0, true, sampleWorld()).For("bob", true)
+	msg := NewStateBuilder(0, true, sampleWorld(), 0).For("bob", true)
 	if msg.GetPlayer() != nil {
 		t.Fatal("player absent from the world must have no player view")
 	}
-	empty := NewStateBuilder(0, true, nil).For("ana", true)
+	empty := NewStateBuilder(0, true, nil, 0).For("ana", true)
 	if empty.GetType() != TypeState || !empty.GetPaused() || empty.GetPlayer() != nil || len(empty.GetStages()) != 0 {
 		t.Fatalf("state without world = %v", empty)
 	}

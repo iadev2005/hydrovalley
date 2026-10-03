@@ -53,3 +53,22 @@ func TestU64AcceptsNumbersToo(t *testing.T) {
 		t.Fatal("negative must fail")
 	}
 }
+
+// Los contadores del modo demo llegan como texto; un valor cero puede
+// omitirse (protojson) y se lee como 0.
+func TestDecodeStateReadsDemoCounters(t *testing.T) {
+	var st State
+	if err := json.Unmarshal([]byte(`{"type":"state","tick":"9","humidity_contributed":"6500","accepted_drops":"6500"}`), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.HumidityContributed != 6500 || st.AcceptedDrops != 6500 {
+		t.Fatalf("counters = %d/%d, want 6500/6500", st.HumidityContributed, st.AcceptedDrops)
+	}
+	var zero State
+	if err := json.Unmarshal([]byte(`{"type":"state","tick":"1"}`), &zero); err != nil {
+		t.Fatal(err)
+	}
+	if zero.HumidityContributed != 0 || zero.AcceptedDrops != 0 {
+		t.Fatalf("omitted counters must read 0, got %d/%d", zero.HumidityContributed, zero.AcceptedDrops)
+	}
+}

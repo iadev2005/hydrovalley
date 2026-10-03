@@ -148,6 +148,16 @@ message StateMessage {
   // Estado del propio jugador que recibe el mensaje; ausente hasta que su
   // primer comando lo hace entrar en el mundo.
   PlayerView player = 11;
+  // Humedad aportada por las gotas en todo el valle, tomada del último
+  // estado del mundo; solo crece (RF-30). Con `accepted_drops` permite
+  // comprobar el invariante del modo demo desde un cliente (CP-11): la
+  // diferencia entre dos mensajes debe ser la misma en los dos campos. Viaja
+  // como texto en JSON (regla 7), también con map=false.
+  uint64 humidity_contributed = 12;
+  // Gotas aceptadas que cuenta el hub: solo las que Step devolvió como
+  // `applied`, de los últimos 600 ticks hacia atrás en una recuperación de
+  // Rust. Mismo formato que `humidity_contributed`.
+  uint64 accepted_drops = 13;
 }
 
 message FireView {
