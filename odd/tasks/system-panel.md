@@ -46,4 +46,4 @@ Fuera de alcance: Prometheus y Grafana (nivel 2), históricos y gráficos.
 
 ## Progreso
 
-- T1 en `feature/system-panel-hub` (ruta delegada).
+- T1 en `feature/system-panel-hub` (ruta delegada); revisión de riesgo medio aprobada (una sugerencia informativa en una prueba del transporte).
