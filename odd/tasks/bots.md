@@ -31,7 +31,7 @@ Fuera de alcance: k6 (el bot de carga es el nuestro, en Go), el panel del sistem
 ## Tareas
 
 - [x] T1 · API: `POST /api/admin/bot-accounts`. Evidencia: RED 24/24; API 217 pruebas; lint/typecheck/build ok; e2e 12/12. Solo administradores (401/403), 10 peticiones/min por administrador, hasta 100 cuentas, Argon2id con concurrencia 4, `Register` nunca se reintenta; ante un fallo, 503 con `created` y sin tokens.
-- [x] T2 · Bots: cliente común y escenario de vecinos. Evidencia: RED por compilación; `go test -race` ok (35 funciones); vet/staticcheck/gofmt limpios; `docker build` ok. Prueba real de 30 s con 3 vecinos contra el hub: 21 gotas enviadas, 21 `applied`. El aprovisionamiento no se pudo probar contra el despliegue de demostración porque su API es anterior a la T1.
+- [x] T2 · Bots: cliente común y escenario de vecinos. Evidencia: RED por compilación; `go test -race` ok (35 funciones); vet/staticcheck/gofmt limpios; `docker build` ok. Prueba real de 30 s con 3 vecinos contra el hub: 21 gotas enviadas, 21 `applied`. Revisión: riesgo medio, aprobada sin hallazgos (commit fb1588a).
 - [ ] T3 · Bots: prueba de carga (CP-11) con métricas e informe.
 - [ ] T4 · Bots: tramposo (CP-03) y bombero (CP-04).
 - [ ] T5 · Despliegue: servicio con perfil, CI y e2e corta.
@@ -48,4 +48,4 @@ Fuera de alcance: k6 (el bot de carga es el nuestro, en Go), el panel del sistem
 
 ## Progreso
 
-- T1 en `feature/bots-provisioning` (PR #34). T2 en `feature/bots-client` (ruta delegada).
+- T1 en `feature/bots-provisioning` (PR #34). T2 en `feature/bots-client` (ruta delegada, PR a `dev`). Siguiente: T3.
