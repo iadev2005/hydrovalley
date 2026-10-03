@@ -41,8 +41,11 @@ func (h *Hub) Tick(ctx context.Context) {
 		cmds[i] = q.cmd
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, h.cfg.StepTimeout)
+	stepStart := h.clock.Now()
 	resp, err := h.world.Step(stepCtx, &worldv1.StepRequest{Commands: cmds})
 	cancel()
+	stepEnd := h.clock.Now()
+	h.stepTimes.Add(stepEnd, stepEnd.Sub(stepStart))
 	if err == nil {
 		err = validateResponse(cmds, resp)
 	}
@@ -50,6 +53,7 @@ func (h *Hub) Tick(ctx context.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err != nil {
+		h.stepFailures.Add(1)
 		h.stepFailedLocked(batch, err)
 	} else {
 		h.stepSucceededLocked(batch, resp)
@@ -88,6 +92,7 @@ func (h *Hub) expireLocked() {
 	kept := h.queue[:0]
 	for _, q := range h.queue {
 		if now.Sub(q.admittedAt) > h.cfg.ExpireAfter {
+			h.latency.Add(now, now.Sub(q.admittedAt))
 			h.finishLocked(q.cmd.GetPlayerId(), q.cmd.GetActionId(), frames.StatusExpired, worldv1.RejectReason_REJECT_REASON_UNSPECIFIED)
 			continue
 		}
@@ -139,14 +144,17 @@ func (h *Hub) stepSucceededLocked(batch []queued, resp *worldv1.StepResponse) {
 	h.tick = resp.GetTick()
 	h.latestWorld = resp.GetState()
 
+	now := h.clock.Now()
 	for i, r := range resp.GetResults() {
 		playerID, actionID := r.GetPlayerId(), r.GetActionId()
+		h.latency.Add(now, now.Sub(batch[i].admittedAt))
 		status := r.GetStatus()
 		if status == worldv1.CommandStatus_COMMAND_STATUS_DUPLICATE && batch[i].inFailedStep && !h.confirmedLocked(playerID, actionID) {
 			status = worldv1.CommandStatus_COMMAND_STATUS_APPLIED
 		}
 		switch status {
 		case worldv1.CommandStatus_COMMAND_STATUS_APPLIED:
+			h.appliedRate.Add(now)
 			h.confirmLocked(playerID, actionID, h.tick)
 			if batch[i].isDrop() { // los comandos de administración no son gotas
 				h.ledger[h.tick]++
