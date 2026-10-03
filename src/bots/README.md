@@ -2,7 +2,7 @@
 
 Jugadores simulados en Go. Un bot **se hace pasar por un jugador**: entra por el proxy (`/api/*` y `/play`), como cualquier navegador, y nunca llama por gRPC a los servicios internos. Por eso lo que aguantan los bots lo aguanta el sistema de verdad. Contexto: sección «Los bots» de `docs/documento-inicial.md`.
 
-Estado: están el cliente común y los escenarios `neighbors` (vecinos) y `load` (prueba de carga, CP-11). `cheater` (CP-03) y `firefighter` (CP-04) llegan en tareas siguientes (`odd/tasks/bots.md`).
+Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos), `load` (prueba de carga, CP-11), `cheater` (tramposo, CP-03) y `firefighter` (bomberos, CP-04). Falta su servicio en Compose y el CI (`odd/tasks/bots.md`).
 
 ## Estructura
 
@@ -13,6 +13,8 @@ Estado: están el cliente común y los escenarios `neighbors` (vecinos) y `load`
 | `internal/client/` | `API` (acceso del administrador y aprovisionamiento de cuentas) y `Session` (WebSocket `/play`: marcos, pendientes, latencia, reconexión) |
 | `internal/scenario/neighbors/` | Decisiones puras (`Decide`, `PickTile`, `NextDelay`) y el bucle de los bots |
 | `internal/scenario/load/` | Prueba de carga: partes puras (`Percentile`, `BuildReport`, `FormatSummary`) y `Run` |
+| `internal/scenario/cheater/` | Tramposo: partes puras (`BuildFlood`, `BuildDuplicates`, `BuildInvalid`, `FormatSummary`) y `Run` |
+| `internal/scenario/firefighter/` | Bomberos: partes puras (`NextTarget`, `Classify`, `BonusBots`, `BuildReport`) y `Run` |
 
 ## Variables de entorno
 
@@ -20,10 +22,12 @@ Estado: están el cliente común y los escenarios `neighbors` (vecinos) y `load`
 | --- | --- | --- | --- |
 | `HV_BASE_URL` | Sí | — | Dirección del proxy, p. ej. `http://nginx:8080` (plan B) o `http://10.68.17.x:8080` (plan A). `https` usa `wss` para `/play` |
 | `HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD` | Sí, para aprovisionar | — | Cuenta de administrador; solo sirve para crear las cuentas de bots. La contraseña nunca se registra |
-| `BOTS_COUNT` | No | `3` (`30` en `load`) | Número de bots |
-| `BOTS_DURATION` | No | `0` (`60s` en `load`) | Duración (`30s`, `5m`); `0` = hasta que se detenga. En `load` es el tiempo de envío y `0` cae a 60 s |
+| `BOTS_COUNT` | No | `3` (`30` en `load`) | Número de bots. `cheater` usa siempre uno |
+| `BOTS_DURATION` | No | `0` (`60s` en `load`, `10s` en `cheater`, `120s` en `firefighter`) | Duración (`30s`, `5m`); en `neighbors`, `0` = hasta que se detenga. En `load` es el tiempo de envío; en `cheater`, el de la inundación. En esos tres, `0` cae al valor por defecto |
 | `BOTS_RESET` | No | `true` | Solo `load`: al terminar reinicia el valle con `reset_valley`. Con `false` se conserva el valle para inspeccionarlo, pero el modo demo se apaga igual |
-| `BOTS_REPORT_PATH` | No | — | Solo `load`: archivo donde escribir el informe JSON |
+| `BOTS_REPORT_PATH` | No | — | Solo `load`, `cheater` y `firefighter`: archivo donde escribir el informe JSON |
+| `BOTS_FIREFIGHTER_SEED_PLANTS` | No | `false` | Solo `firefighter`: al empezar, cada bot riega 3 casillas propias con 4 gotas cada una para que haya plantas que puedan arder |
+| `BOTS_FIREFIGHTER_BONUS` | No | `5` | Solo `firefighter`: hojas de la extinción que se esperan ver (`catalog.json`: `fire.extinguish_bonus_leaves`); solo sirve para reconocer la subida en las hojas del bot |
 | `BOTS_SEED` | No | aleatoria (se registra al arrancar) | Semilla de las decisiones: misma semilla, mismas elecciones de casilla y mismos tiempos de espera. El orden de llegada de los resultados sigue dependiendo de la red |
 | `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn` o `error` |
 
@@ -70,6 +74,31 @@ Cuenta como «aceptada» lo que el hub resolvió como `applied` o `duplicate`. S
 
 Los bots de carga abren `/play` con `map=false`: solo necesitan el tamaño del valle y los contadores.
 
+## Escenario `cheater` (CP-03, RF-05, RF-06, RF-09)
+
+Un solo bot, una sola conexión y tres fases. Sale con 0 si pasan las tres y con 1 si falla alguna.
+
+1. **Acción repetida (RF-09).** Suelta una gota y reenvía su mismo `action_id` una vez mientras sigue pendiente (el hub la ignora, regla 2 de `CLAUDE.md`) y dos veces después de su resultado final. Pasa si hubo exactamente un `applied` y las dos reenviadas tras el resultado recibieron `duplicate`. Los resultados sin acción pendiente llegan por `Session.Unmatched()`.
+2. **Mensajes inválidos (RF-06).** Envía un JSON mal formado y un marco de `type` desconocido. Pasa si el hub responde `invalid_message` y `unknown_type` y una gota posterior recibe su resultado por la misma conexión.
+3. **Inundación (CP-03, RF-05).** 50 gotas por segundo durante `BOTS_DURATION` (10 s), con horario fijo y casillas al azar. Pasa si en ningún segundo de la ventana el hub admitió más de 15 + 1 gotas, hubo alguna `rate_limited` y todas las acciones tuvieron resultado.
+
+Decisiones:
+
+- **Orden.** El documento describe primero la inundación; aquí va al final porque, fuera del modo demo, cada gota cuesta 1 L y el depósito (20 L) se vacía: sin agua, la fase de acción repetida no vería su `applied`. No se activa el modo demo.
+- **Qué cuenta como admitida.** `applied`, `duplicate`, `rejected` (también `insufficient_water`: el límite la dejó pasar, y CP-03 prueba el límite, no la economía) y `expired`. Informa `accepted_per_second` (admitidas entre la ventana) y `rate_limited`.
+- **Tolerancia de +1.** El hub usa una ventana deslizante (`src/hub/internal/ratelimit`): nunca admite más de 15 en cualquier intervalo de 1 s con su propio reloj. El bot mide con su reloj de envío y en cubos fijos de 1 s, así que la red puede mover una gota al cubo vecino.
+- **Entre fases** espera 1,1 s para que la ventana del límite quede vacía.
+
+## Escenario `firefighter` (CP-04, RF-29, RF-30)
+
+`BOTS_COUNT` bomberos (3 por defecto) vigilan `state.fires` durante `BOTS_DURATION` (120 s). Cuando aparece un incendio, todos sueltan **a la vez** una gota sobre la misma casilla (una ronda; se coordinan en el proceso) y repiten con cada estado nuevo mientras el fuego siga en el estado. Si hay varios, atienden uno por vez (el de menor fila y columna). No usan cifras del catálogo para decidir: solo reaccionan al estado.
+
+- **Cómo terminó.** Con el mapa (`map=true`): si la casilla vuelve a tierra seca (etapa 1) el fuego se consumió (`burn_out_ticks`); si conserva su planta, se apagó.
+- **Bono (indicativo).** Cada bot solo ve sus hojas. Se cuenta cuántos subieron al menos el bono entre que apareció el incendio y que todos recibieron un estado posterior a su desaparición. Debe ser uno. Es una heurística, porque las hojas también suben por crecimiento: cero bots solo da una nota, y más de uno hace fallar.
+- **Humedad.** Informa las diferencias de `humidity_contributed` y `accepted_drops`; fuera del modo demo son solo informativas (la igualdad exacta vale en demo).
+- **Código de salida.** 0 si no hubo incendios (lo dice: «no hubo incendios en la ventana») o si todos los vistos se apagaron. 1 si un incendio atacado se consumió o seguía ardiendo al terminar, o si el bono parece repetido. Un incendio que aparece al final sin tiempo para atacarlo no hace fallar.
+- **Incendios raros.** Solo arden casillas con planta y humedad 0 (50 ppm por tick, fuera del modo demo), así que en una ventana corta puede no haber ninguno. `BOTS_FIREFIGHTER_SEED_PLANTS=true` riega casillas al empezar para que existan plantas, sin garantizar un incendio.
+
 ## Pruebas
 
 Desde `src/bots/`:
@@ -81,7 +110,7 @@ go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 go test -race ./...
 ```
 
-No necesitan Docker ni el sistema: el cliente se prueba contra un servidor `httptest` que simula la API y `/play` (acceso, aprovisionamiento con 429, marcos, pendientes y latencia con reloj falso, 4401, reconexión y reenvío); las decisiones de los vecinos, como funciones puras con generador con semilla; la prueba de carga contra un hub simulado (modo demo, restauración también al interrumpir, resultados sin respuesta, invariante roto) y sus umbrales con casos límite.
+No necesitan Docker ni el sistema: el cliente se prueba contra un servidor `httptest` que simula la API y `/play` (acceso, aprovisionamiento con 429, marcos, pendientes y latencia con reloj falso, 4401, reconexión y reenvío); las decisiones de los vecinos, como funciones puras con generador con semilla; la prueba de carga contra un hub simulado (modo demo, restauración también al interrumpir, resultados sin respuesta, invariante roto) y sus umbrales con casos límite; el tramposo, contra un hub simulado con ventana deslizante, `pending`/`confirmed` y errores (y variantes sin límite, sin control de duplicados y mudo); los bomberos, contra un mundo simulado con un incendio (apagado entre varios bots, con uno solo, consumido, que no se apaga y con bono repetido).
 
 ## Imagen de Docker
 

@@ -32,6 +32,12 @@ type Config struct {
 	// ReportPath es el archivo del informe JSON de la prueba de carga
 	// (BOTS_REPORT_PATH); vacío = sin informe.
 	ReportPath string
+	// SeedPlants (BOTS_FIREFIGHTER_SEED_PLANTS) hace que los bomberos rieguen
+	// unas casillas al empezar para que pueda haber incendios. FireBonus
+	// (BOTS_FIREFIGHTER_BONUS) son las hojas de la extinción que esperan ver;
+	// 0 = el valor del catálogo de arranque (5).
+	SeedPlants bool
+	FireBonus  uint64
 	// LogLevel es el nivel de slog.
 	LogLevel slog.Level
 }
@@ -89,6 +95,20 @@ func Load(getenv func(string) string) (Config, error) {
 			return c, fmt.Errorf("BOTS_DURATION must be a non-negative duration such as 30s or 0, got %q", v)
 		}
 		c.Duration = d
+	}
+	if v := getenv("BOTS_FIREFIGHTER_SEED_PLANTS"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("BOTS_FIREFIGHTER_SEED_PLANTS must be true or false, got %q", v)
+		}
+		c.SeedPlants = b
+	}
+	if v := getenv("BOTS_FIREFIGHTER_BONUS"); v != "" {
+		n, err := strconv.ParseUint(v, 10, 64)
+		if err != nil || n < 1 {
+			return c, fmt.Errorf("BOTS_FIREFIGHTER_BONUS must be a positive integer, got %q", v)
+		}
+		c.FireBonus = n
 	}
 	if v := getenv("BOTS_SEED"); v != "" {
 		n, err := strconv.ParseUint(v, 10, 64)

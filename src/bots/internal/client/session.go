@@ -48,6 +48,17 @@ type Outcome struct {
 // `duplicate` como `applied` (CLAUDE.md).
 func (o Outcome) Applied() bool { return o.Status == "applied" || o.Status == "duplicate" }
 
+// Frame es un marco `result` o `error` del hub que no corresponde a ninguna
+// acción pendiente: el `duplicate` de un reenvío, o el error de un mensaje
+// mal formado o de tipo desconocido. Reason es el motivo de un `rejected` o el
+// code de un `error`.
+type Frame struct {
+	Type     string
+	ActionID string
+	Status   string
+	Reason   string
+}
+
 // SessionConfig configura una PlaySession. Solo BaseURL y Token son
 // obligatorios.
 type SessionConfig struct {
@@ -77,10 +88,11 @@ type pendingAction struct {
 // Session es una sesión de un jugador en /play: envía comandos, lleva sus
 // pendientes, entrega resultados y estados por canales y se reconecta sola.
 type Session struct {
-	cfg      SessionConfig
-	url      string
-	states   chan State
-	outcomes chan Outcome
+	cfg       SessionConfig
+	url       string
+	states    chan State
+	outcomes  chan Outcome
+	unmatched chan Frame
 
 	mu      sync.Mutex
 	conn    *websocket.Conn
@@ -109,11 +121,12 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 		cfg.MaxResendAge = DefaultMaxResendAge
 	}
 	return &Session{
-		cfg:      cfg,
-		url:      u,
-		states:   make(chan State, 1),
-		outcomes: make(chan Outcome, 256),
-		pending:  make(map[string]*pendingAction),
+		cfg:       cfg,
+		url:       u,
+		states:    make(chan State, 1),
+		outcomes:  make(chan Outcome, 256),
+		unmatched: make(chan Frame, 64),
+		pending:   make(map[string]*pendingAction),
 	}, nil
 }
 
@@ -158,6 +171,27 @@ func (s *Session) States() <-chan State { return s.states }
 // Outcomes entrega el resultado final de cada acción. El consumidor debe
 // vaciarlo: con el canal lleno, la lectura de la conexión espera.
 func (s *Session) Outcomes() <-chan Outcome { return s.outcomes }
+
+// Unmatched entrega los marcos `result` y `error` sin acción pendiente. No
+// bloquea: si nadie lo vacía, se descartan los que no caben.
+func (s *Session) Unmatched() <-chan Frame { return s.unmatched }
+
+// SendRaw escribe un marco tal cual, sin registrar nada como pendiente; sirve
+// para probar mensajes mal formados. Sin conexión devuelve ErrNotConnected.
+func (s *Session) SendRaw(frame []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return ErrNotConnected
+	}
+	return s.writeLocked(s.conn, frame)
+}
+
+// ResendDrop reenvía una gota con un action_id ya usado, sin registrarla como
+// pendiente: su resultado (`duplicate`) llega por Unmatched.
+func (s *Session) ResendDrop(id string, x, y uint32) error {
+	return s.SendRaw(encodeDrop(id, x, y))
+}
 
 // Connected dice si hay una conexión abierta.
 func (s *Session) Connected() bool {
@@ -338,13 +372,13 @@ func (s *Session) handle(ctx context.Context, data []byte) {
 		s.publishState(st)
 	case "result":
 		var r resultFrame
-		if jsonUnmarshal(data, &r) == nil {
-			s.resolve(ctx, r.ActionID, r.Status, r.Reason)
+		if jsonUnmarshal(data, &r) == nil && !s.resolve(ctx, r.ActionID, r.Status, r.Reason) {
+			s.publishUnmatched(Frame{Type: "result", ActionID: r.ActionID, Status: r.Status, Reason: r.Reason})
 		}
 	case "error":
 		var e errorFrame
-		if jsonUnmarshal(data, &e) == nil && e.ActionID != "" {
-			s.resolve(ctx, e.ActionID, "error", e.Code)
+		if jsonUnmarshal(data, &e) == nil && !s.resolve(ctx, e.ActionID, "error", e.Code) {
+			s.publishUnmatched(Frame{Type: "error", ActionID: e.ActionID, Reason: e.Code})
 		}
 	}
 }
@@ -365,9 +399,17 @@ func (s *Session) publishState(st State) {
 	}
 }
 
-// resolve cierra una acción pendiente. Un resultado de una acción que ya no
-// está pendiente (p. ej. el `duplicate` de un reenvío) se ignora.
-func (s *Session) resolve(ctx context.Context, id, status, reason string) {
+func (s *Session) publishUnmatched(f Frame) {
+	select {
+	case s.unmatched <- f:
+	default:
+	}
+}
+
+// resolve cierra una acción pendiente y dice si lo era. Un resultado de una
+// acción que ya no está pendiente (p. ej. el `duplicate` de un reenvío) no
+// genera Outcome: el llamador lo publica por Unmatched.
+func (s *Session) resolve(ctx context.Context, id, status, reason string) bool {
 	s.mu.Lock()
 	p, ok := s.pending[id]
 	if ok {
@@ -376,9 +418,10 @@ func (s *Session) resolve(ctx context.Context, id, status, reason string) {
 	now := s.cfg.Now()
 	s.mu.Unlock()
 	if !ok {
-		return
+		return false
 	}
 	s.emit(ctx, Outcome{ActionID: id, Kind: p.kind, Status: status, Reason: reason, Latency: now.Sub(p.sentAt)})
+	return true
 }
 
 func (s *Session) emit(ctx context.Context, o Outcome) {

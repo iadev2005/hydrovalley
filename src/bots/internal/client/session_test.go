@@ -347,3 +347,68 @@ func TestPlayURLSchemeMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestUnmatchedDeliversResultsAndErrorsWithoutAPendingAction(t *testing.T) {
+	h := newFakeHub(t, func(ctx context.Context, c *websocket.Conn, _ int) {
+		_ = c.Write(ctx, websocket.MessageText, []byte(`{"type":"result","action_id":"old","status":"duplicate"}`))
+		_ = c.Write(ctx, websocket.MessageText, []byte(`{"type":"error","code":"unknown_type"}`))
+		<-ctx.Done()
+	})
+	s, _, _ := startSession(t, h, &fakeClock{t: time.Unix(1, 0)}, false)
+	var got []Frame
+	for len(got) < 2 {
+		select {
+		case f := <-s.Unmatched():
+			got = append(got, f)
+		case <-time.After(3 * time.Second):
+			t.Fatalf("timed out, got %+v", got)
+		}
+	}
+	if got[0] != (Frame{Type: "result", ActionID: "old", Status: "duplicate"}) {
+		t.Fatalf("unexpected first frame %+v", got[0])
+	}
+	if got[1] != (Frame{Type: "error", Reason: "unknown_type"}) {
+		t.Fatalf("unexpected second frame %+v", got[1])
+	}
+}
+
+func TestSendRawAndResendDropWriteWithoutRegisteringPending(t *testing.T) {
+	frames := make(chan map[string]any, 4)
+	raw := make(chan string, 1)
+	h := newFakeHub(t, func(ctx context.Context, c *websocket.Conn, _ int) {
+		_, data, err := c.Read(ctx)
+		if err == nil {
+			raw <- string(data)
+		}
+		frames <- readFrame(t, ctx, c)
+		<-ctx.Done()
+	})
+	s, _, _ := startSession(t, h, &fakeClock{t: time.Unix(1, 0)}, false)
+	waitFor(t, s.Connected)
+	if err := s.SendRaw([]byte("{not json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResendDrop("abc", 2, 5); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-raw; got != "{not json" {
+		t.Fatalf("raw frame = %q", got)
+	}
+	f := <-frames
+	if f["type"] != "drop" || f["action_id"] != "abc" || f["x"] != float64(2) || f["y"] != float64(5) {
+		t.Fatalf("unexpected resend %v", f)
+	}
+	if s.PendingCount() != 0 {
+		t.Fatalf("pending = %d, want 0", s.PendingCount())
+	}
+}
+
+func TestSendRawWhileDisconnectedFails(t *testing.T) {
+	s, err := NewSession(SessionConfig{BaseURL: "http://127.0.0.1:1", Token: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SendRaw([]byte("x")); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("SendRaw = %v, want ErrNotConnected", err)
+	}
+}
