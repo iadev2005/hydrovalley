@@ -2,8 +2,15 @@ import { Writable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { ADMIN_LIMIT_PER_ADMIN, BOT_HASH_CONCURRENCY } from "../src/limits.js";
-import { createPasswordService, type PasswordService } from "../src/passwords.js";
+import {
+  ADMIN_LIMIT_PER_ADMIN,
+  BOT_HASH_CONCURRENCY,
+  BOT_NAME_ATTEMPTS,
+} from "../src/limits.js";
+import {
+  createPasswordService,
+  type PasswordService,
+} from "../src/passwords.js";
 import { createAttemptLimiter } from "../src/rate-limit.js";
 import { UsernameTakenError } from "../src/account-directory.js";
 import { createTokenService, createTokenVerifier } from "../src/tokens.js";
@@ -21,7 +28,10 @@ const tokens = createTokenService({
   ttlSeconds: 43200,
   now: () => NOW,
 });
-const verifier = createTokenVerifier({ publicKey: keys.publicKey, now: () => NOW });
+const verifier = createTokenVerifier({
+  publicKey: keys.publicKey,
+  now: () => NOW,
+});
 
 let realPasswords: PasswordService;
 beforeAll(async () => {
@@ -38,7 +48,9 @@ describe("POST /api/admin/bot-accounts", () => {
   let adminToken: string;
   let playerToken: string;
 
-  async function setup(options: { limit?: number; hashDelayMs?: number; real?: boolean } = {}) {
+  async function setup(
+    options: { limit?: number; hashDelayMs?: number; real?: boolean } = {},
+  ) {
     accounts = new FakeAccountDirectory();
     logs = [];
     hashed = [];
@@ -75,9 +87,20 @@ describe("POST /api/admin/bot-accounts", () => {
       undefined,
       { accounts, passwords, tokens, verifier, adminLimiter: limiter },
     );
-    adminToken = (await tokens.issue({ playerId: ADMIN_ID, username: "root", role: "admin" })).token;
-    playerToken = (await tokens.issue({ playerId: PLAYER_ID, username: "ana", role: "player" }))
-      .token;
+    adminToken = (
+      await tokens.issue({
+        playerId: ADMIN_ID,
+        username: "root",
+        role: "admin",
+      })
+    ).token;
+    playerToken = (
+      await tokens.issue({
+        playerId: PLAYER_ID,
+        username: "ana",
+        role: "player",
+      })
+    ).token;
     return app;
   }
 
@@ -90,7 +113,9 @@ describe("POST /api/admin/bot-accounts", () => {
       method: "POST",
       url: "/api/admin/bot-accounts",
       payload: body as object,
-      ...(token === null ? {} : { headers: { authorization: `Bearer ${token}` } }),
+      ...(token === null
+        ? {}
+        : { headers: { authorization: `Bearer ${token}` } }),
     });
 
   afterEach(async () => {
@@ -103,7 +128,12 @@ describe("POST /api/admin/bot-accounts", () => {
     const res = await post({ count: 3 });
     expect(res.statusCode).toBe(201);
     const body = res.json<{
-      accounts: { player_id: string; username: string; token: string; expires_at: string }[];
+      accounts: {
+        player_id: string;
+        username: string;
+        token: string;
+        expires_at: string;
+      }[];
     }>();
     expect(body.accounts).toHaveLength(3);
     expect(accounts.calls.register).toBe(3);
@@ -112,7 +142,11 @@ describe("POST /api/admin/bot-accounts", () => {
       expect(a.username).toMatch(NAME);
       expect(a.expires_at).toBe(new Date(NOW + 43200_000).toISOString());
       const verified = await verifier.verify(a.token);
-      expect(verified).toEqual({ playerId: a.player_id, username: a.username, role: "player" });
+      expect(verified).toEqual({
+        playerId: a.player_id,
+        username: a.username,
+        role: "player",
+      });
     }
   });
 
@@ -122,14 +156,12 @@ describe("POST /api/admin/bot-accounts", () => {
     expect(res.statusCode).toBe(201);
     const stored = [...accounts.accounts.values()].map((a) => a.passwordHash);
     expect(stored).toHaveLength(2);
-    for (const h of stored) expect(h).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);
+    for (const h of stored)
+      expect(h).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);
     expect(stored[0]).not.toBe(stored[1]);
-    expect(Object.keys(res.json<{ accounts: object[] }>().accounts[0] ?? {}).sort()).toEqual([
-      "expires_at",
-      "player_id",
-      "token",
-      "username",
-    ]);
+    expect(
+      Object.keys(res.json<{ accounts: object[] }>().accounts[0] ?? {}).sort(),
+    ).toEqual(["expires_at", "player_id", "token", "username"]);
   });
 
   it("does not log passwords", async () => {
@@ -146,9 +178,9 @@ describe("POST /api/admin/bot-accounts", () => {
     await setup();
     const res = await post({ count: 1, prefix: "load.test_1" });
     expect(res.statusCode).toBe(201);
-    expect(res.json<{ accounts: { username: string }[] }>().accounts[0]?.username).toMatch(
-      /^load\.test_1-[0-9a-f]{8}$/,
-    );
+    expect(
+      res.json<{ accounts: { username: string }[] }>().accounts[0]?.username,
+    ).toMatch(/^load\.test_1-[0-9a-f]{8}$/);
   });
 
   it("answers 401 without a token or with an invalid one", async () => {
@@ -209,17 +241,101 @@ describe("POST /api/admin/bot-accounts", () => {
     expect(res.statusCode).toBe(201);
     expect(seen).toHaveLength(2);
     expect(seen[0]).not.toBe(seen[1]);
-    expect(res.json<{ accounts: { username: string }[] }>().accounts[0]?.username).toBe(seen[1]);
+    expect(
+      res.json<{ accounts: { username: string }[] }>().accounts[0]?.username,
+    ).toBe(seen[1]);
   });
 
-  it("gives up with 503 after bounded attempts when every name is taken", async () => {
+  it("gives up with 500 after exactly BOT_NAME_ATTEMPTS attempts when every name is taken", async () => {
     await setup();
     accounts.registerError = new UsernameTakenError();
     const res = await post({ count: 1 });
-    expect(res.statusCode).toBe(503);
+    expect(res.statusCode).toBe(500);
     expect(res.json()).toMatchObject({ created: 0 });
-    expect(accounts.calls.register).toBeLessThanOrEqual(10);
-    expect(accounts.calls.register).toBeGreaterThan(1);
+    expect(accounts.calls.register).toBe(BOT_NAME_ATTEMPTS);
+  });
+
+  it("counts an account as created even when signing its token fails, and answers 500", async () => {
+    await setup();
+    let issued = 0;
+    const realIssue = tokens.issue.bind(tokens);
+    const failing = {
+      issue: (claims: Parameters<typeof realIssue>[0]) => {
+        issued++;
+        return issued === 2
+          ? Promise.reject(new Error("sign failed"))
+          : realIssue(claims);
+      },
+    };
+    await app?.close();
+    app = await buildApp(
+      {
+        logger: {
+          level: "debug",
+          stream: new Writable({
+            write: (_c, _e, d) => {
+              d();
+            },
+          }),
+        },
+      },
+      undefined,
+      undefined,
+      {
+        accounts,
+        passwords: { hash: (p) => Promise.resolve(`$argon2id$fake$${p}`) },
+        tokens: failing,
+        verifier,
+        adminLimiter: createAttemptLimiter({
+          limit: 1000,
+          windowMs: 60_000,
+          now: () => NOW,
+        }),
+      },
+    );
+    const res = await post({ count: 6 });
+    expect(res.statusCode).toBe(500);
+    const body = res.json<{ created: number; error: string }>();
+    expect(body.created).toBe(accounts.accounts.size);
+    expect(body.created).toBeGreaterThanOrEqual(2);
+    expect(body.error).not.toMatch(/sign failed/);
+    expect(res.body).not.toMatch(/eyJ/);
+  });
+
+  it("answers 500 with created when hashing fails", async () => {
+    await setup();
+    await app?.close();
+    app = await buildApp({ logger: false }, undefined, undefined, {
+      accounts,
+      passwords: { hash: () => Promise.reject(new Error("hash exploded")) },
+      tokens,
+      verifier,
+      adminLimiter: createAttemptLimiter({
+        limit: 1000,
+        windowMs: 60_000,
+        now: () => NOW,
+      }),
+    });
+    const res = await post({ count: 3 });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ created: 0 });
+    expect(res.body).not.toMatch(/exploded/);
+  });
+
+  it("passes other framework 4xx errors through with a generic message", async () => {
+    await setup();
+    const res = await running().inject({
+      method: "POST",
+      url: "/api/admin/bot-accounts",
+      payload: JSON.stringify({ count: 1, prefix: "a".repeat(2_000_000) }),
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+        "content-type": "application/json",
+      },
+    });
+    expect(res.statusCode).toBe(413);
+    expect(res.json<{ error: string }>().error).not.toMatch(/count/);
+    expect(accounts.calls.register).toBe(0);
   });
 
   it("answers 503 with the created count, no tokens and no retry when persistence fails midway", async () => {
@@ -264,19 +380,25 @@ describe("POST /api/admin/bot-accounts", () => {
 
   it("limits requests per admin with 429 and Retry-After, after authenticating", async () => {
     await setup({ limit: 2 });
+    // Los tokens inválidos van primero: si gastaran cupo, las dos siguientes fallarían.
+    for (let i = 0; i < 5; i++)
+      expect((await post({ count: 1 }, "nope")).statusCode).toBe(401);
     expect((await post({ count: 1 })).statusCode).toBe(201);
     expect((await post({ count: 1 })).statusCode).toBe(201);
     const limited = await post({ count: 1 });
     expect(limited.statusCode).toBe(429);
     expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
-    // Un token inválido no consume el cupo del administrador.
-    expect((await post({ count: 1 }, "nope")).statusCode).toBe(401);
   });
 
   it("documents the route in OpenAPI with the admin limit", async () => {
     await setup();
-    const doc = (await running().inject({ method: "GET", url: "/api/docs/json" })).json<{
-      paths: Record<string, { post?: { description?: string; security?: unknown } }>;
+    const doc = (
+      await running().inject({ method: "GET", url: "/api/docs/json" })
+    ).json<{
+      paths: Record<
+        string,
+        { post?: { description?: string; security?: unknown } }
+      >;
     }>();
     const op = doc.paths["/api/admin/bot-accounts"]?.post;
     expect(op?.security).toEqual([{ bearerAuth: [] }]);

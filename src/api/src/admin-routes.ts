@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import {
   type AccountDirectory,
+  type AccountRole,
   DirectoryUnavailableError,
   UsernameTakenError,
 } from "./account-directory.js";
@@ -44,14 +45,28 @@ const MESSAGES = {
     "La solicitud no es válida: count debe ser un entero de 1 a 100 y prefix, si se indica, de 1 a 23 caracteres A-Z a-z 0-9 _ . -",
   unavailable:
     "No se pudieron crear todas las cuentas porque el servicio de cuentas no está disponible. Las ya creadas no se devuelven.",
-  tooMany: "Demasiadas solicitudes. Espera un momento antes de volver a intentarlo.",
-  internal: "Error interno",
+  tooMany:
+    "Demasiadas solicitudes. Espera un momento antes de volver a intentarlo.",
+  invalidRequest: "La solicitud no es válida",
+  internal:
+    "Error interno al crear las cuentas. Las ya creadas no se devuelven.",
+  internalPlain: "Error interno",
 } as const;
 
 const errorSchema = {
   type: "object",
   properties: { error: { type: "string" } },
   required: ["error"],
+  additionalProperties: false,
+} as const;
+
+const partialSchema = {
+  type: "object",
+  properties: {
+    error: { type: "string" },
+    created: { type: "integer", minimum: 0 },
+  },
+  required: ["error", "created"],
   additionalProperties: false,
 } as const;
 
@@ -91,7 +106,11 @@ const botAccountsSchema = {
               player_id: { type: "string", format: "uuid" },
               username: { type: "string" },
               token: { type: "string" },
-              expires_at: { type: "string", format: "date-time", description: "ISO 8601 en UTC" },
+              expires_at: {
+                type: "string",
+                format: "date-time",
+                description: "ISO 8601 en UTC",
+              },
             },
             required: ["player_id", "username", "token", "expires_at"],
             additionalProperties: false,
@@ -105,13 +124,16 @@ const botAccountsSchema = {
     401: { description: "Falta el token o no es válido", ...errorSchema },
     403: { description: "El token no es de un administrador", ...errorSchema },
     429: { description: "Demasiadas solicitudes", ...errorSchema },
-    500: { description: "Error interno", ...errorSchema },
+    413: { description: "Cuerpo demasiado grande", ...errorSchema },
+    500: {
+      description:
+        "Error interno a mitad; `created` cuenta las cuentas ya creadas",
+      ...partialSchema,
+    },
     503: {
-      description: "La persistencia falló a mitad; `created` cuenta las cuentas ya creadas",
-      type: "object",
-      properties: { error: { type: "string" }, created: { type: "integer", minimum: 0 } },
-      required: ["error", "created"],
-      additionalProperties: false,
+      description:
+        "La persistencia no estuvo disponible a mitad; `created` cuenta las cuentas ya creadas",
+      ...partialSchema,
     },
   },
 } as const;
@@ -139,14 +161,19 @@ function randomPassword(): string {
 
 export const adminRoutes: FastifyPluginAsync<AdminDeps> = (app, deps) => {
   app.setErrorHandler(
-    (err: Error & { validation?: readonly unknown[]; statusCode?: number }, req, reply) => {
-      if (err.validation) return reply.code(400).send({ error: MESSAGES.invalidBody });
+    (
+      err: Error & { validation?: readonly unknown[]; statusCode?: number },
+      req,
+      reply,
+    ) => {
+      if (err.validation)
+        return reply.code(400).send({ error: MESSAGES.invalidBody });
       const status = err.statusCode;
       if (status !== undefined && status >= 400 && status < 500) {
-        return reply.code(400).send({ error: MESSAGES.invalidBody });
+        return reply.code(status).send({ error: MESSAGES.invalidRequest });
       }
       req.log.error({ err }, "unexpected error");
-      return reply.code(500).send({ error: MESSAGES.internal });
+      return reply.code(500).send({ error: MESSAGES.internalPlain });
     },
   );
 
@@ -154,14 +181,16 @@ export const adminRoutes: FastifyPluginAsync<AdminDeps> = (app, deps) => {
   // un token inválido no consume cupo de nadie.
   app.addHook("onRequest", async (req: FastifyRequest, reply: FastifyReply) => {
     const token = bearerToken(req);
-    const player = token === undefined ? null : await deps.verifier.verify(token);
+    const player =
+      token === undefined ? null : await deps.verifier.verify(token);
     if (!player) {
       return reply
         .code(401)
         .header("WWW-Authenticate", 'Bearer realm="hydrovalley"')
         .send({ error: MESSAGES.unauthorized });
     }
-    if (player.role !== "admin") return reply.code(403).send({ error: MESSAGES.forbidden });
+    if (player.role !== "admin")
+      return reply.code(403).send({ error: MESSAGES.forbidden });
     const attempt = deps.adminLimiter.hit(player.playerId);
     if (!attempt.allowed) {
       return reply
@@ -176,26 +205,38 @@ export const adminRoutes: FastifyPluginAsync<AdminDeps> = (app, deps) => {
    * `BOT_NAME_ATTEMPTS`). `Register` no es idempotente: ante cualquier otro
    * error no se reintenta y el error sube.
    */
-  async function createAccount(prefix: string): Promise<BotAccount> {
+  async function createAccount(
+    prefix: string,
+    onRegistered: () => void,
+  ): Promise<BotAccount> {
     const passwordHash = await deps.passwords.hash(randomPassword());
     for (let attempt = 1; ; attempt++) {
       const username = botName(prefix);
+      let registered: { playerId: string; role: AccountRole };
       try {
-        const account = await deps.accounts.register(username, passwordHash);
-        const { token, expiresAt } = await deps.tokens.issue({
-          playerId: account.playerId,
-          username,
-          role: account.role,
-        });
-        return {
-          player_id: account.playerId,
-          username,
-          token,
-          expires_at: expiresAt.toISOString(),
-        };
+        registered = await deps.accounts.register(username, passwordHash);
       } catch (err) {
-        if (!(err instanceof UsernameTakenError) || attempt >= BOT_NAME_ATTEMPTS) throw err;
+        if (
+          !(err instanceof UsernameTakenError) ||
+          attempt >= BOT_NAME_ATTEMPTS
+        )
+          throw err;
+        continue;
       }
+      // La cuenta ya existe: se cuenta antes de firmar, para que `created`
+      // refleje lo persistido aunque la firma falle.
+      onRegistered();
+      const { token, expiresAt } = await deps.tokens.issue({
+        playerId: registered.playerId,
+        username,
+        role: registered.role,
+      });
+      return {
+        player_id: registered.playerId,
+        username,
+        token,
+        expires_at: expiresAt.toISOString(),
+      };
     }
   }
 
@@ -205,6 +246,7 @@ export const adminRoutes: FastifyPluginAsync<AdminDeps> = (app, deps) => {
     async (req, reply) => {
       const { count, prefix = DEFAULT_PREFIX } = req.body;
       const accounts: BotAccount[] = [];
+      let created = 0;
       let failure: unknown;
 
       // Reserva de trabajo: cada trabajador toma la siguiente cuenta mientras
@@ -214,23 +256,34 @@ export const adminRoutes: FastifyPluginAsync<AdminDeps> = (app, deps) => {
         while (failure === undefined && next < count) {
           next++;
           try {
-            accounts.push(await createAccount(prefix));
+            accounts.push(
+              await createAccount(prefix, () => {
+                created++;
+              }),
+            );
           } catch (err) {
             failure ??= err;
           }
         }
       };
       await Promise.all(
-        Array.from({ length: Math.min(BOT_HASH_CONCURRENCY, count) }, () => worker()),
+        Array.from({ length: Math.min(BOT_HASH_CONCURRENCY, count) }, () =>
+          worker(),
+        ),
       );
 
       if (failure !== undefined) {
-        if (failure instanceof DirectoryUnavailableError || failure instanceof UsernameTakenError) {
-          req.log.warn({ err: String(failure), created: accounts.length }, "bot provisioning failed");
-        } else {
-          req.log.error({ err: failure, created: accounts.length }, "bot provisioning failed");
+        // Solo la indisponibilidad de la persistencia es un 503; hash, firma,
+        // nombres agotados o cualquier otro fallo es un error nuestro (500).
+        if (failure instanceof DirectoryUnavailableError) {
+          req.log.warn(
+            { err: failure.message, created },
+            "bot provisioning failed",
+          );
+          return reply.code(503).send({ error: MESSAGES.unavailable, created });
         }
-        return reply.code(503).send({ error: MESSAGES.unavailable, created: accounts.length });
+        req.log.error({ err: failure, created }, "bot provisioning failed");
+        return reply.code(500).send({ error: MESSAGES.internal, created });
       }
       return reply.code(201).send({ accounts });
     },
