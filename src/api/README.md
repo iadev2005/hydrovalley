@@ -1,6 +1,6 @@
 # API
 
-Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con token firmado, y atiende el ranking y el reporte de las 3R por REST, documentado con Swagger (RES-04); falta el catálogo. Por ahora expone la salud del proceso, el registro, el acceso, el ranking, el reporte y la página de Swagger (ver [Pendiente](#pendiente)).
+Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con token firmado, y atiende el ranking y el reporte de las 3R por REST, documentado con Swagger (RES-04); falta el catálogo. Por ahora expone la salud del proceso, el registro, el acceso, el ranking, el reporte, el estado del sistema y la página de Swagger (ver [Pendiente](#pendiente)).
 
 ## Por qué Fastify
 
@@ -23,10 +23,14 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | `src/grpc-account-directory.ts` | Adaptador gRPC de `AccountService` |
 | `src/grpc-ranking-source.ts` | Adaptador gRPC de `WorldService.GetRanking` (`WORLD_ADDR`) |
 | `src/grpc-report-source.ts` | Adaptador gRPC de `ReportService.GetReport` (`PERSISTENCE_ADDR`) |
+| `src/system-routes.ts` | `GET /api/system`: límite por IP, esquema OpenAPI y respuesta del panel del sistema |
+| `src/system-status.ts` | Agregador del panel: consultas en paralelo, copia de 1 s y una sola agregación en curso |
+| `src/hub-stats.ts` | Cliente de `GET /stats` del hub (`HUB_STATS_ADDR`): valida la forma y copia solo los campos conocidos |
+| `src/grpc-health.ts` | Cliente de `grpc.health.v1.Health/Check` descrito a mano (sin código generado), con plazo de 1 s y sin reintento |
 | `src/passwords.ts` | Argon2id (`@node-rs/argon2`) y hash de relleno |
 | `src/tokens.ts` | Firma y verificación del JWT EdDSA con `jose` |
 | `src/rate-limit.ts` | Limitador de intentos en memoria (ventana fija) |
-| `src/limits.ts` | Constantes de los límites (acceso, registro, vigencia máxima del token); las usan `main.ts`, OpenAPI y este README |
+| `src/limits.ts` | Constantes de los límites (acceso, registro, panel, vigencia máxima del token); las usan `main.ts`, OpenAPI y este README |
 | `src/gen/` | Copia local del código generado desde `proto/` (no se versiona; ver [Código generado](#código-generado)) |
 | `src/main.ts` | Proceso: escucha y se detiene con SIGINT o SIGTERM |
 | `src/healthcheck.ts` | Comprobación del `HEALTHCHECK` de Docker (la imagen no trae curl) |
@@ -40,6 +44,7 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | `API_LISTEN` | No | `0.0.0.0:3000` | Dirección y puerto del HTTP (`host:puerto`, `:puerto` o `[ipv6]:puerto`) |
 | `PERSISTENCE_ADDR` | Sí | — | `host:puerto` del gRPC de la persistencia (plan B: `persistence:50051`; plan A: `10.68.17.x:50051`). Sin valor por defecto: ninguna dirección va en el código |
 | `WORLD_ADDR` | Sí | — | `host:puerto` del gRPC del simulador, para el ranking (plan B: `world:50051`; plan A: `10.68.17.x:50051`). Sin valor por defecto: ninguna dirección va en el código |
+| `HUB_STATS_ADDR` | Sí | — | `host:puerto` del HTTP interno del hub (`/stats`), para `GET /api/system` (plan B: `hub:8081`; plan A: `10.68.17.x:8081`). Sin valor por defecto: ninguna dirección va en el código |
 | `TOKEN_PRIVATE_KEY` | Sí | — | Clave privada Ed25519 en PKCS#8 con la que se firman los tokens. Se admite el PEM tal cual, con los saltos de línea escritos como `\n`, o **el base64 del PEM completo** (una sola línea, a salvo de las comillas de un `.env`). Si falta o no es Ed25519, el arranque se detiene con un mensaje que nombra la variable, sin repetir el valor |
 | `TOKEN_TTL_SECONDS` | No | `43200` (12 h) | Vigencia del token, en segundos: entero positivo de como máximo `604800` (7 días); un valor mayor detiene el arranque |
 | `TOKEN_KEY_ID` | No | — | Se escribe como `kid` en la cabecera del token |
@@ -68,6 +73,7 @@ base64 < token-private.pem | tr -d '\n'
 | `POST /api/auth/login` | `200 {"token", "expires_at"}` (ISO 8601 en UTC); `400` cuerpo mal formado; `401` usuario o contraseña incorrectos; `429` demasiados intentos; `503` persistencia no disponible |
 | `GET /api/ranking?limit=N` | `200 {"tick", "entries": [{"rank", "player_id", "username", "leaves_earned"}]}`; `400` parámetros no válidos; `401` sin token o inválido; `429` demasiadas consultas; `503` el simulador no está disponible |
 | `GET /api/report?scope=me\|global&from_tick=&to_tick=` | `200 {"scope", "player_id" (solo `me`), "epoch", "from_tick", "to_tick", "totals": {…}}`; `400` parámetros no válidos; `401`; `404` sin instantáneas o sin cuenta; `429`; `503` |
+| `GET /api/system` | `200 {"generated_at", "services": [{"name", "status": "up"\|"down", "detail"?}], "hub": {…} \| null}`; sin token; `429` demasiadas consultas. Ver [Estado del sistema](#estado-del-sistema) |
 | `POST /api/admin/bot-accounts` | `201 {"accounts": [{"player_id", "username", "token", "expires_at"}]}`; `400` datos no válidos; `401` sin token o inválido; `403` el token no es de administrador; `429` demasiadas solicitudes; `413` cuerpo demasiado grande; `500`/`503 {"error", "created"}` fallo a mitad (sin tokens) |
 | `GET /api/docs` | Página de Swagger UI |
 | `GET /api/docs/json` | Documento OpenAPI 3.1 |
@@ -162,6 +168,37 @@ docker run --rm -p 3000:3000 \
 ```
 
 Genera el código de `proto/` con `bufbuild/buf` (necesita acceso a buf.build), compila con `node:22-trixie-slim`, instala solo las dependencias de producción y se ejecuta con el usuario `node`, sin privilegios. `HEALTHCHECK` ejecuta `node dist/healthcheck.js`. `Dockerfile.dockerignore` limita el contexto a los archivos de este servicio.
+
+## Estado del sistema
+
+`GET /api/system` alimenta el panel del sistema (RNF-08, *Health Endpoint Monitoring*). Es de solo lectura, no pide token y comparte nginx con el resto de `/api`. Siempre responde `200`: lo que no contesta sale en rojo, nunca tumba la respuesta.
+
+- **Servicios:** `nginx` y `api` salen `up` por construcción (la petición llegó hasta aquí). `hub` sale `down` si `GET http://HUB_STATS_ADDR/stats` agota 1 s, responde distinto de 200 o devuelve un JSON que no encaja. `world` y `persistence` salen `down` si `grpc.health.v1.Health/Check` da `NOT_SERVING`, un error o agota 1 s (sin reintento). Se consulta el servicio `hydrovalley.world.v1.WorldService` en `WORLD_ADDR` y el estado general (`""`) en `PERSISTENCE_ADDR`, que la persistencia marca `SERVING` solo con la base de datos lista.
+- **`detail`:** motivo corto y seguro, solo si está caído: `timeout`, `unavailable`, `not_serving`, `error`, `http_503`, `invalid_response`. Nunca trazas ni direcciones.
+- **`hub`:** los campos de `/stats` del hub (ver su README), validados y copiados uno a uno; los enteros de 64 bits siguen siendo texto. Es `null` si el hub está caído.
+- **Copia de 1 s:** las tres consultas van en paralelo; el resultado se guarda 1 s en memoria y las peticiones simultáneas comparten una sola agregación, así que muchos visores no multiplican las llamadas internas.
+- **Límite:** 120 por minuto por IP (`SYSTEM_LIMIT_PER_IP` en `src/limits.ts`; el panel consulta cada 2 s), en memoria y por instancia, con `429` y `Retry-After`.
+
+Ejemplo (world parado):
+
+```json
+{
+  "generated_at": "2026-10-03T12:00:00.000Z",
+  "services": [
+    { "name": "nginx", "status": "up" },
+    { "name": "api", "status": "up" },
+    { "name": "hub", "status": "up" },
+    { "name": "world", "status": "down", "detail": "unavailable" },
+    { "name": "persistence", "status": "up" }
+  ],
+  "hub": { "tick": "1234", "paused": true, "breaker": "open", "queue": 12, "sessions": 6, "goroutines": 25,
+    "actions_per_second": { "admitted": 1.1, "applied": 0, "window_seconds": 10 },
+    "latency_ms": { "p50": 77.8, "p95": 107.3, "samples": 11 },
+    "step_ms": { "last": 200, "p95": 200, "failures_total": 3 },
+    "humidity_total": "12345", "humidity_contributed": "99", "accepted_drops": "42",
+    "active_fires": 2, "boot_id": "6f1c2f6e-0000-4000-8000-000000000001", "generated_at": "2026-10-03T12:00:00Z" }
+}
+```
 
 ## Pendiente
 

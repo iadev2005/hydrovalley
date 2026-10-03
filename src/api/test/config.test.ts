@@ -7,6 +7,7 @@ const { pem } = makeKeyPair();
 const REQUIRED = {
   PERSISTENCE_ADDR: "persistence:50051",
   WORLD_ADDR: "world:50051",
+  HUB_STATS_ADDR: "hub:8081",
   TOKEN_PRIVATE_KEY: pem,
 };
 
@@ -114,6 +115,26 @@ describe("loadConfig WORLD_ADDR", () => {
     "rejects the invalid value %j",
     (value) => {
       expect(() => loadConfig({ ...REQUIRED, WORLD_ADDR: value })).toThrow(/WORLD_ADDR/);
+    },
+  );
+});
+
+describe("loadConfig HUB_STATS_ADDR", () => {
+  it("is required and has no default host", () => {
+    const rest = Object.fromEntries(
+      Object.entries(REQUIRED).filter(([name]) => name !== "HUB_STATS_ADDR"),
+    );
+    expect(() => loadConfig(rest)).toThrow(/HUB_STATS_ADDR/);
+  });
+
+  it("reads host:port as is", () => {
+    expect(loadConfig(REQUIRED).hubStatsAddr).toBe("hub:8081");
+  });
+
+  it.each(["hub", "host:", ":8081", "host:0", "host:70000", "http://host:8081", "a b:1"])(
+    "rejects the invalid value %j",
+    (value) => {
+      expect(() => loadConfig({ ...REQUIRED, HUB_STATS_ADDR: value })).toThrow(/HUB_STATS_ADDR/);
     },
   );
 });

@@ -6,6 +6,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import { type AdminDeps, adminRoutes } from "./admin-routes.js";
 import { type AuthDeps, authRoutes } from "./auth-routes.js";
 import { type ReadDeps, readRoutes } from "./read-routes.js";
+import { type SystemDeps, systemRoutes } from "./system-routes.js";
 
 const healthSchema = {
   summary: "Estado del proceso",
@@ -36,6 +37,7 @@ export async function buildApp(
   auth?: AuthDeps,
   read?: ReadDeps,
   admin?: AdminDeps,
+  system?: SystemDeps,
 ): Promise<FastifyInstance> {
   // Sin coerción de tipos: un número no se acepta como nombre de usuario.
   const app = Fastify({
@@ -90,6 +92,10 @@ export async function buildApp(
 
   if (admin) {
     await app.register(adminRoutes, admin);
+  }
+
+  if (system) {
+    await app.register(systemRoutes, system);
   }
 
   // TODO: catálogo.

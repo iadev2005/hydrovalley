@@ -18,6 +18,8 @@ export interface Config extends ListenConfig {
   persistenceAddr: string;
   /** `host:puerto` del simulador del valle (gRPC), de `WORLD_ADDR`. */
   worldAddr: string;
+  /** `host:puerto` del HTTP interno del hub (`/stats`), de `HUB_STATS_ADDR`. */
+  hubStatsAddr: string;
   /** Clave privada Ed25519 con la que se firman los tokens. */
   tokenPrivateKey: KeyObject;
   /** Identificador de la clave (`kid`), opcional. */
@@ -114,8 +116,8 @@ function required(env: Env, name: string): string {
 }
 
 /**
- * Configuración completa: lo de `loadListenConfig` más `PERSISTENCE_ADDR` y
- * `WORLD_ADDR` (obligatorias, sin valor por defecto), `TOKEN_PRIVATE_KEY` (obligatoria),
+ * Configuración completa: lo de `loadListenConfig` más `PERSISTENCE_ADDR`,
+ * `WORLD_ADDR` y `HUB_STATS_ADDR` (obligatorias, sin valor por defecto), `TOKEN_PRIVATE_KEY` (obligatoria),
  * `TOKEN_TTL_SECONDS` (por defecto 43200, máximo 604800), `TOKEN_KEY_ID` y `TRUST_PROXY`.
  */
 export function loadConfig(env: Env): Config {
@@ -123,6 +125,7 @@ export function loadConfig(env: Env): Config {
   const persistenceAddr = parseAddress("PERSISTENCE_ADDR", required(env, "PERSISTENCE_ADDR"));
   const worldAddr = parseAddress("WORLD_ADDR", required(env, "WORLD_ADDR"));
   const tokenPrivateKey = parsePrivateKey("TOKEN_PRIVATE_KEY", required(env, "TOKEN_PRIVATE_KEY"));
+  const hubStatsAddr = parseAddress("HUB_STATS_ADDR", required(env, "HUB_STATS_ADDR"));
 
   const ttl = env.TOKEN_TTL_SECONDS;
   if (ttl !== undefined && !/^[1-9]\d*$/.test(ttl)) {
@@ -152,6 +155,7 @@ export function loadConfig(env: Env): Config {
     ...listen,
     persistenceAddr,
     worldAddr,
+    hubStatsAddr,
     tokenPrivateKey,
     tokenKeyId:
       env.TOKEN_KEY_ID === undefined || env.TOKEN_KEY_ID === "" ? undefined : env.TOKEN_KEY_ID,
