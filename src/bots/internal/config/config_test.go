@@ -96,3 +96,20 @@ func TestWithLoadDefaultsOnlyFillsWhatWasNotSet(t *testing.T) {
 		t.Fatalf("a load test needs a duration, 0 falls back to 60 s, got %v", c.Duration)
 	}
 }
+
+func TestLoadFirefighterVariables(t *testing.T) {
+	c, err := Load(env(map[string]string{"HV_BASE_URL": "http://x"}))
+	if err != nil || c.SeedPlants || c.FireBonus != 0 {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	c, err = Load(env(map[string]string{"HV_BASE_URL": "http://x", "BOTS_FIREFIGHTER_SEED_PLANTS": "true", "BOTS_FIREFIGHTER_BONUS": "7"}))
+	if err != nil || !c.SeedPlants || c.FireBonus != 7 {
+		t.Fatalf("parsed: %+v %v", c, err)
+	}
+	for name, v := range map[string]string{"BOTS_FIREFIGHTER_SEED_PLANTS": "maybe", "BOTS_FIREFIGHTER_BONUS": "0"} {
+		_, err := Load(env(map[string]string{"HV_BASE_URL": "http://x", name: v}))
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s: want error naming the variable, got %v", name, err)
+		}
+	}
+}
