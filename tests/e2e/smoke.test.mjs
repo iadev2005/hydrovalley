@@ -270,6 +270,35 @@ describe("walking skeleton (CP-01-lite)", () => {
   });
 });
 
+// Panel del sistema (RNF-08): la API agrega el estado de los servicios y las
+// cifras del hub, y nginx sirve la página. El hub y los demás servicios pueden
+// tardar unos segundos en responder tras arrancar, así que se espera.
+describe("system panel (RNF-08)", () => {
+  before(waitForHealthyStack);
+
+  it("answers /api/system with the five services up and the hub stats", async () => {
+    const body = await eventually("every service up in /api/system", READY_TIMEOUT_MS, async () => {
+      const res = await fetch(`${BASE_URL}/api/system`);
+      assert.equal(res.status, 200);
+      const json = await res.json();
+      return json.services.every((s) => s.status === "up") && json.hub ? json : undefined;
+    });
+    assert.deepEqual(
+      body.services.map((s) => s.name),
+      ["nginx", "api", "hub", "world", "persistence"],
+    );
+    assert.equal(typeof body.hub.tick, "string");
+    assert.ok(!Number.isNaN(Date.parse(body.generated_at)), "generated_at is an ISO 8601 date");
+  });
+
+  it("serves the panel page", async () => {
+    const res = await fetch(`${BASE_URL}/sistema.html`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/html/);
+    assert.match(await res.text(), /Panel del sistema/);
+  });
+});
+
 // Envía una gota y espera su resultado final.
 async function dropAndWait(player, x, y) {
   const actionId = randomUUID();

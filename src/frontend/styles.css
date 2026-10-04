@@ -112,3 +112,54 @@ input {
   font-weight: bold;
   text-decoration: underline;
 }
+
+/* Panel del sistema (sistema.html) */
+.services {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+.service {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #8884;
+}
+.service .dot {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  background: #2e7d32;
+  flex: none;
+}
+.service.down .dot {
+  background: #c62828;
+}
+.service.down {
+  font-weight: bold;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0;
+}
+.stats > div {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #8884;
+  border-radius: 4px;
+}
+.stats dt {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+.stats dd {
+  margin: 0;
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
+}
+.site-footer {
+  margin-top: 2rem;
+  font-size: 0.85rem;
+}

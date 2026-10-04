@@ -4,5 +4,6 @@
 *
 !deploy/nginx/templates/
 !src/frontend/index.html
+!src/frontend/sistema.html
 !src/frontend/styles.css
 !src/frontend/js/
