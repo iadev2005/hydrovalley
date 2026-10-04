@@ -592,7 +592,7 @@ Lo que se pierde en el peor caso son esos cinco segundos, mientras la persistenc
 
 ### Qué puede salir mal y cómo se prueba
 
-Cada cosa que puede salir mal es un caso de prueba que hay que provocar a propósito, a mano. Un sistema que nunca se ha roto en pruebas se rompe el día de la demo. En el informe, cada caso se desarrolla con descripción, actor, objetivo, precondiciones, flujo y resultado esperado, más los datos obtenidos.
+Cada cosa que puede salir mal es un caso de prueba que hay que provocar a propósito. CP-05 a CP-08 y CP-12 están automatizados en `tests/e2e` y corren en el CI con cada pull request (ver «Resultados medidos» abajo). Un sistema que nunca se ha roto en pruebas se rompe el día de la demo. En el informe, cada caso se desarrolla con descripción, actor, objetivo, precondiciones, flujo y resultado esperado, más los datos obtenidos.
 
 | ID | Qué se prueba | Precondiciones | Flujo | Resultado esperado |
 | --- | --- | --- | --- | --- |
@@ -603,11 +603,27 @@ Cada cosa que puede salir mal es un caso de prueba que hay que provocar a propó
 | CP-05 | Reinicio del simulador (RF-23) | Instantáneas activas y jugadores conectados | Se detiene el contenedor de Rust 10 s y se vuelve a arrancar | El valle vuelve a la última instantánea, con 5 s de pérdida como máximo (persistencia en marcha), y nadie pierde la sesión. Desde el primer `Step` fallido el valle queda en pausa y el tick no avanza; tras 3 fallos seguidos se abre el *Circuit Breaker*, que avisa a los jugadores y prueba cada 1 s; con 5.000 comandos en cola, los nuevos reciben `paused`. Al volver, el hub drena como mucho 500 por tick, responde `expired` a los de más de 30 s en cola y admite los reenvíos de acciones perdidas después de la instantánea. Nada se aplica dos veces |
 | CP-06 | Caída del hub (RF-24) | Jugadores conectados | Se detiene el contenedor de Go y se vuelve a arrancar | El valle sigue intacto en Rust y los jugadores se reconectan |
 | CP-07 | Caída de la persistencia (RNF-04) | Jugadores conectados | Se detiene el contenedor de Python o el de PostgreSQL | Quien juega sigue jugando en menos de 200 ms; un acceso nuevo recibe un aviso claro |
-| CP-08 | Arranque desordenado (RNF-09) | Todo apagado | Se levantan los servicios en orden inverso | Todos terminan conectados sin intervención. \[DATO: medir el tiempo\] |
+| CP-08 | Arranque desordenado (RNF-09) | Todo apagado | Se levantan los servicios en orden inverso | Todos terminan conectados sin intervención, sin que ningún contenedor se reinicie. Medido en una sola máquina: 7,5 s desde el último servicio levantado (ver «Resultados medidos») |
 | CP-09 | Mensajes simultáneos (RF-14) | Dos jugadores con el chat abierto | Los dos envían un mensaje a la vez | Las dos pantallas muestran el mismo orden |
 | CP-10 | Azar reproducible (RF-29) | Una semilla y una lista de comandos grabada | Se ejecuta dos veces la misma simulación | Los dos valles finales son idénticos |
 | CP-11 | Carga (RNF-01, RNF-02) | Modo demo | 30 bots durante 60 s | Al menos 100 gotas por segundo, el 95 % por debajo de 200 ms, y la humedad aportada igual a las gotas aceptadas. Si algún `Step` tarda más de 100 ms, el siguiente espera: nunca hay dos llamadas solapadas |
 | CP-12 | Persistencia lenta o caída durante una instantánea (RF-23, RNF-04) | Jugadores conectados | Se ralentiza o se detiene la persistencia alrededor de un tick de instantánea | Los `Step` mantienen su ritmo de 100 ms, el valle no entra en pausa, el *Circuit Breaker* sigue cerrado y la siguiente instantánea se guarda cuando la persistencia vuelve |
+
+#### Resultados medidos
+
+Medidos con las pruebas automáticas de `tests/e2e` (`faults*.test.mjs`) en el plan B: una sola máquina, un contenedor por servicio (Mac de desarrollo y el *runner* del CI). Cada servicio se hace fallar de dos formas: **parado** (el proceso cae y la conexión se rechaza) y **pausado** con `docker pause` (simula la máquina apagada: nadie responde y todo depende de los plazos). En el laboratorio, con el plan A, hay que repetirlos: `[DATO: resultados en las máquinas del laboratorio]`.
+
+| Caso | Fallo provocado | Resultado medido |
+| --- | --- | --- |
+| CP-05 | Rust matado sin aviso, 10 s | Detectado en 1 s; *Circuit Breaker* abierto en 1 s; recuperado en 1–3 s. Vuelve a la instantánea del tick múltiplo de 50 anterior al fallo: 9–16 ticks perdidos (límite: 50, es decir 5 s). La gota enviada durante la caída se aplica al volver; el reenvío de una acción ya aplicada recibe `duplicate`; la sesión del jugador sigue abierta |
+| CP-05 | Rust parado de forma ordenada, 10 s | Igual, con 0 ticks perdidos gracias a la instantánea final |
+| CP-05 | Rust pausado, 10 s | Detectado en 2 s; 0 ticks perdidos; `Step` cortado a los 200 ms de plazo; `/api/system` responde en 1,0 s |
+| CP-06 | Hub parado o pausado, 10 s | Detectado en 1,1–1,3 s; recuperado en 1 s; los jugadores se reconectan en 0,1–0,3 s y la acción sin resultado se reenvía y se aplica una sola vez |
+| CP-07 | Persistencia parada, pausada o PostgreSQL parado, 10 s | Quien juega sigue jugando: p95 de 68–103 ms (< 200 ms). Un acceso nuevo recibe 503 con un aviso claro en 0,7–0,9 s (3,0 s con la máquina pausada). Sin fallos de `Step` |
+| CP-08 | Todo apagado y levantado en orden inverso, con 2 s entre servicios | Todo conectado 7,5 s después del último servicio (18,5 s desde el primero), sin reinicios de contenedores. En orden normal: 2,1 s y 13,4 s |
+| CP-12 | Persistencia parada sobre dos ticks de instantánea | El valle sigue a 10 ticks/s, sin pausa y con el *breaker* cerrado; la siguiente instantánea se guarda al volver la persistencia (comprobado matando Rust después) |
+
+Lo que estas pruebas **no** cubren: que el sistema siga jugando con Rust, el hub o nginx caídos. Con Rust caído el valle queda en pausa sin perder nada y se reanuda solo (escritor único, regla 1); con el hub o nginx caídos el juego se detiene hasta que vuelvan, y los jugadores se reconectan solos. Mantener un servicio en marcha cuando se apaga su máquina pide réplicas y un orquestador (D-05).
 
 ## El contrato: cómo se hablan los servicios
 

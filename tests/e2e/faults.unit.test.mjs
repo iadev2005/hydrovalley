@@ -14,6 +14,8 @@ import {
   percentile,
   restoredTickViolations,
   maxStateTick,
+  restartViolations,
+  parseInspect,
 } from "./faults.mjs";
 
 describe("waitFor", () => {
@@ -200,5 +202,40 @@ describe("maxStateTick", () => {
 
   it("is null without state frames", () => {
     assert.equal(maxStateTick([{ type: "result" }]), null);
+  });
+});
+
+describe("restartViolations", () => {
+  const base = { hub: { restartCount: 0, startedAt: "2026-10-04T10:00:00Z" }, world: { restartCount: 1, startedAt: "2026-10-04T10:00:01Z" } };
+
+  it("is empty when nothing restarted on its own", () => {
+    assert.deepEqual(restartViolations(base, structuredClone(base)), []);
+  });
+
+  it("flags a higher RestartCount", () => {
+    const after = structuredClone(base);
+    after.hub.restartCount = 1;
+    assert.match(restartViolations(base, after).join(), /hub.*RestartCount/);
+  });
+
+  it("flags a different StartedAt (the container was started again)", () => {
+    const after = structuredClone(base);
+    after.world.startedAt = "2026-10-04T10:05:00Z";
+    assert.match(restartViolations(base, after).join(), /world.*StartedAt/);
+  });
+
+  it("flags a service that disappeared from the second reading", () => {
+    const { hub, ...rest } = base;
+    assert.match(restartViolations(base, rest).join(), /hub.*missing/);
+  });
+});
+
+describe("parseInspect", () => {
+  it("reads RestartCount and StartedAt from `docker inspect -f` lines", () => {
+    assert.deepEqual(parseInspect("3 2026-10-04T10:00:00.123Z\n"), { restartCount: 3, startedAt: "2026-10-04T10:00:00.123Z" });
+  });
+
+  it("rejects unexpected output instead of guessing", () => {
+    assert.throws(() => parseInspect("nope"), /unexpected/);
   });
 });

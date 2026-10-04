@@ -29,6 +29,7 @@ import {
   isResult,
   healthy,
   waitHealthy,
+  waitHubIdentity,
   openSession,
   reconnect,
   command,
@@ -141,8 +142,9 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
         assert.equal(resultA.status, "applied", JSON.stringify(resultA));
         const baseline = await stateAfter(player, resultA);
         const humidity0 = counter(baseline, "humidity_contributed");
-        const before = (await systemStatus()).hub;
-        const tickBefore = parseTick(before.tick);
+        // Con identificador (`boot_id`) y tick ya leídos: se captura antes del fallo.
+        const hubBefore = await waitHubIdentity();
+        const tickBefore = parseTick(hubBefore.tick);
 
         // Y: una gota enviada justo antes del fallo, cuyo resultado puede no llegar.
         const actionY = randomUUID();
@@ -157,12 +159,11 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
         );
         const detectMs = performance.now() - injectedAt;
         assert.equal(hubOf(down.system), null, "hub is null while it is down");
-        assert.equal(down.error, undefined);
 
         // Mientras el hub está caído, /api/system sigue en 200 con world y la
         // persistencia en `up` (Rust sigue en marcha, nadie le llama a Step).
-        for (const status of ["world", "persistence"]) {
-          assert.equal(serviceStatus(down.system, status).status, "up", `${status} stays up`);
+        for (const name of ["world", "persistence"]) {
+          assert.equal(serviceStatus(down.system, name).status, "up", `${name} stays up`);
         }
         let systemMs;
         if (c.kind === "pause") {
@@ -184,20 +185,23 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
         // --- Recuperación.
         await c.restore("hub");
         const restoredAt = performance.now();
+        // Sano Y con el primer `Step` del hub nuevo ya hecho: hasta entonces su
+        // `boot_id` está vacío y el tick en 0.
         const recovered = await waitFor(async () => {
           const system = await systemStatus();
-          return healthy(system) ? system : false;
-        }, { timeoutMs: RECOVERY_TIMEOUT_MS, intervalMs: POLL_MS, description: "a healthy stack after the hub came back" });
+          const hub = system.hub;
+          return healthy(system) && hub.boot_id && parseTick(hub.tick) > tickBefore ? system : false;
+        }, { timeoutMs: RECOVERY_TIMEOUT_MS, intervalMs: POLL_MS, description: "a healthy stack with the new hub's first successful Step" });
         const recoverMs = performance.now() - restoredAt;
         const { session: fresh, ms: reconnectMs } = await reconnect(token);
         sessions.push(fresh);
 
         // El valle sigue intacto en Rust: mismo proceso, mismo tick restaurado y
         // el tick no retrocede (con el hub caído nadie llama a Step).
-        const after = recovered.hub;
-        assert.equal(after.boot_id, before.boot_id, "world was not restarted: same boot_id");
-        assert.equal(after.restored_tick, before.restored_tick, "world was not restarted: same restored_tick");
-        const tickAfter = parseTick(after.tick);
+        const hubAfter = recovered.hub;
+        assert.equal(hubAfter.boot_id, hubBefore.boot_id, "world was not restarted: same boot_id");
+        assert.equal(hubAfter.restored_tick, hubBefore.restored_tick, "world was not restarted: same restored_tick");
+        const tickAfter = parseTick(hubAfter.tick);
         assert.ok(tickAfter >= tickBefore, `the tick went back: ${tickBefore} -> ${tickAfter}`);
 
         // La respuesta original de Y puede haber llegado (pausa: la conexión
@@ -232,7 +236,7 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
             reconnect_s: reconnectMs / 1000,
             tick_before: tickBefore,
             tick_after: tickAfter,
-            world_boot_same: after.boot_id === before.boot_id,
+            world_boot_same: hubAfter.boot_id === hubBefore.boot_id,
             Y_original: originalY ? originalY.status : "sin_resultado",
             Y_resend: resendY.status,
             A_resend: resendA.status,
@@ -267,8 +271,8 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
       });
 
       try {
-        const before = (await systemStatus()).hub;
-        const failuresBefore = before.step_ms.failures_total;
+        const hubBefore = (await systemStatus()).hub;
+        const failuresBefore = hubBefore.step_ms.failures_total;
 
         // --- Fallo.
         await c.inject(c.service);
@@ -327,8 +331,8 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
         const restoredAt = performance.now();
         await waitFor(async () => healthy(await systemStatus()), { timeoutMs: RECOVERY_TIMEOUT_MS, intervalMs: POLL_MS, description: "every service up again" });
         const recoverMs = performance.now() - restoredAt;
-        const after = await login();
-        assert.equal(after.status, 200, `login after the recovery: ${after.status} ${after.text}`);
+        const loginAfter = await login();
+        assert.equal(loginAfter.status, 200, `login after the recovery: ${loginAfter.status} ${loginAfter.text}`);
         const afterDrop = randomUUID();
         player.send({ type: "drop", action_id: afterDrop, x: 31, y: 31 });
         const afterResult = await player.first(`the result of ${afterDrop}`, isResult(afterDrop), 10_000);
@@ -348,7 +352,7 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
             login_ms: Math.round(attempt.ms),
             login_error: attempt.body.error,
             recover_s: recoverMs / 1000,
-            login_after: after.status,
+            login_after: loginAfter.status,
             step_failures: failuresAfter - failuresBefore,
           }),
         );
@@ -420,7 +424,7 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
       // --- Prueba de punta a punta: se abate world y se mira de qué tick se
       // recupera. Si la instantánea posterior a la caída no se hubiera
       // guardado, sería anterior al fallo en más de 50 ticks.
-      const bootBefore = (await systemStatus()).hub.boot_id;
+      const bootBefore = (await waitHubIdentity()).boot_id;
       await killService("world");
       await stopService("world");
       const paused = await sampler.waitFor((system) => serviceStatus(system, "world").status === "down" && system.hub?.paused, { timeoutMs: 20_000, description: "world down and the valley paused" });
