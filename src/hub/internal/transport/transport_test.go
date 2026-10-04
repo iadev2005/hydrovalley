@@ -262,7 +262,7 @@ func TestStatsExposesMetricsAsJSON(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"tick", "humidity_total", "humidity_contributed", "accepted_drops"} {
+	for _, k := range []string{"tick", "humidity_total", "humidity_contributed", "accepted_drops", "restored_tick"} {
 		if _, ok := body[k].(string); !ok {
 			t.Errorf("%s = %#v, want a string (u64 as text)", k, body[k])
 		}

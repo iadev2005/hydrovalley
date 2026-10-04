@@ -91,6 +91,8 @@ describe("hub stats source", () => {
   it.each([
     ["a missing field", { ...VALID_STATS, queue: undefined }],
     ["a numeric u64", { ...VALID_STATS, tick: 5 }],
+    ["a missing restored_tick", { ...VALID_STATS, restored_tick: undefined }],
+    ["a numeric restored_tick", { ...VALID_STATS, restored_tick: 50 }],
     ["a non-numeric u64 text", { ...VALID_STATS, accepted_drops: "abc" }],
     ["an unknown breaker state", { ...VALID_STATS, breaker: "weird" }],
     ["a negative count", { ...VALID_STATS, sessions: -1 }],

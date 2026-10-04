@@ -120,6 +120,7 @@ Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`
   | `accepted_drops` (texto) | Cuenta de gotas aceptadas del hub |
   | `active_fires` | Casillas que arden en el último estado |
   | `boot_id` | `boot_id` de la última respuesta de `Step` (cadena vacía antes del primero) |
+  | `restored_tick` (texto) | `restored_tick` de la última respuesta de `Step`: el tick del que Rust se recuperó en el arranque que identifica `boot_id` (0 sin instantánea o antes del primer `Step`) |
   | `generated_at` | Hora de la foto, ISO 8601 en UTC |
 
 - **Parada**: con SIGINT o SIGTERM cierra las conexiones con `StatusGoingAway`, termina el bucle y apaga el HTTP con un plazo de 5 s.

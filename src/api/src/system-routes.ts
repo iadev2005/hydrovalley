@@ -74,6 +74,7 @@ const hubSchema = {
     accepted_drops: u64("Gotas aceptadas"),
     active_fires: count("Casillas que arden"),
     boot_id: { type: "string", description: "`boot_id` del último `Step`" },
+    restored_tick: u64("Tick del que Rust se recuperó en el arranque que informa `boot_id`"),
     generated_at: {
       type: "string",
       description: "Hora de la foto del hub, ISO 8601 en UTC",
@@ -94,6 +95,7 @@ const hubSchema = {
     "accepted_drops",
     "active_fires",
     "boot_id",
+    "restored_tick",
     "generated_at",
   ],
   additionalProperties: false,

@@ -87,7 +87,7 @@ func NewHandler(ctx context.Context, h *hub.Hub, log *slog.Logger, opts Options)
 			},
 			"humidity_total": u64(st.HumidityTotal), "humidity_contributed": u64(st.HumidityContributed),
 			"accepted_drops": u64(st.AcceptedDrops), "active_fires": st.ActiveFires,
-			"boot_id":      st.BootID,
+			"boot_id": st.BootID, "restored_tick": u64(st.RestoredTick),
 			"generated_at": st.At.UTC().Format(time.RFC3339),
 		})
 	})

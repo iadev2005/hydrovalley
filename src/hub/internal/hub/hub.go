@@ -228,6 +228,9 @@ type Hub struct {
 	succeeded  bool
 	tick       uint64
 	bootID     string
+	// restoredTick es el tick del que Rust se recuperó en su arranque, tal como
+	// lo informa la última respuesta correcta de Step (0 sin instantánea).
+	restoredTick uint64
 	// latestWorld es el resumen del valle (WorldState) de la última
 	// respuesta correcta de Step. Es la base del estado que se difunde y
 	// se conserva mientras el valle está en pausa.

@@ -15,5 +15,6 @@ export const VALID_STATS: HubStats = {
   accepted_drops: "42",
   active_fires: 2,
   boot_id: "6f1c2f6e-0000-4000-8000-000000000001",
+  restored_tick: "50",
   generated_at: "2026-10-03T12:00:00Z",
 };

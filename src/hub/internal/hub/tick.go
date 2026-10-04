@@ -141,6 +141,7 @@ func (h *Hub) stepSucceededLocked(batch []queued, resp *worldv1.StepResponse) {
 	h.paused = false
 	h.succeeded = true
 	h.observeBootLocked(resp.GetBootId(), resp.GetRestoredTick())
+	h.restoredTick = resp.GetRestoredTick()
 	h.tick = resp.GetTick()
 	h.latestWorld = resp.GetState()
 
