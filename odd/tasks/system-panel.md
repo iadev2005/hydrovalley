@@ -31,7 +31,7 @@ Fuera de alcance: Prometheus y Grafana (nivel 2), históricos y gráficos.
 ## Tareas
 
 - [x] T1 · Hub: métricas y `GET /stats`. Evidencia: RED por compilación y `/stats = 404`; `go test -race`, vet, staticcheck y gofmt limpios. Real (despliegue de demostración, 5 vecinos): `sessions` 6, `goroutines` 25, 1,1 acciones/s, latencia p50 77,8 ms y p95 107,3 ms, `Step` p95 2,57 ms, sin fallos. Ventanas: acciones y latencia, 10 s; `Step`, últimas 600 llamadas.
-- [x] T2 · API: `GET /api/system` (agregador con estado por servicio). Evidencia: RED (5 archivos); `npm test` 263; lint, typecheck y build limpios. Real (despliegue de demostración): los cinco servicios en verde; con world parado, world `down: unavailable` y el hub en pausa con el *breaker* abierto, el resto sigue respondiendo; al arrancar world, todo vuelve a verde y el *breaker* se cierra. Sin dependencias nuevas; `HUB_STATS_ADDR` obligatorio, como `WORLD_ADDR`.
+- [x] T2 · API: `GET /api/system` (agregador con estado por servicio). Evidencia: RED (5 archivos); `npm test` 263; lint, typecheck y build limpios. Real (despliegue de demostración): los cinco servicios en verde; con world parado, world `down: unavailable` y el hub en pausa con el *breaker* abierto, el resto sigue respondiendo; al arrancar world, todo vuelve a verde y el *breaker* se cierra. Sin dependencias nuevas; `HUB_STATS_ADDR` obligatorio, como `WORLD_ADDR`. Revisión de riesgo medio aprobada; aviso informativo (cuerpo sin consumir cuando el hub responde distinto de 200) que se corrige al empezar la T3.
 - [ ] T3 · Página del panel y e2e.
 
 ## Criterios de aceptación
