@@ -33,6 +33,7 @@ import {
   isResult,
   healthy,
   waitHealthy,
+  waitHubIdentity,
   openSession,
 } from "./faults-support.mjs";
 import {
@@ -105,8 +106,9 @@ describe("CP-05: the world service fails and comes back", { skip: SKIP }, () => 
 
       try {
         // --- Preparación: la acción X se aplica y queda dentro de una instantánea.
-        const before = (await systemStatus()).hub;
-        const bootBefore = before.boot_id;
+        // Se captura antes de provocar el fallo y con el hub ya con `boot_id`.
+        const hubAtStart = await waitHubIdentity();
+        const bootBefore = hubAtStart.boot_id;
         const actionX = randomUUID();
         player.send({ type: "drop", action_id: actionX, x: c.x, y: c.y });
         const resultX = await player.first(`the result of X ${actionX}`, isResult(actionX), 10_000);
@@ -229,7 +231,7 @@ describe("CP-05: the world service fails and comes back", { skip: SKIP }, () => 
         assert.notEqual(restoredTick, null, `restored_tick in /api/system: ${recovered.restored_tick}`);
         let lostSinceSnapshot;
         if (c.kind === "pause") {
-          assert.equal(recovered.restored_tick, before.restored_tick, "the same process resumed: restored_tick does not change");
+          assert.equal(recovered.restored_tick, hubAtStart.restored_tick, "the same process resumed: restored_tick does not change");
         } else {
           const problems = restoredTickViolations({ restored: restoredTick, tickAtFailure: tickAtPause, every: SNAPSHOT_EVERY, graceful: c.kind === "stop" });
           assert.deepEqual(problems, [], `restored_tick ${restoredTick}, tick at the failure ${tickAtPause}`);

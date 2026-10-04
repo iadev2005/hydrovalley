@@ -88,7 +88,7 @@ export function percentile(values, p) {
 }
 
 /**
- * Comprueba el `restored_tick` que informa el hub tras reiniciar Rust (CP-05):
+ * Comprueba el `restored_tick` que informa el hub tras reiniciar Rust (CP-05 y CP-12):
  * múltiplo del intervalo de instantáneas (salvo parada ordenada, cuya
  * instantánea final cae en cualquier tick), no posterior al tick del fallo y a
  * no más de una instantánea de distancia. Devuelve las violaciones (vacío si

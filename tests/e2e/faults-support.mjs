@@ -43,6 +43,19 @@ export async function waitHealthy(timeoutMs = READY_TIMEOUT_MS) {
   }, { timeoutMs, intervalMs: POLL_MS, description: "a healthy stack in /api/system" });
 }
 
+/**
+ * Foto del hub que ya trae un `boot_id`: tras arrancar el hub, hasta su primer
+ * `Step` correcto el `boot_id` está vacío y el tick vale 0, así que leer antes
+ * daría identificadores ausentes. Hay que esperarla ANTES de provocar un fallo
+ * para comparar contra ella.
+ */
+export async function waitHubIdentity(timeoutMs = READY_TIMEOUT_MS) {
+  return waitFor(async () => {
+    const hub = (await systemStatus()).hub;
+    return hub && hub.boot_id && parseTick(hub.tick) > 0n ? hub : false;
+  }, { timeoutMs, intervalMs: POLL_MS, description: "a hub snapshot with a boot_id and a tick above 0" });
+}
+
 export async function openSession(token) {
   const session = new PlaySession(`${WS_BASE}/play?token=${token}&map=false`);
   await session.opened;
