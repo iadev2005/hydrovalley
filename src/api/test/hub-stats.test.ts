@@ -54,6 +54,16 @@ describe("hub stats source", () => {
     expect(result).toEqual({ ok: true, stats: VALID_STATS });
   });
 
+  it("accepts an older hub without restored_tick and reports it as null", async () => {
+    const older: Record<string, unknown> = { ...VALID_STATS };
+    delete older.restored_tick;
+    const address = await start((res) => send(res, 200, JSON.stringify(older)));
+
+    const result = await createHubStatsSource({ address })();
+
+    expect(result).toEqual({ ok: true, stats: { ...VALID_STATS, restored_tick: null } });
+  });
+
   it("is down with http_503 on a non-200 answer", async () => {
     const address = await start((res) => send(res, 503, "{}"));
 
@@ -91,8 +101,8 @@ describe("hub stats source", () => {
   it.each([
     ["a missing field", { ...VALID_STATS, queue: undefined }],
     ["a numeric u64", { ...VALID_STATS, tick: 5 }],
-    ["a missing restored_tick", { ...VALID_STATS, restored_tick: undefined }],
     ["a numeric restored_tick", { ...VALID_STATS, restored_tick: 50 }],
+    ["a non-numeric restored_tick text", { ...VALID_STATS, restored_tick: "abc" }],
     ["a non-numeric u64 text", { ...VALID_STATS, accepted_drops: "abc" }],
     ["an unknown breaker state", { ...VALID_STATS, breaker: "weird" }],
     ["a negative count", { ...VALID_STATS, sessions: -1 }],

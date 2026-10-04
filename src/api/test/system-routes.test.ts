@@ -44,6 +44,17 @@ async function setup(
 }
 
 describe("GET /api/system", () => {
+  it("serializes a hub without restored_tick as null instead of failing", async () => {
+    const { app } = await setup(1000, () =>
+      Promise.resolve({ ...SNAPSHOT, hub: { ...VALID_STATS, restored_tick: null } }),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/system" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ hub: { restored_tick: string | null } }>().hub.restored_tick).toBeNull();
+  });
+
   it("answers 200 with the aggregated snapshot and needs no token", async () => {
     const { app } = await setup();
 

@@ -22,7 +22,8 @@ export interface HubStats {
   accepted_drops: string;
   active_fires: number;
   boot_id: string;
-  restored_tick: string;
+  /** `null` si el hub es anterior a este campo (despliegue escalonado). */
+  restored_tick: string | null;
   generated_at: string;
 }
 
@@ -62,7 +63,9 @@ export function parseHubStats(raw: unknown): HubStats | null {
   const { tick, paused, breaker, humidity_total, humidity_contributed, accepted_drops } = raw;
   if (!isU64Text(tick) || !isU64Text(humidity_total)) return null;
   if (!isU64Text(humidity_contributed) || !isU64Text(accepted_drops)) return null;
-  if (!isU64Text(raw.restored_tick)) return null;
+  // Opcional: un hub anterior no lo envía y no por eso está caído.
+  const restoredTick = raw.restored_tick ?? null;
+  if (restoredTick !== null && !isU64Text(restoredTick)) return null;
   if (typeof paused !== "boolean") return null;
   if (typeof breaker !== "string" || !BREAKER_STATES.includes(breaker)) return null;
   if (!isCount(raw.queue) || !isCount(raw.sessions) || !isCount(raw.goroutines)) return null;
@@ -96,7 +99,7 @@ export function parseHubStats(raw: unknown): HubStats | null {
     accepted_drops,
     active_fires: raw.active_fires,
     boot_id: raw.boot_id,
-    restored_tick: raw.restored_tick,
+    restored_tick: restoredTick,
     generated_at: raw.generated_at,
   };
 }
