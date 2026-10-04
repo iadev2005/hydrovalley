@@ -133,6 +133,40 @@ export function formatMeasurement(label, values) {
   return `MEDICION ${label}: ${parts.join(" ")}`;
 }
 
+/**
+ * Lee la salida de `docker inspect -f '{{.RestartCount}} {{.State.StartedAt}}'`.
+ * Una salida inesperada es un error: no se adivina un 0.
+ */
+export function parseInspect(output) {
+  const match = /^(\d+) (\S+)\s*$/.exec(output);
+  if (!match) throw new Error(`unexpected docker inspect output: ${JSON.stringify(output)}`);
+  return { restartCount: Number(match[1]), startedAt: match[2] };
+}
+
+/**
+ * Compara dos lecturas (`{servicio: {restartCount, startedAt}}`) y devuelve
+ * las violaciones: un servicio que se reinició solo (RestartCount mayor) o que
+ * arrancó otra vez (otro StartedAt). Si la política de reinicio hubiera
+ * salvado a un servicio, aparecería aquí (RNF-09).
+ */
+export function restartViolations(before, after) {
+  const problems = [];
+  for (const [name, was] of Object.entries(before)) {
+    const now = after[name];
+    if (!now) {
+      problems.push(`${name} is missing from the second reading`);
+      continue;
+    }
+    if (now.restartCount > was.restartCount) {
+      problems.push(`${name} RestartCount went from ${was.restartCount} to ${now.restartCount}`);
+    }
+    if (now.startedAt !== was.startedAt) {
+      problems.push(`${name} StartedAt changed from ${was.startedAt} to ${now.startedAt}`);
+    }
+  }
+  return problems;
+}
+
 // ------------------------------------------------------------ Envoltorios finos
 
 async function compose(action, service) {
@@ -145,6 +179,25 @@ export const killService = (name) => compose("kill", name);
 export const startService = (name) => compose("start", name);
 export const pauseService = (name) => compose("pause", name);
 export const unpauseService = (name) => compose("unpause", name);
+
+/** Para todos los servicios del proyecto sin borrar volúmenes (CP-08). */
+export async function stopAllServices() {
+  await run("docker", ["compose", "stop"]);
+}
+
+/**
+ * `{servicio: {restartCount, startedAt}}` de los contenedores del proyecto,
+ * leído con `docker inspect`.
+ */
+export async function inspectServices(names) {
+  const result = {};
+  for (const name of names) {
+    const { stdout: id } = await run("docker", ["compose", "ps", "-aq", name]);
+    const { stdout } = await run("docker", ["inspect", "-f", "{{.RestartCount}} {{.State.StartedAt}}", id.trim()]);
+    result[name] = parseInspect(stdout);
+  }
+  return result;
+}
 
 /** GET /api/system por nginx: el cuerpo, o falla si no responde 200. */
 export async function systemStatus({ timeoutMs = 10_000 } = {}) {

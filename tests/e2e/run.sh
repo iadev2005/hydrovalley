@@ -8,7 +8,7 @@
 #   HV_HTTP_PORT        puerto del host para nginx (8080)
 #   E2E_SKIP_BUILD=1    no construir: usar las imágenes ya cargadas (CI)
 #   E2E_KEEP=1          no bajar el stack al terminar (para depurar)
-#   E2E_SKIP_FAULTS=1   no correr los casos de fallos (faults.test.mjs: paran y
+#   E2E_SKIP_FAULTS=1   no correr los casos de fallos (faults*.test.mjs: paran y
 #                       pausan servicios del stack; tardan unos minutos)
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
@@ -94,7 +94,21 @@ up_args=(up -d --quiet-pull)
 if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   up_args+=(--build)
 fi
+# RNF-10: tiempo de `compose up` hasta que /api/system da los cinco servicios
+# `up` (con imágenes ya cargadas si E2E_SKIP_BUILD=1; con construcción incluye
+# el build, y entonces la cifra no es la de «levantar desde las imágenes»).
+rnf10_start=$SECONDS
 docker compose "${up_args[@]}"
+rnf10_up=$((SECONDS - rnf10_start))
+rnf10_healthy=""
+while (( SECONDS - rnf10_start < 300 )); do
+  if [[ "$(curl -fsS --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]; then
+    rnf10_healthy=$((SECONDS - rnf10_start))
+    break
+  fi
+  sleep 1
+done
+echo "MEDICION RNF-10: compose_up_s=${rnf10_up} all_up_s=${rnf10_healthy:-n/d} build=$([[ "${E2E_SKIP_BUILD:-0}" == "1" ]] && echo no || echo si) limite_s=300"
 # Los bots viven bajo el perfil «bots» y `up` no los construye: smoke.test.mjs
 # los lanza con `compose run`, así que su imagen tiene que existir.
 if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
@@ -103,10 +117,15 @@ fi
 
 node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
 
-# CP-05, CP-06, CP-07 y CP-12: fallos de servicios (faults*.test.mjs). Corren después de la prueba de
+# CP-05 a CP-08 y CP-12: fallos de servicios (faults*.test.mjs; CP-08, el más
+# disruptivo, va al final). Corren después de la prueba de
 # humo, con el mismo stack y el administrador efímero.
 if [[ "${E2E_SKIP_FAULTS:-0}" != "1" ]]; then
   node --test --test-reporter=spec --test-concurrency=1 \
     "${repo_root}/tests/e2e/faults.test.mjs" \
     "${repo_root}/tests/e2e/faults-hub-persistence.test.mjs"
+  # CP-08 para todos los servicios y los levanta en otro orden: va aparte y al
+  # final (node ordena los archivos por nombre, así que no basta con listarlo).
+  node --test --test-reporter=spec --test-concurrency=1 \
+    "${repo_root}/tests/e2e/faults-startup.test.mjs"
 fi
