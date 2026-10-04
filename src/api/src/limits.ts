@@ -21,6 +21,13 @@ export const REGISTER_LIMIT_PER_IP: RateLimit = { limit: 5, windowMs: 600_000 };
 /** Consultas de ranking y reportes (GET): peticiones por IP. */
 export const READ_LIMIT_PER_IP: RateLimit = { limit: 60, windowMs: 60_000 };
 
+/**
+ * Panel del sistema (`GET /api/system`): peticiones por IP. El panel consulta
+ * cada 2 s (30 por minuto por pestaña); 120 por minuto deja margen para varias
+ * pestañas detrás de la misma IP.
+ */
+export const SYSTEM_LIMIT_PER_IP: RateLimit = { limit: 120, windowMs: 60_000 };
+
 /** Aprovisionamiento de cuentas de bots: peticiones por administrador (por `player_id`). */
 export const ADMIN_LIMIT_PER_ADMIN: RateLimit = { limit: 10, windowMs: 60_000 };
 /** Máximo de cuentas por petición de aprovisionamiento. */

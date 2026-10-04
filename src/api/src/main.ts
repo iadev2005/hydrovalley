@@ -3,6 +3,9 @@
 import { buildApp, trustHops } from "./app.js";
 import { createPublicKey } from "node:crypto";
 import { type Config, loadConfig } from "./config.js";
+import { createGrpcHealthProbe } from "./grpc-health.js";
+import { createHubStatsSource } from "./hub-stats.js";
+import { createSystemStatus } from "./system-status.js";
 import { createGrpcAccountDirectory } from "./grpc-account-directory.js";
 import { createGrpcRankingSource } from "./grpc-ranking-source.js";
 import { createGrpcReportSource } from "./grpc-report-source.js";
@@ -14,6 +17,7 @@ import {
   LOGIN_LIMIT_PER_USER_IP,
   READ_LIMIT_PER_IP,
   REGISTER_LIMIT_PER_IP,
+  SYSTEM_LIMIT_PER_IP,
   type RateLimit,
 } from "./limits.js";
 import { createAttemptLimiter } from "./rate-limit.js";
@@ -71,6 +75,22 @@ const app = await buildApp(
     tokens: tokenService,
     verifier: tokenVerifier,
     adminLimiter: limiter(ADMIN_LIMIT_PER_ADMIN),
+  },
+  {
+    status: createSystemStatus({
+      hub: createHubStatsSource({ address: config.hubStatsAddr }),
+      world: createGrpcHealthProbe({
+        address: config.worldAddr,
+        service: "hydrovalley.world.v1.WorldService",
+      }),
+      // Persistencia marca SERVING en todos sus nombres solo con la base de
+      // datos lista; el nombre vacío es el estado general del servidor.
+      persistence: createGrpcHealthProbe({
+        address: config.persistenceAddr,
+        service: "",
+      }),
+    }),
+    limiter: limiter(SYSTEM_LIMIT_PER_IP),
   },
 );
 
