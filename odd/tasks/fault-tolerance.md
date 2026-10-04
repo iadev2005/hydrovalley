@@ -34,7 +34,10 @@ Fuera de alcance: orquestación con réplicas (Kubernetes o Swarm; D-05 y `CLAUD
   - `stop` de world (apagado ordenado, con instantánea final): 0 ticks perdidos; recuperado en 2,1 s.
   - `pause` de world (simula la máquina apagada): detectado en 2 s, recuperado en 1 s, 0 ticks perdidos; `/api/system` responde en 1.012 ms y `Step` se corta a los 206 ms (plazo de 200 ms).
   - `restored_tick` no se expone a los clientes: la pérdida se infiere del primer tick tras el reinicio y de la última instantánea (`tick % 50 == 0`).
-- [ ] T2 · CP-06 (hub) y CP-07 / CP-12 (persistencia y PostgreSQL).
+- [x] T2 · CP-06 (hub) y CP-07 / CP-12 (persistencia y PostgreSQL). Evidencia: RED en hub, API y arnés; API 266, arnés 30; e2e 15 + 9 casos de fallos en verde (los de fallos, 186 s). `restored_tick` se expone en `/stats` y `/api/system`, y el caso `kill` lo comprueba exacto. Mediciones locales:
+  - CP-06 hub parado: detectado en 1,1 s, recuperado en 1 s, reconexión en 0,2 s; la acción sin resultado se reenvía y se aplica una sola vez (humedad +1). Pausado: `/api/system` en 886 ms; el reenvío recibe `duplicate`.
+  - CP-07 persistence parada / pausada / PostgreSQL parado: quien juega sigue con p95 de 102,6 / 87,9 / 89,1 ms (< 200 ms); un acceso nuevo recibe 503 con aviso claro en 0,8 / 3,0 / 0,8 s; con PostgreSQL parado la persistencia pasa a `not_serving` y se recupera en 6,1 s. Sin fallos de `Step`.
+  - CP-12 persistence parada sobre 2 ticks de instantánea: 10 ticks/s, `Step` p95 máximo 2,4 ms, sin pausa y con el *breaker* cerrado; la primera instantánea tras volver es la del tick 1100 (comprobado matando world después: `restored_tick` = 1100).
 - [ ] T3 · CP-08 (arranque en orden inverso, con el tiempo medido) y resumen de resultados en el documento.
 
 ## Criterios de aceptación
@@ -48,4 +51,4 @@ Fuera de alcance: orquestación con réplicas (Kubernetes o Swarm; D-05 y `CLAUD
 
 ## Progreso
 
-- T1 en `feature/faults-world` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada con avisos de robustez de la prueba (sobre todo: la instantánea restaurada en el caso `kill` se infiere de un tick leído tarde y podría fallar en un CI lento). Se corrigen al empezar la T2 exponiendo `restored_tick` en `/stats`.
+- T1 en `feature/faults-world` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada con avisos de robustez de la prueba (sobre todo: la instantánea restaurada en el caso `kill` se infiere de un tick leído tarde y podría fallar en un CI lento). Se corrigen al empezar la T2 exponiendo `restored_tick` en `/stats`. Fusionada (PR #42); en el CI: `kill` 9 ticks perdidos y recuperación en 1 s, `pause` con `/api/system` en 1.004 ms. T2 en `feature/faults-hub-persistence` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada con avisos (aserciones vacías o mal nombradas en la prueba, reinicio del hub antes de su primer `Step`, pausa antes de leer el identificador y, en la API, que un hub sin `restored_tick` se marque caído al mezclar versiones). Se corrigen al empezar la T3.

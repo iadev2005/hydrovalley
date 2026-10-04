@@ -48,7 +48,10 @@ type Stats struct {
 	AcceptedDrops       uint64
 	ActiveFires         int
 	BootID              string
-	At                  time.Time
+	// RestoredTick: tick del que Rust se recuperó en el arranque que informa
+	// BootID (de la última respuesta correcta de Step).
+	RestoredTick uint64
+	At           time.Time
 }
 
 // Stats devuelve una foto de las métricas. Toma el candado una sola vez y
@@ -59,7 +62,7 @@ func (h *Hub) Stats() Stats {
 	now := h.clock.Now()
 	st := Stats{
 		Tick: h.tick, Paused: h.paused, Breaker: h.breaker.State().String(), QueueLen: len(h.queue),
-		AcceptedDrops: h.acceptedDrops, BootID: h.bootID, At: now,
+		AcceptedDrops: h.acceptedDrops, BootID: h.bootID, RestoredTick: h.restoredTick, At: now,
 		HumidityContributed: h.latestWorld.GetHumidityContributed(),
 	}
 	for _, p := range h.players {

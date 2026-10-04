@@ -103,8 +103,10 @@ fi
 
 node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
 
-# CP-05: fallos de servicios (faults.test.mjs). Corren después de la prueba de
+# CP-05, CP-06, CP-07 y CP-12: fallos de servicios (faults*.test.mjs). Corren después de la prueba de
 # humo, con el mismo stack y el administrador efímero.
 if [[ "${E2E_SKIP_FAULTS:-0}" != "1" ]]; then
-  node --test --test-reporter=spec --test-concurrency=1 "${repo_root}/tests/e2e/faults.test.mjs"
+  node --test --test-reporter=spec --test-concurrency=1 \
+    "${repo_root}/tests/e2e/faults.test.mjs" \
+    "${repo_root}/tests/e2e/faults-hub-persistence.test.mjs"
 fi

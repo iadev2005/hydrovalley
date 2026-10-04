@@ -11,6 +11,9 @@ import {
   composeArgs,
   serviceStatus,
   formatMeasurement,
+  percentile,
+  restoredTickViolations,
+  maxStateTick,
 } from "./faults.mjs";
 
 describe("waitFor", () => {
@@ -140,5 +143,62 @@ describe("formatMeasurement", () => {
 
   it("marks a missing value instead of inventing it", () => {
     assert.equal(formatMeasurement("x", { detect_s: undefined }), "MEDICION x: detect_s=n/d");
+  });
+});
+
+describe("percentile", () => {
+  it("uses the nearest rank over the sorted values", () => {
+    const values = [90, 10, 50, 20, 70, 30, 60, 40, 80, 100];
+    assert.equal(percentile(values, 50), 50);
+    assert.equal(percentile(values, 95), 100);
+    assert.equal(percentile(values, 10), 10);
+  });
+
+  it("does not modify its input and handles a single value", () => {
+    const values = [3, 1, 2];
+    assert.equal(percentile(values, 100), 3);
+    assert.deepEqual(values, [3, 1, 2]);
+    assert.equal(percentile([7], 95), 7);
+  });
+
+  it("refuses an empty sample instead of inventing a figure", () => {
+    assert.throws(() => percentile([], 95), /empty/);
+  });
+});
+
+describe("restoredTickViolations", () => {
+  const ok = { restored: 300n, tickAtFailure: 324n, every: 50n };
+
+  it("accepts a snapshot tick no later than the failure and within one snapshot", () => {
+    assert.deepEqual(restoredTickViolations(ok), []);
+    assert.deepEqual(restoredTickViolations({ restored: 300n, tickAtFailure: 349n, every: 50n }), []);
+    assert.deepEqual(restoredTickViolations({ restored: 300n, tickAtFailure: 300n, every: 50n }), []);
+  });
+
+  it("flags a tick that is not a multiple of the snapshot interval", () => {
+    assert.match(restoredTickViolations({ ...ok, restored: 310n }).join(), /multiple of 50/);
+  });
+
+  it("flags a restored tick later than the failure", () => {
+    assert.match(restoredTickViolations({ ...ok, restored: 350n }).join(), /later than/);
+  });
+
+  it("flags a gap wider than one snapshot", () => {
+    assert.match(restoredTickViolations({ restored: 250n, tickAtFailure: 324n, every: 50n }).join(), /gap/);
+  });
+
+  it("can skip the multiple check for a graceful stop (final snapshot at any tick)", () => {
+    assert.deepEqual(restoredTickViolations({ restored: 317n, tickAtFailure: 324n, every: 50n, graceful: true }), []);
+  });
+});
+
+describe("maxStateTick", () => {
+  it("returns the highest tick among the state frames", () => {
+    const frames = [{ type: "state", tick: "10" }, { type: "result" }, { type: "state", tick: "12" }, { type: "state", tick: "11" }];
+    assert.equal(maxStateTick(frames), 12n);
+  });
+
+  it("is null without state frames", () => {
+    assert.equal(maxStateTick([{ type: "result" }]), null);
   });
 });

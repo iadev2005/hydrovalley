@@ -175,7 +175,7 @@ Genera el código de `proto/` con `bufbuild/buf` (necesita acceso a buf.build), 
 
 - **Servicios:** `nginx` y `api` salen `up` por construcción (la petición llegó hasta aquí). `hub` sale `down` si `GET http://HUB_STATS_ADDR/stats` agota 1 s, responde distinto de 200 o devuelve un JSON que no encaja. `world` y `persistence` salen `down` si `grpc.health.v1.Health/Check` da `NOT_SERVING`, un error o agota 1 s (sin reintento). Se consulta el servicio `hydrovalley.world.v1.WorldService` en `WORLD_ADDR` y el estado general (`""`) en `PERSISTENCE_ADDR`, que la persistencia marca `SERVING` solo con la base de datos lista.
 - **`detail`:** motivo corto y seguro, solo si está caído: `timeout`, `unavailable`, `not_serving`, `error`, `http_503`, `invalid_response`. Nunca trazas ni direcciones.
-- **`hub`:** los campos de `/stats` del hub (ver su README), validados y copiados uno a uno; los enteros de 64 bits siguen siendo texto. Es `null` si el hub está caído.
+- **`hub`:** los campos de `/stats` del hub (ver su README), validados y copiados uno a uno (incluidos `boot_id` y `restored_tick`, el tick del que Rust se recuperó en el arranque que identifica `boot_id`); los enteros de 64 bits siguen siendo texto. Es `null` si el hub está caído.
 - **Copia de 1 s:** las tres consultas van en paralelo; el resultado se guarda 1 s en memoria y las peticiones simultáneas comparten una sola agregación, así que muchos visores no multiplican las llamadas internas.
 - **Límite:** 120 por minuto por IP (`SYSTEM_LIMIT_PER_IP` en `src/limits.ts`; el panel consulta cada 2 s), en memoria y por instancia, con `429` y `Retry-After`.
 
@@ -196,7 +196,7 @@ Ejemplo (world parado):
     "latency_ms": { "p50": 77.8, "p95": 107.3, "samples": 11 },
     "step_ms": { "last": 200, "p95": 200, "failures_total": 3 },
     "humidity_total": "12345", "humidity_contributed": "99", "accepted_drops": "42",
-    "active_fires": 2, "boot_id": "6f1c2f6e-0000-4000-8000-000000000001", "generated_at": "2026-10-03T12:00:00Z" }
+    "active_fires": 2, "boot_id": "6f1c2f6e-0000-4000-8000-000000000001", "restored_tick": "50", "generated_at": "2026-10-03T12:00:00Z" }
 }
 ```
 

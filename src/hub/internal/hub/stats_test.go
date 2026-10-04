@@ -156,3 +156,21 @@ func TestStatsBeforeAnyStepHasNoWorld(t *testing.T) {
 		t.Errorf("stats = %+v", st)
 	}
 }
+
+func TestStatsRestoredTickFollowsTheLatestStep(t *testing.T) {
+	h := newHarness(t)
+	if st := h.hub.Stats(); st.RestoredTick != 0 {
+		t.Fatalf("restored tick before any Step = %d, want 0", st.RestoredTick)
+	}
+	h.world.set(func(w *fakeWorld) { w.restored = 50 })
+	h.tick()
+	if st := h.hub.Stats(); st.RestoredTick != 50 || st.BootID != "boot-a" {
+		t.Fatalf("stats = %+v, want restored tick 50 with boot-a", st)
+	}
+	// Reinicio de Rust: el nuevo arranque informa otro tick restaurado.
+	h.world.set(func(w *fakeWorld) { w.bootID, w.restored, w.tick = "boot-b", 100, 100 })
+	h.tick()
+	if st := h.hub.Stats(); st.RestoredTick != 100 || st.BootID != "boot-b" {
+		t.Fatalf("stats = %+v, want restored tick 100 with boot-b", st)
+	}
+}

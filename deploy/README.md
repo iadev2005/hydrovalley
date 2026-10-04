@@ -121,16 +121,25 @@ tests/e2e/run.sh
 
 Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`.
 
-### Casos de fallos (CP-05)
+### Casos de fallos (CP-05, CP-06, CP-07 y CP-12)
 
-Después de la prueba de humo, `run.sh` corre `tests/e2e/faults.test.mjs` con el mismo stack: el servicio `world` se **abate** (`kill`, sin instantánea final), se **para** (`stop`, parada ordenada) y se **pausa** (`pause`, simula la máquina apagada: la conexión queda sin respuesta) unos 10 s cada vez, y se vuelve a arrancar. Cada caso comprueba, solo con `/api/system`, `/play` y Docker:
+Después de la prueba de humo, `run.sh` corre `tests/e2e/faults.test.mjs` (CP-05) y `tests/e2e/faults-hub-persistence.test.mjs` (CP-06, CP-07 y CP-12) con el mismo stack. Provocan cada fallo con Docker (parar o pausar un servicio unos 10 s; `pause` simula la máquina apagada: la conexión queda sin respuesta y todo depende de los plazos) y comprueban, solo con `/api/system`, `/api/auth/login` y `/play` por nginx:
+
+**CP-05, world** (`kill`: SIGKILL sin instantánea final; `stop`: parada ordenada; `pause`):
 
 - el valle queda en pausa, el tick no avanza y el *Circuit Breaker* pasa a `open` o `half_open`; `/api/system` sigue en 200 con `world` en `down`;
 - una gota enviada durante el fallo se admite, espera en la cola y recibe `applied` al volver;
 - el panel y `step_ms.last` respetan los plazos (`/api/system` ~1 s y `Step` ~200 ms con el servicio pausado);
-- al volver, el circuito se cierra, el tick avanza de nuevo, cambia el `boot_id` (salvo tras la pausa, donde el proceso es el mismo) y la pérdida no pasa de una instantánea (50 ticks);
-- una acción ya aplicada y reenviada en una conexión nueva recibe `duplicate` y no suma gotas ni humedad; la sesión de `/play` sobrevive.
+- al volver, el circuito se cierra, el tick avanza de nuevo y cambia el `boot_id` (salvo tras la pausa, donde el proceso es el mismo);
+- `restored_tick` (lo expone el hub en `/stats` y la API en `/api/system`, en la misma foto que el nuevo `boot_id`) es exacto: con `kill`, un múltiplo de 50, no posterior al tick del fallo y a no más de 50 ticks de él; con `stop`, el de la instantánea final; con `pause`, no cambia;
+- una acción aplicada antes de una instantánea guardada y reenviada en una conexión nueva recibe `duplicate` y no suma gotas ni humedad (se compara en un estado posterior a su resultado); la sesión de `/play` sobrevive.
 
-Cada caso imprime una línea `MEDICION …` con los tiempos y los ticks medidos. El `restored_tick` no llega a los clientes: se infiere del primer tick que informa el hub tras el reinicio (con un retraso de hasta ~2 s), así que los «ticks perdidos» son una cota inferior; en el caso abatido se estima contra la última instantánea (`tick % 50 == 0`). El jugador es el administrador efímero (inicio de sesión), para no gastar los 5 registros por IP de la prueba de humo.
+**CP-06, hub** (`stop` y `pause`): `/api/system` sigue en 200 con `hub` en `down` y `hub: null` (con el hub pausado tarda ~1 s, su plazo) y `world` y la persistencia en `up`; Rust no se reinicia (mismo `boot_id` y `restored_tick`) y el tick no retrocede; el jugador se reconecta con una sesión nueva y reenvía sus acciones pendientes: la gota enviada justo antes del fallo cuenta una sola vez (`applied` o `duplicate`, nunca dos) y una acción ya confirmada recibe `duplicate`. Al reiniciarse el hub su cuenta de gotas aceptadas empieza en 0, por eso la humedad aportada (la de Rust) es la que se compara.
 
-`E2E_SKIP_FAULTS=1 tests/e2e/run.sh` los omite. La lógica pura del arnés (`tests/e2e/faults.mjs`) se prueba sin el stack: `node --test tests/e2e/faults.unit.test.mjs`. Cada caso tarda unos 22 s; el CI no necesita más de los 45 min que ya tiene el job.
+**CP-07, persistencia** (`persistence` parada, `persistence` pausada y `postgres` parado): `/api/system` muestra la persistencia en `down` (`unavailable`, `timeout` y `not_serving` respectivamente); 20 gotas a 4 por segundo durante el fallo reciben `applied` con un p95 menor de 200 ms; el valle no se pausa, el circuito sigue cerrado y no falla ningún `Step`; `POST /api/auth/login` responde 503 con un mensaje claro dentro del plazo de la API (3 s de presupuesto); al volver todo está en `up` y el acceso funciona.
+
+**CP-12, persistencia durante una instantánea** (`persistence` parada ~10 s a partir de justo después de una instantánea, así que cruza al menos una): `Step` mantiene el ritmo de 100 ms (~10 ticks/s, `step_ms.last` bajo 100 ms y sin fallos), el valle no entra en pausa y el circuito sigue cerrado. Que la siguiente instantánea se guarda al volver la persistencia se comprueba de punta a punta: se abate world y su `restored_tick` es una instantánea posterior al fallo (a no más de 50 ticks del tick en que cayó).
+
+Cada caso imprime una línea `MEDICION …` con los tiempos y los valores medidos. Los jugadores son el administrador efímero (inicio de sesión), para no gastar los 5 registros por IP de la prueba de humo; CP-06, CP-07 y CP-12 usan el modo demo (la gota es gratis y suma exactamente 1 a la humedad aportada) y lo apagan al terminar. Se hacen solo dos accesos por caso (durante el fallo y tras volver) para no agotar el limitador de acceso.
+
+`E2E_SKIP_FAULTS=1 tests/e2e/run.sh` los omite. La lógica pura del arnés (`tests/e2e/faults.mjs`) se prueba sin el stack: `node --test tests/e2e/faults.unit.test.mjs`. Cada caso tarda entre 12 y 28 s (los fallos completos, unos 3 min); el CI no necesita más de los 45 min que ya tiene el job.
