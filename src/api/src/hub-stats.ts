@@ -112,7 +112,11 @@ export function createHubStatsSource(options: HubStatsOptions): () => Promise<Hu
       const res = await doFetch(url, {
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (res.status !== 200) return { ok: false, detail: `http_${String(res.status)}` };
+      if (res.status !== 200) {
+        // Se libera el cuerpo sin leerlo: si no, la conexión queda retenida.
+        await res.body?.cancel().catch(() => undefined);
+        return { ok: false, detail: `http_${String(res.status)}` };
+      }
       let body: unknown;
       try {
         body = JSON.parse(await res.text());

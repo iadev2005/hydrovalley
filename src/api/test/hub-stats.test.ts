@@ -63,6 +63,22 @@ describe("hub stats source", () => {
     });
   });
 
+  it("releases the response body when the hub answers a non-200 status", async () => {
+    let cancelled = false;
+    const body = new ReadableStream({
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fakeFetch = (() =>
+      Promise.resolve(new Response(body, { status: 503 }))) as unknown as typeof fetch;
+
+    const result = await createHubStatsSource({ address: "hub:8081", fetch: fakeFetch })();
+
+    expect(result).toEqual({ ok: false, detail: "http_503" });
+    expect(cancelled).toBe(true);
+  });
+
   it("is down with invalid_response on invalid JSON", async () => {
     const address = await start((res) => send(res, 200, "{not json"));
 
