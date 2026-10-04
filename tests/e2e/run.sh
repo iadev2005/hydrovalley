@@ -8,6 +8,8 @@
 #   HV_HTTP_PORT        puerto del host para nginx (8080)
 #   E2E_SKIP_BUILD=1    no construir: usar las imágenes ya cargadas (CI)
 #   E2E_KEEP=1          no bajar el stack al terminar (para depurar)
+#   E2E_SKIP_FAULTS=1   no correr los casos de fallos (faults.test.mjs: paran y
+#                       pausan servicios del stack; tardan unos minutos)
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
@@ -100,3 +102,9 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
 fi
 
 node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
+
+# CP-05: fallos de servicios (faults.test.mjs). Corren después de la prueba de
+# humo, con el mismo stack y el administrador efímero.
+if [[ "${E2E_SKIP_FAULTS:-0}" != "1" ]]; then
+  node --test --test-reporter=spec --test-concurrency=1 "${repo_root}/tests/e2e/faults.test.mjs"
+fi

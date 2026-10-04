@@ -120,3 +120,17 @@ tests/e2e/run.sh
 ```
 
 Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`.
+
+### Casos de fallos (CP-05)
+
+Después de la prueba de humo, `run.sh` corre `tests/e2e/faults.test.mjs` con el mismo stack: el servicio `world` se **abate** (`kill`, sin instantánea final), se **para** (`stop`, parada ordenada) y se **pausa** (`pause`, simula la máquina apagada: la conexión queda sin respuesta) unos 10 s cada vez, y se vuelve a arrancar. Cada caso comprueba, solo con `/api/system`, `/play` y Docker:
+
+- el valle queda en pausa, el tick no avanza y el *Circuit Breaker* pasa a `open` o `half_open`; `/api/system` sigue en 200 con `world` en `down`;
+- una gota enviada durante el fallo se admite, espera en la cola y recibe `applied` al volver;
+- el panel y `step_ms.last` respetan los plazos (`/api/system` ~1 s y `Step` ~200 ms con el servicio pausado);
+- al volver, el circuito se cierra, el tick avanza de nuevo, cambia el `boot_id` (salvo tras la pausa, donde el proceso es el mismo) y la pérdida no pasa de una instantánea (50 ticks);
+- una acción ya aplicada y reenviada en una conexión nueva recibe `duplicate` y no suma gotas ni humedad; la sesión de `/play` sobrevive.
+
+Cada caso imprime una línea `MEDICION …` con los tiempos y los ticks medidos. El `restored_tick` no llega a los clientes: se infiere del primer tick que informa el hub tras el reinicio (con un retraso de hasta ~2 s), así que los «ticks perdidos» son una cota inferior; en el caso abatido se estima contra la última instantánea (`tick % 50 == 0`). El jugador es el administrador efímero (inicio de sesión), para no gastar los 5 registros por IP de la prueba de humo.
+
+`E2E_SKIP_FAULTS=1 tests/e2e/run.sh` los omite. La lógica pura del arnés (`tests/e2e/faults.mjs`) se prueba sin el stack: `node --test tests/e2e/faults.unit.test.mjs`. Cada caso tarda unos 22 s; el CI no necesita más de los 45 min que ya tiene el job.
