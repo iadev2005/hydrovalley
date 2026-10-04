@@ -38,7 +38,7 @@ Fuera de alcance: orquestación con réplicas (Kubernetes o Swarm; D-05 y `CLAUD
   - CP-06 hub parado: detectado en 1,1 s, recuperado en 1 s, reconexión en 0,2 s; la acción sin resultado se reenvía y se aplica una sola vez (humedad +1). Pausado: `/api/system` en 886 ms; el reenvío recibe `duplicate`.
   - CP-07 persistence parada / pausada / PostgreSQL parado: quien juega sigue con p95 de 102,6 / 87,9 / 89,1 ms (< 200 ms); un acceso nuevo recibe 503 con aviso claro en 0,8 / 3,0 / 0,8 s; con PostgreSQL parado la persistencia pasa a `not_serving` y se recupera en 6,1 s. Sin fallos de `Step`.
   - CP-12 persistence parada sobre 2 ticks de instantánea: 10 ticks/s, `Step` p95 máximo 2,4 ms, sin pausa y con el *breaker* cerrado; la primera instantánea tras volver es la del tick 1100 (comprobado matando world después: `restored_tick` = 1100).
-- [ ] T3 · CP-08 (arranque en orden inverso, con el tiempo medido) y resumen de resultados en el documento.
+- [x] T3 · CP-08 (arranque en orden inverso, con el tiempo medido) y resumen de resultados en el documento. Evidencia: RED en API y arnés; API 268, arnés 36; e2e 15 + 9 + 2 en verde (3 min 54 s en total). CP-08 inverso: todo conectado 7,5 s después del último servicio (18,5 s desde el primero), `RestartCount` 0 en los seis; orden normal 2,1 s / 13,4 s. RNF-10: 4 s desde `compose up` hasta los cinco servicios activos, con caché de Docker caliente (no es una medición desde cero). La API acepta un hub sin `restored_tick` (versiones mezcladas). Resultados en «Resultados medidos» del documento.
 
 ## Criterios de aceptación
 
