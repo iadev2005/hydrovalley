@@ -79,6 +79,45 @@ export function composeArgs(action, service) {
   return ["compose", action, service];
 }
 
+/** Percentil por rango más cercano; una muestra vacía es un error, no un 0. */
+export function percentile(values, p) {
+  if (values.length === 0) throw new Error("cannot take a percentile of an empty sample");
+  const sorted = [...values].sort((x, y) => x - y);
+  const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
+  return sorted[rank - 1];
+}
+
+/**
+ * Comprueba el `restored_tick` que informa el hub tras reiniciar Rust (CP-05):
+ * múltiplo del intervalo de instantáneas (salvo parada ordenada, cuya
+ * instantánea final cae en cualquier tick), no posterior al tick del fallo y a
+ * no más de una instantánea de distancia. Devuelve las violaciones (vacío si
+ * todo cumple).
+ */
+export function restoredTickViolations({ restored, tickAtFailure, every, graceful = false }) {
+  const problems = [];
+  if (!graceful && restored % every !== 0n) {
+    problems.push(`restored_tick ${restored} is not a multiple of ${every}`);
+  }
+  if (restored > tickAtFailure) {
+    problems.push(`restored_tick ${restored} is later than the tick at the failure ${tickAtFailure}`);
+  } else if (tickAtFailure - restored > every) {
+    problems.push(`gap ${tickAtFailure - restored} between the failure ${tickAtFailure} and restored_tick ${restored} exceeds ${every}`);
+  }
+  return problems;
+}
+
+/** Mayor tick entre los mensajes `state` (`null` si no hay ninguno). */
+export function maxStateTick(frames) {
+  let max = null;
+  for (const f of frames) {
+    if (f.type !== "state") continue;
+    const tick = parseTick(f.tick);
+    if (tick !== null && (max === null || tick > max)) max = tick;
+  }
+  return max;
+}
+
 /** Estado de un servicio dentro del cuerpo de /api/system. */
 export function serviceStatus(system, name) {
   return system.services.find((s) => s.name === name);

@@ -10,12 +10,13 @@
 //     panel 1 s).
 //
 // Solo se mira lo que un cliente puede ver: /api/system por nginx (tick, pausa,
-// *Circuit Breaker*, `boot_id`, `step_ms`) y los mensajes de /play. El
-// `restored_tick` no se expone a los clientes: se infiere del primer tick que
-// el hub informa tras el reinicio (el `Step` de la respuesta con el nuevo
-// `boot_id` devuelve el tick siguiente al restaurado). Esa lectura llega con un
-// retraso de hasta ~2 s (el panel guarda 1 s y se consulta cada 1 s), unos 20
-// ticks, así que los «ticks perdidos» son una cota inferior.
+// *Circuit Breaker*, `boot_id`, `restored_tick`, `step_ms`) y los mensajes de
+// /play. El `restored_tick` lo informa el hub (es el de la respuesta de `Step`
+// del nuevo arranque) y llega en la misma foto que el nuevo `boot_id`, así que
+// no se infiere de ningún tick leído tarde. Ojo: /api/system guarda 1 s, así
+// que un tick leído ahí puede ser hasta ~10 ticks anterior al real; las cotas
+// superiores de la acción X salen del tick de un mensaje `state` posterior a
+// su resultado.
 //
 // Cada caso imprime una línea `MEDICION …` con lo medido; no se inventan cifras.
 // Variables: E2E_SKIP_FAULTS=1 omite estos casos (la sesión de /play usa el
@@ -23,15 +24,26 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { PlaySession } from "./play-session.mjs";
 import {
-  WS_BASE,
+  SKIP,
+  SNAPSHOT_EVERY,
+  OUTAGE_MS,
+  RECOVERY_TIMEOUT_MS,
+  POLL_MS,
+  isResult,
+  healthy,
+  waitHealthy,
+  openSession,
+} from "./faults-support.mjs";
+import {
   sleep,
   waitFor,
   parseTick,
   ticksLost,
   isStalled,
   lastSnapshotTick,
+  restoredTickViolations,
+  maxStateTick,
   serviceStatus,
   formatMeasurement,
   stopService,
@@ -44,46 +56,11 @@ import {
   loginAdmin,
 } from "./faults.mjs";
 
-const SKIP = process.env.E2E_SKIP_FAULTS === "1" ? "E2E_SKIP_FAULTS=1" : false;
-const SNAPSHOT_EVERY = 50n;
-const OUTAGE_MS = 10_000;
-const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_S ?? 180) * 1000;
-const RECOVERY_TIMEOUT_MS = 30_000;
-// /api/system guarda 1 s y admite 120 consultas por minuto por IP: se consulta
-// una vez por segundo.
-const POLL_MS = 1000;
-
-const isResult = (actionId) => (f) => f.type === "result" && f.action_id === actionId;
-
-/** El stack está sano: todo `up`, hub con circuito cerrado y valle sin pausa. */
-function healthy(system) {
-  return (
-    system.services.every((s) => s.status === "up") &&
-    system.hub &&
-    system.hub.breaker === "closed" &&
-    system.hub.paused === false
-  );
-}
-
 async function restoreAll() {
   // Ni una pausa ni una parada olvidadas deben dejar el stack roto al
   // siguiente caso. `unpause` falla si no estaba pausado: se ignora.
   await unpauseService("world").catch(() => {});
   await startService("world").catch(() => {});
-}
-
-async function waitHealthy(timeoutMs = READY_TIMEOUT_MS) {
-  return waitFor(async () => {
-    const system = await systemStatus();
-    return healthy(system) ? system : false;
-  }, { timeoutMs, intervalMs: POLL_MS, description: "a healthy stack in /api/system" });
-}
-
-async function openSession(token) {
-  const session = new PlaySession(`${WS_BASE}/play?token=${token}&map=false`);
-  await session.opened;
-  await session.first("a state frame without pause", (f) => f.type === "state" && !f.paused, 15_000);
-  return session;
 }
 
 /** Espera a que el tick supere la siguiente instantánea tras `tick` (más 6 ticks para que se guarde). */
@@ -134,10 +111,17 @@ describe("CP-05: the world service fails and comes back", { skip: SKIP }, () => 
         player.send({ type: "drop", action_id: actionX, x: c.x, y: c.y });
         const resultX = await player.first(`the result of X ${actionX}`, isResult(actionX), 10_000);
         assert.equal(resultX.status, "applied", JSON.stringify(resultX));
-        // Cota superior del tick en que se aplicó X.
-        const tickXUpper = parseTick((await systemStatus()).hub.tick);
-        // Se espera a que pase la siguiente instantánea: así X está en la que
-        // Rust recuperará y el reenvío debe salir `duplicate`.
+        // Cota superior del tick en que se aplicó X: el tick del primer estado
+        // que llega después de su resultado (el hub difunde tras entregar los
+        // resultados del tick). /api/system no sirve: su copia de 1 s puede ser
+        // anterior a X.
+        const afterX = player.frames.indexOf(resultX) + 1;
+        const stateAfterX = await player.waitFor("a state frame after the result of X", (f) => f.type === "state", 10_000, { fromIndex: afterX });
+        const tickXUpper = parseTick(stateAfterX.tick);
+        // Primera instantánea posterior a X (`tick % 50 == 0`).
+        const snapshotOfX = lastSnapshotTick(tickXUpper, SNAPSHOT_EVERY) + SNAPSHOT_EVERY;
+        // Se espera a que pase esa instantánea (y se guarde): así X está en la
+        // que Rust recuperará y el reenvío debe salir `duplicate`.
         const tickT0 = await waitPastSnapshot(tickXUpper);
         const hubBefore = (await systemStatus()).hub;
         const t0 = parseTick(hubBefore.tick);
@@ -236,15 +220,23 @@ describe("CP-05: the world service fails and comes back", { skip: SKIP }, () => 
         // respecto del que había justo antes de parar.
         assert.ok(firstTick >= t0 - SNAPSHOT_EVERY, `first tick ${firstTick} must be >= ${t0 - SNAPSHOT_EVERY} (T0 ${t0} - 50)`);
         if (c.kind === "pause") assert.equal(lost, 0n, "a paused (not restarted) world loses no ticks");
-        // Sin parada ordenada Rust vuelve a la última instantánea (tick % 50 ==
-        // 0): se infiere de la primera lectura (el hub ya avanzó unos ticks
-        // desde el arranque, menos de 50) y la pérdida es la distancia hasta
-        // ella, como mucho una instantánea (5 s).
+        // `restored_tick` lo informa el hub (de la respuesta de `Step` del
+        // nuevo arranque), exacto y sin depender de cuándo se lee. Con `kill`
+        // es una instantánea (múltiplo de 50) no posterior al fallo y a no más
+        // de 50 ticks; con `stop` la instantánea final cae en cualquier tick;
+        // con `pause` el proceso es el mismo y no cambia.
+        const restoredTick = parseTick(recovered.restored_tick);
+        assert.notEqual(restoredTick, null, `restored_tick in /api/system: ${recovered.restored_tick}`);
         let lostSinceSnapshot;
-        if (c.kind === "kill") {
-          const restoredSnapshot = lastSnapshotTick(firstTick, SNAPSHOT_EVERY);
-          lostSinceSnapshot = tickAtPause - restoredSnapshot;
-          assert.ok(lostSinceSnapshot >= 0n && lostSinceSnapshot <= SNAPSHOT_EVERY, `ticks since the restored snapshot ${restoredSnapshot}: ${lostSinceSnapshot} (max ${SNAPSHOT_EVERY} = 5 s)`);
+        if (c.kind === "pause") {
+          assert.equal(recovered.restored_tick, before.restored_tick, "the same process resumed: restored_tick does not change");
+        } else {
+          const problems = restoredTickViolations({ restored: restoredTick, tickAtFailure: tickAtPause, every: SNAPSHOT_EVERY, graceful: c.kind === "stop" });
+          assert.deepEqual(problems, [], `restored_tick ${restoredTick}, tick at the failure ${tickAtPause}`);
+          lostSinceSnapshot = tickAtPause - restoredTick;
+          // X se aplicó antes de una instantánea (guardada con la persistencia
+          // en marcha): esa instantánea o una posterior es la que se recupera.
+          assert.ok(restoredTick >= snapshotOfX, `restored_tick ${restoredTick} must include the snapshot ${snapshotOfX} that holds X (applied by tick ${tickXUpper})`);
         }
         // El tick vuelve a avanzar.
         const later = await waitFor(async () => {
@@ -268,20 +260,18 @@ describe("CP-05: the world service fails and comes back", { skip: SKIP }, () => 
         const stateBefore = await fresh.waitFor("a state frame (baseline)", (f) => f.type === "state", 5000);
         assert.notEqual(stateBefore.accepted_drops, undefined, "state carries accepted_drops");
         assert.notEqual(stateBefore.humidity_contributed, undefined, "state carries humidity_contributed");
-        const afterIndex = fresh.frames.length;
         fresh.send({ type: "drop", action_id: actionX, x: c.x, y: c.y });
         const resendX = await fresh.first(`the result of the resent X ${actionX}`, isResult(actionX), 10_000);
-        const stateAfter = await fresh.waitFor("a state frame after the resend", (f) => f.type === "state", 5000, { fromIndex: afterIndex + 1 });
-        const restoredEstimate = firstTick - 1n;
-        if (resendX.status === "duplicate") {
-          assert.equal(stateAfter.accepted_drops, stateBefore.accepted_drops, "a duplicate does not count as an accepted drop");
-          assert.equal(stateAfter.humidity_contributed, stateBefore.humidity_contributed, "a duplicate adds no humidity");
-        } else {
-          // Permitido solo si X se aplicó después del tick restaurado (se perdió
-          // con la ventana de 5 s y la regla 2 admite el reenvío).
-          assert.equal(resendX.status, "applied", JSON.stringify(resendX));
-          assert.ok(tickXUpper > restoredEstimate, `X ('applied' again) must be newer than the restored tick ${restoredEstimate}; X was applied by tick ${tickXUpper}`);
-        }
+        // X se aplicó antes de una instantánea ≤ restored_tick (o el proceso es
+        // el mismo): Rust la recuerda y responde `duplicate`.
+        assert.equal(resendX.status, "duplicate", JSON.stringify(resendX));
+        // Se compara en un estado posterior al resultado: su tick es mayor que
+        // el de cualquier estado visto antes de él (el hub difunde tras entregar
+        // los resultados del tick), así que no puede ser anterior al reenvío.
+        const seenAtResult = maxStateTick(fresh.frames);
+        const stateAfter = await fresh.waitFor("a state frame after the resend result", (f) => f.type === "state" && parseTick(f.tick) > seenAtResult, 10_000, { fromIndex: fresh.frames.indexOf(resendX) + 1 });
+        assert.equal(stateAfter.accepted_drops, stateBefore.accepted_drops, "a duplicate does not count as an accepted drop");
+        assert.equal(stateAfter.humidity_contributed, stateBefore.humidity_contributed, "a duplicate adds no humidity");
 
         console.log(
           formatMeasurement(`CP-05 ${c.kind} world ${OUTAGE_MS / 1000}s`, {
@@ -293,6 +283,7 @@ describe("CP-05: the world service fails and comes back", { skip: SKIP }, () => 
             tick_at_pause: tickAtPause,
             first_tick_after: firstTick,
             ticks_lost: lost,
+            restored_tick: c.kind === "pause" ? undefined : restoredTick,
             ticks_lost_vs_snapshot: lostSinceSnapshot,
             system_ms: systemMs === undefined ? undefined : Math.round(systemMs),
             step_ms_last_max: Math.max(...stepLast),
