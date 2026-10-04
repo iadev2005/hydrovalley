@@ -23,7 +23,7 @@ ENV API_ADDR=api:3000 \
     NGINX_ENVSUBST_FILTER="^(API_ADDR|HUB_ADDR|NGINX_RESOLVER)$"
 
 COPY deploy/nginx/templates/ /etc/nginx/templates/
-COPY src/frontend/index.html src/frontend/styles.css /usr/share/nginx/html/
+COPY src/frontend/index.html src/frontend/sistema.html src/frontend/styles.css /usr/share/nginx/html/
 COPY src/frontend/js/ /usr/share/nginx/html/js/
 
 EXPOSE 8080
