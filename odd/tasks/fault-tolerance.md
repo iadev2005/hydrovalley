@@ -48,4 +48,4 @@ Fuera de alcance: orquestación con réplicas (Kubernetes o Swarm; D-05 y `CLAUD
 
 ## Progreso
 
-- T1 en `feature/faults-world` (ruta delegada).
+- T1 en `feature/faults-world` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada con avisos de robustez de la prueba (sobre todo: la instantánea restaurada en el caso `kill` se infiere de un tick leído tarde y podría fallar en un CI lento). Se corrigen al empezar la T2 exponiendo `restored_tick` en `/stats`.
