@@ -7,6 +7,7 @@ Juego incremental cooperativo y distribuido sobre las 3R del agua (reducir, reut
 - `docs/documento-inicial.md` contiene los requerimientos, las decisiones y el plan completo. Es la fuente de verdad: se edita en el repositorio, por pull request, y ningún otro documento la sustituye.
 - Si el código o un diagrama contradice ese documento, no decidas por tu cuenta: señálalo en la descripción del pull request.
 - Nunca inventes cifras, citas ni resultados de pruebas. Si falta un dato, deja `[DATO: …]`; si falta una fuente, `[FUENTE: …]`.
+- `docs/tareas-equipo.md` reúne las tareas abiertas y una guía para trabajar en el repositorio con un asistente de IA (mapa de archivos, comandos de cada servicio, cómo entregar). Léelo antes de empezar una tarea.
 
 ## Qué se construye
 
