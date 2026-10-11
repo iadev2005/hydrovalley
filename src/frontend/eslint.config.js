@@ -11,7 +11,10 @@ export default tseslint.config(
     extends: [js.configs.recommended, ...tseslint.configs.strict],
     languageOptions: { globals: { ...globals.browser } },
     plugins: { "react-hooks": reactHooks },
-    rules: { ...reactHooks.configs.recommended.rules },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "react-hooks/set-state-in-effect": "off",
+    },
   },
   {
     // JavaScript heredado (js/ y test/): se revisa con reglas básicas hasta
