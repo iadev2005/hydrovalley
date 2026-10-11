@@ -1,47 +1,72 @@
-// Lógica de la vista del valle sin DOM, para probarla con node:test: del
+// Lógica de la vista del valle sin DOM, para probarla con vitest: del
 // estado del hub al modelo que se dibuja, mensajes de resultado, rol del
-// token y acciones pendientes. main.js solo conecta esto con el DOM.
+// token y acciones pendientes. main.js o componentes solo conectan esto con la UI.
 
-const STAGE_NAMES = ["tierra seca", "pasto", "arbusto", "flores", "árbol"];
+import type { StateFrame } from "./play.ts";
+
+const STAGE_NAMES = ["tierra seca", "pasto", "arbusto", "flores", "árbol"] as const;
 
 /** Nombre de la etapa (1 tierra seca … 5 árbol); lo desconocido cuenta como tierra seca. */
-export function stageName(stage) {
-  return STAGE_NAMES[stage - 1] ?? STAGE_NAMES[0];
+export function stageName(stage: number): string {
+  const name = STAGE_NAMES[stage - 1];
+  return name ?? STAGE_NAMES[0];
 }
 
 /**
  * Rol del token firmado (`{player_id, username, role, exp}`). Solo sirve para
  * mostrar u ocultar los controles de administración: el hub es quien decide
  * (responde `forbidden` sin rol de administrador). Vacío si no se puede leer.
- * @param {unknown} token
  */
-export function tokenRole(token) {
+export function tokenRole(token: unknown): string {
   if (typeof token !== "string") return "";
   try {
-    const payload = token.split(".")[1]?.replace(/-/g, "+").replace(/_/g, "/");
-    if (!payload) return "";
+    const parts = token.split(".");
+    if (parts.length < 2 || !parts[1]) return "";
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-    const role = JSON.parse(new TextDecoder().decode(bytes))?.role;
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+    const role = claims["role"];
     return typeof role === "string" ? role : "";
   } catch {
     return "";
   }
 }
 
-/** @param {string} role */
-export function isAdminRole(role) {
+export function isAdminRole(role: string): boolean {
   return role === "admin";
 }
+
+export interface TileFire {
+  drops_received: number;
+}
+
+export interface TileInstallation {
+  kind: string;
+  owner_id: string;
+}
+
+export interface Tile {
+  x: number;
+  y: number;
+  stage: number;
+  humidity: bigint;
+  fire: TileFire | null;
+  installation: TileInstallation | null;
+}
+
+export type StateForTiles = Pick<
+  StateFrame,
+  "width" | "height" | "stages" | "humidity" | "fires" | "installations"
+>;
 
 /**
  * Una entrada por casilla, por filas (índice = y * width + x), con su etapa,
  * humedad, fuego e instalación. Vacío si el estado no trae el mapa.
- * @param {{width: number, height: number, stages: number[], humidity: bigint[], fires: any[], installations: any[]} | null} state
  */
-export function buildTiles(state) {
+export function buildTiles(state: StateForTiles | null): Tile[] {
   if (!state || state.stages.length === 0) return [];
   const { width, height } = state;
-  const tiles = state.stages.map((stage, i) => ({
+  const tiles: Tile[] = state.stages.map((stage, i) => ({
     x: i % width,
     y: Math.floor(i / width),
     stage,
@@ -49,7 +74,8 @@ export function buildTiles(state) {
     fire: null,
     installation: null,
   }));
-  const at = (x, y) => (x < width && y < height ? tiles[y * width + x] : undefined);
+  const at = (x: number, y: number): Tile | undefined =>
+    x < width && y < height ? tiles[y * width + x] : undefined;
   for (const f of state.fires) {
     const tile = at(f.x, f.y);
     if (tile) tile.fire = { drops_received: f.drops_received };
@@ -63,12 +89,13 @@ export function buildTiles(state) {
 
 /**
  * Casilla bajo un punto del lienzo, o `null` si cae fuera del valle.
- * @param {number} px
- * @param {number} py
- * @param {number} cellSize
- * @param {number} size casillas por lado
  */
-export function tileAt(px, py, cellSize, size) {
+export function tileAt(
+  px: number,
+  py: number,
+  cellSize: number,
+  size: number,
+): { x: number; y: number } | null {
   if (!Number.isFinite(px) || !Number.isFinite(py) || px < 0 || py < 0) return null;
   const x = Math.floor(px / cellSize);
   const y = Math.floor(py / cellSize);
@@ -77,14 +104,42 @@ export function tileAt(px, py, cellSize, size) {
 
 const DASH = "—";
 
+export interface PlayerPanelPrices {
+  sprinkler: string;
+  drip: string;
+  treatment_plant: string;
+}
+
+export interface PlayerPanelOwned {
+  bigger_drop: boolean;
+  bigger_tank: boolean;
+}
+
+export interface PlayerPanelView {
+  water: string;
+  waterRatio: number;
+  leaves: string;
+  prices: PlayerPanelPrices;
+  owned: PlayerPanelOwned;
+}
+
+export interface PlayerDataForPanel {
+  water: bigint;
+  tank_capacity: bigint;
+  leaves: bigint;
+  upgrades: string[];
+  next_sprinkler_price?: bigint;
+  next_drip_price?: bigint;
+  next_treatment_plant_price?: bigint;
+}
+
 /**
  * Textos del panel del jugador. Antes de que el jugador entre en el mundo
  * (su primer comando) el estado no lo trae y se muestran guiones.
- * @param {{water: bigint, tank_capacity: bigint, leaves: bigint, upgrades: string[], next_sprinkler_price?: bigint, next_drip_price?: bigint, next_treatment_plant_price?: bigint} | null} player
  */
-export function playerPanel(player) {
-  const owned = (name) => player?.upgrades?.includes(name) ?? false;
-  const price = (value) => (player ? String(value ?? 0n) : DASH);
+export function playerPanel(player: PlayerDataForPanel | null): PlayerPanelView {
+  const owned = (name: string): boolean => player?.upgrades.includes(name) ?? false;
+  const price = (value?: bigint): string => (player ? String(value ?? 0n) : DASH);
   return {
     water: player ? `${player.water} / ${player.tank_capacity}` : DASH,
     waterRatio:
@@ -101,7 +156,7 @@ export function playerPanel(player) {
   };
 }
 
-const REJECT_TEXT = {
+const REJECT_TEXT: Record<string, string> = {
   insufficient_water: "no tienes agua suficiente",
   insufficient_leaves: "no tienes hojas suficientes",
   out_of_bounds: "la casilla está fuera del valle",
@@ -115,7 +170,7 @@ const REJECT_TEXT = {
  * que cierra la acción. `duplicate` cuenta como aplicada (CLAUDE.md, regla 2).
  * `rejected` se resuelve aparte porque su texto depende del motivo.
  */
-const STATUS_TABLE = {
+const STATUS_TABLE: Record<string, { ok: boolean; text: string }> = {
   applied: { ok: true, text: "aplicada" },
   duplicate: { ok: true, text: "aplicada" },
   rejected: { ok: false, text: "rechazada" },
@@ -127,10 +182,14 @@ const STATUS_TABLE = {
 
 /**
  * Mensaje para el jugador a partir del resultado de una acción.
- * @param {{status: string, reason?: string}} result
- * @returns {{ok: boolean, text: string}}
  */
-export function describeActionResult({ status, reason = "" }) {
+export function describeActionResult({
+  status,
+  reason = "",
+}: {
+  status: string;
+  reason?: string;
+}): { ok: boolean; text: string } {
   if (status === "rejected") {
     return { ok: false, text: `rechazada: ${REJECT_TEXT[reason] ?? (reason || "sin motivo")}` };
   }
@@ -144,13 +203,16 @@ export function describeActionResult({ status, reason = "" }) {
  * ancho del propio estado. El hub no difunde cuántas gotas apagan un fuego
  * (`FireView` solo trae `drops_received`), así que solo se muestran las
  * recibidas, sin un total fijado en la página.
- * @param {Parameters<typeof buildTiles>[0]} state
- * @param {{x: number, y: number} | null} selected
  */
-export function selectionView(state, selected) {
+export function selectionView(
+  state: StateForTiles | null,
+  selected: { x: number; y: number } | null,
+): { label: string; info: string } {
   if (!selected) return { label: "ninguna", info: "Haz clic en una casilla." };
   const label = `(${selected.x}, ${selected.y})`;
-  const tile = buildTiles(state)[selected.y * (state?.width ?? 0) + selected.x];
+  const tiles = buildTiles(state);
+  const width = state?.width ?? 0;
+  const tile = tiles[selected.y * width + selected.x];
   if (!tile) return { label, info: "Sin datos del mapa todavía." };
   let info = `${stageName(tile.stage)}, humedad ${tile.humidity}`;
   if (tile.fire) info += `, en llamas (${tile.fire.drops_received} gotas recibidas)`;
@@ -168,16 +230,28 @@ export const PENDING_MAX_AGE_MS = 30_000;
 /** Comandos de administración (RF-31): nunca se reenvían solos al reconectar. */
 const ADMIN_COMMAND_TYPES = new Set(["reset_valley", "set_demo_mode"]);
 
+export interface PendingActionEntry {
+  actionId: string;
+  label: string;
+  frame: string;
+  type: string;
+  addedAt: number;
+}
+
+export interface ResendPlan {
+  resend: PendingActionEntry[];
+  expired: PendingActionEntry[];
+  adminDropped: PendingActionEntry[];
+}
+
 /**
  * Qué hacer con las acciones pendientes al reabrir el WebSocket (regla 2 de
  * CLAUDE.md): reenviar las recientes de jugador, en orden de envío; descartar
  * las que superan el plazo (`expired`) y los comandos de administración
  * (`adminDropped`), que el administrador debe repetir a propósito.
- * @param {{actionId: string, frame: string, type: string, addedAt: number}[]} entries
- * @param {number} now
  */
-export function planResend(entries, now) {
-  const plan = { resend: [], expired: [], adminDropped: [] };
+export function planResend(entries: PendingActionEntry[], now: number): ResendPlan {
+  const plan: ResendPlan = { resend: [], expired: [], adminDropped: [] };
   for (const entry of entries) {
     if (now - entry.addedAt > PENDING_MAX_AGE_MS) plan.expired.push(entry);
     else if (ADMIN_COMMAND_TYPES.has(entry.type)) plan.adminDropped.push(entry);
@@ -188,49 +262,57 @@ export function planResend(entries, now) {
 
 const FINAL_STATUSES = new Set(Object.keys(STATUS_TABLE));
 
+export interface PendingActionsManager {
+  readonly size: number;
+  has(actionId: string): boolean;
+  add(actionId: string, frame: string, label: string): void;
+  resolve(result: { action_id: string; status: string }): PendingActionEntry | null;
+  settle(actionId: string): PendingActionEntry | null;
+  planReconnect(): ResendPlan;
+}
+
 /**
  * Acciones enviadas que aún no tienen resultado final. Se guardan con su
  * mensaje para reenviarlas al reconectarse (regla 2 de CLAUDE.md): el hub
  * ignora un `action_id` que sigue en cola y responde `duplicate` a uno ya
  * aplicado, así que reenviar es seguro. Un resultado final, de cualquier
  * clase (incluido `duplicate`), la quita.
- * @param {{now?: () => number}} [deps]
  */
-export function createPendingActions({ now = Date.now } = {}) {
-  /** @type {Map<string, {actionId: string, label: string, frame: string, type: string, addedAt: number}>} */
-  const entries = new Map();
+export function createPendingActions({
+  now = Date.now,
+}: {
+  now?: () => number;
+} = {}): PendingActionsManager {
+  const entries = new Map<string, PendingActionEntry>();
   return {
-    get size() {
+    get size(): number {
       return entries.size;
     },
-    has: (actionId) => entries.has(actionId),
-    add(actionId, frame, label) {
+    has: (actionId: string): boolean => entries.has(actionId),
+    add(actionId: string, frame: string, label: string): void {
       let type = "";
       try {
-        type = JSON.parse(frame)?.type ?? "";
+        const parsed = JSON.parse(frame) as Record<string, unknown>;
+        type = typeof parsed["type"] === "string" ? parsed["type"] : "";
       } catch {
         // un mensaje ilegible se trata como comando de jugador
       }
       entries.set(actionId, { actionId, label, frame, type, addedAt: now() });
     },
-    /** Quita la acción si el resultado es final; devuelve su entrada o `null`. */
-    resolve({ action_id: actionId, status }) {
+    resolve({ action_id: actionId, status }: { action_id: string; status: string }): PendingActionEntry | null {
       return FINAL_STATUSES.has(status) ? this.settle(actionId) : null;
     },
-    /** Quita la acción (resultado final, `error` del hub o descarte); devuelve su entrada o `null`. */
-    settle(actionId) {
+    settle(actionId: string): PendingActionEntry | null {
       const entry = entries.get(actionId);
       if (!entry) return null;
       entries.delete(actionId);
       return entry;
     },
-    /**
-     * Plan para reabrir el WebSocket: quita las caducadas y las de
-     * administración; las que se reenvían siguen pendientes.
-     */
-    planReconnect() {
+    planReconnect(): ResendPlan {
       const plan = planResend(Array.from(entries.values()), now());
-      for (const entry of [...plan.expired, ...plan.adminDropped]) entries.delete(entry.actionId);
+      for (const entry of [...plan.expired, ...plan.adminDropped]) {
+        entries.delete(entry.actionId);
+      }
       return plan;
     },
   };

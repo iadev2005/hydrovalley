@@ -1,6 +1,6 @@
 // Acceso a la API (registro y entrada) y sesión guardada en el navegador.
 // Funciones sin DOM: `fetch`, el almacenamiento y el reloj se inyectan para
-// poder probarlas con node:test.
+// poder probarlas con vitest.
 
 /** Clave de `localStorage` donde se guarda la sesión. Nunca contiene la contraseña. */
 export const SESSION_KEY = "hydrovalley.session";
@@ -8,34 +8,68 @@ export const SESSION_KEY = "hydrovalley.session";
 const REGISTER_PATH = "/api/auth/register";
 const LOGIN_PATH = "/api/auth/login";
 
+export interface Session {
+  token: string;
+  expiresAt: number;
+  username: string;
+}
+
+export interface Credentials {
+  username: string;
+  password: string;
+}
+
+export interface StorageLike {
+  getItem(k: string): string | null;
+  setItem(k: string, v: string): void;
+  removeItem(k: string): void;
+}
+
+export type FetchFn = (
+  input: string,
+  init?: RequestInit,
+) => Promise<{
+  status: number;
+  ok: boolean;
+  headers: { get(name: string): string | null };
+  json(): Promise<unknown>;
+}>;
+
 /** Error de acceso con un mensaje ya listo para mostrar al usuario. */
 export class AuthError extends Error {
-  /**
-   * @param {string} message
-   * @param {number} status estado HTTP (0 si no hubo respuesta)
-   * @param {number} [retryAfter] segundos indicados por `Retry-After` (429)
-   */
-  constructor(message, status, retryAfter) {
+  readonly status: number;
+  readonly retryAfter?: number;
+
+  constructor(message: string, status: number, retryAfter?: number) {
     super(message);
     this.name = "AuthError";
     this.status = status;
-    if (retryAfter !== undefined) this.retryAfter = retryAfter;
+    if (retryAfter !== undefined) {
+      this.retryAfter = retryAfter;
+    }
   }
 }
 
-async function readJson(response) {
+async function readJson(response: { json(): Promise<unknown> }): Promise<Record<string, unknown> | null> {
   try {
-    return await response.json();
+    const data = await response.json();
+    if (data && typeof data === "object") {
+      return data as Record<string, unknown>;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
 /** Mensaje para el usuario según el estado HTTP de un fallo. */
-function failure(response, body) {
+function failure(
+  response: { status: number; headers: { get(name: string): string | null } },
+  body: Record<string, unknown> | null,
+): AuthError {
   switch (response.status) {
     case 400: {
-      const apiMessage = body && typeof body.error === "string" ? body.error : "";
+      const apiMessage = body && typeof body["error"] === "string" ? body["error"] : "";
       return new AuthError(apiMessage || "los datos no son válidos", 400);
     }
     case 401:
@@ -64,28 +98,34 @@ const MAX_RETRY_MS = 600_000;
 /**
  * Milisegundos que hay que esperar antes de volver a enviar el formulario:
  * los del `Retry-After` de un 429, o 0 si el error no pide espera.
- * @param {unknown} err
  */
-export function retryDelayMs(err) {
+export function retryDelayMs(err: unknown): number {
   if (!(err instanceof AuthError) || err.status !== 429) return 0;
   if (err.retryAfter === undefined) return DEFAULT_RETRY_MS;
   return Math.min(err.retryAfter * 1000, MAX_RETRY_MS);
 }
 
 /** Lee el `username` de la carga útil de un JWT (sin verificar la firma: eso lo hace el hub). */
-function tokenUsername(token) {
+function tokenUsername(token: string): string {
   try {
-    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-    const claims = JSON.parse(new TextDecoder().decode(bytes));
-    return typeof claims?.username === "string" ? claims.username : "";
+    const parts = token.split(".");
+    if (parts.length < 2 || !parts[1]) return "";
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(payload);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+    return typeof claims?.["username"] === "string" ? claims["username"] : "";
   } catch {
     return "";
   }
 }
 
-async function authenticate(fetchFn, path, { username, password }) {
-  let response;
+async function authenticate(
+  fetchFn: FetchFn,
+  path: string,
+  { username, password }: Credentials,
+): Promise<Session> {
+  let response: Awaited<ReturnType<FetchFn>>;
   try {
     response = await fetchFn(path, {
       method: "POST",
@@ -98,44 +138,38 @@ async function authenticate(fetchFn, path, { username, password }) {
   const body = await readJson(response);
   if (!response.ok) throw failure(response, body);
 
-  const expiresAt = Date.parse(body?.expires_at);
-  if (typeof body?.token !== "string" || body.token === "" || Number.isNaN(expiresAt)) {
+  const expiresAt = typeof body?.["expires_at"] === "string" ? Date.parse(body["expires_at"]) : NaN;
+  if (typeof body?.["token"] !== "string" || body["token"] === "" || Number.isNaN(expiresAt)) {
     throw new AuthError("respuesta no válida del servidor", response.status);
   }
   // El registro devuelve `username`; el login solo `token` y `expires_at`, y
   // entonces el nombre sale del token (solo se lee ese campo).
-  const fromBody = typeof body.username === "string" ? body.username : "";
+  const fromBody = typeof body["username"] === "string" ? body["username"] : "";
   return {
-    token: body.token,
+    token: body["token"],
     expiresAt,
-    username: fromBody || tokenUsername(body.token) || username,
+    username: fromBody || tokenUsername(body["token"]) || username,
   };
 }
 
 /**
  * Crea la cuenta y devuelve la sesión.
- * @param {typeof fetch} fetchFn
- * @param {{username: string, password: string}} credentials
  */
-export function register(fetchFn, credentials) {
+export function register(fetchFn: FetchFn, credentials: Credentials): Promise<Session> {
   return authenticate(fetchFn, REGISTER_PATH, credentials);
 }
 
 /**
  * Entra con una cuenta existente y devuelve la sesión.
- * @param {typeof fetch} fetchFn
- * @param {{username: string, password: string}} credentials
  */
-export function login(fetchFn, credentials) {
+export function login(fetchFn: FetchFn, credentials: Credentials): Promise<Session> {
   return authenticate(fetchFn, LOGIN_PATH, credentials);
 }
 
 /**
  * Guarda la sesión. Solo se persisten tres campos, nunca la contraseña.
- * @param {{setItem(k: string, v: string): void}} storage
- * @param {{token: string, expiresAt: number, username: string}} session
  */
-export function saveSession(storage, { token, expiresAt, username }) {
+export function saveSession(storage: Pick<StorageLike, "setItem">, { token, expiresAt, username }: Session): void {
   try {
     storage.setItem(SESSION_KEY, JSON.stringify({ token, expiresAt, username }));
   } catch {
@@ -145,9 +179,8 @@ export function saveSession(storage, { token, expiresAt, username }) {
 
 /**
  * Borra la sesión guardada.
- * @param {{removeItem(k: string): void}} storage
  */
-export function clearSession(storage) {
+export function clearSession(storage: Pick<StorageLike, "removeItem">): void {
   try {
     storage.removeItem(SESSION_KEY);
   } catch {
@@ -158,11 +191,9 @@ export function clearSession(storage) {
 /**
  * Devuelve la sesión guardada, o `null` (y la borra) si falta, está
  * corrupta o caducó.
- * @param {{getItem(k: string): string | null, removeItem(k: string): void}} storage
- * @param {number} now milisegundos desde la época
  */
-export function loadSession(storage, now) {
-  let raw = null;
+export function loadSession(storage: StorageLike, now: number): Session | null {
+  let raw: string | null;
   try {
     raw = storage.getItem(SESSION_KEY);
   } catch {
@@ -170,15 +201,16 @@ export function loadSession(storage, now) {
   }
   if (raw === null) return null;
   try {
-    const s = JSON.parse(raw);
+    const s = JSON.parse(raw) as Record<string, unknown>;
     if (
-      typeof s?.token === "string" &&
-      s.token !== "" &&
-      Number.isFinite(s.expiresAt) &&
-      s.expiresAt > now &&
-      typeof s.username === "string"
+      typeof s?.["token"] === "string" &&
+      s["token"] !== "" &&
+      typeof s["expiresAt"] === "number" &&
+      Number.isFinite(s["expiresAt"]) &&
+      s["expiresAt"] > now &&
+      typeof s["username"] === "string"
     ) {
-      return { token: s.token, expiresAt: s.expiresAt, username: s.username };
+      return { token: s["token"], expiresAt: s["expiresAt"], username: s["username"] };
     }
   } catch {
     // Datos corruptos: se descartan abajo.

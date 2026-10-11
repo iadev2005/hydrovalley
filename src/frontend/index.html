@@ -7,96 +7,12 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <!-- Página mínima del esqueleto. TODO: React (paneles) y Phaser (valle isométrico). -->
-    <main>
-      <h1>hydrovalley</h1>
-      <section id="access-panel" aria-labelledby="access-title">
-        <h2 id="access-title">Acceso</h2>
-        <form id="auth-form" autocomplete="on">
-          <label>Usuario <input id="username" name="username" type="text" autocomplete="username" required /></label>
-          <label>Contraseña <input id="password" name="password" type="password" autocomplete="current-password" required /></label>
-          <button id="register" type="button">Registrarse</button>
-          <button id="login" type="submit">Entrar</button>
-        </form>
-        <p id="auth-error" class="error" role="alert" hidden></p>
-      </section>
-      <section id="session-panel" hidden>
-        <p class="meta">
-          Conectado como <strong id="session-user"></strong>
-          <button id="logout" type="button">Salir</button>
-        </p>
-      </section>
-      <p class="meta">Conexión: <span id="conn">desconectado</span></p>
-      <p class="meta" id="state">Sin estado todavía.</p>
-      <section id="game" aria-labelledby="valley-title">
-        <h2 id="valley-title">Valle</h2>
-        <div class="layout">
-          <canvas id="valley" width="512" height="512" aria-label="Valle de 32 por 32 casillas"></canvas>
-          <div class="panel">
-            <p class="meta">Casilla: <strong id="selected">ninguna</strong></p>
-            <p class="meta" id="tile-info">Haz clic en una casilla.</p>
-            <p class="meta">Agua: <strong id="water">—</strong> <progress id="water-bar" max="1" value="0"></progress></p>
-            <p class="meta">Hojas: <strong id="leaves">—</strong></p>
-            <div class="actions">
-              <button id="drop" type="button" disabled>Soltar gota</button>
-              <button id="place-sprinkler" type="button" disabled>Colocar aspersor (<span id="price-sprinkler">—</span> hojas)</button>
-              <button id="place-drip" type="button" disabled>Colocar riego por goteo (<span id="price-drip">—</span> hojas)</button>
-              <button id="place-treatment_plant" type="button" disabled>Colocar planta de tratamiento (<span id="price-treatment_plant">—</span> hojas)</button>
-              <button id="buy-bigger_drop" type="button" disabled>Comprar gota grande</button>
-              <button id="buy-bigger_tank" type="button" disabled>Comprar depósito mayor</button>
-            </div>
-            <p class="meta" id="action-message" role="status"></p>
-            <p class="meta">Acciones pendientes: <span id="pending">0</span></p>
-            <section id="admin-panel" hidden aria-labelledby="admin-title">
-              <h3 id="admin-title">Administración</h3>
-              <div class="actions">
-                <button id="demo-toggle" type="button" disabled>Activar modo demo</button>
-                <button id="reset" type="button" disabled>Reiniciar valle</button>
-              </div>
-              <p id="reset-confirm" class="meta" hidden>
-                Se borrará el progreso de todos los jugadores. ¿Confirmas?
-                <button id="reset-yes" type="button">Sí, reiniciar</button>
-                <button id="reset-no" type="button">Cancelar</button>
-              </p>
-            </section>
-          </div>
-        </div>
-        <ul class="legend" aria-label="Leyenda">
-          <li><span class="swatch" style="background:#8d6e4a"></span>tierra seca</li>
-          <li><span class="swatch" style="background:#9ccc65"></span>pasto</li>
-          <li><span class="swatch" style="background:#558b2f"></span>arbusto</li>
-          <li><span class="swatch" style="background:#f06292"></span>flores</li>
-          <li><span class="swatch" style="background:#1b5e20"></span>árbol</li>
-          <li><span class="swatch" style="background:#e53935"></span>fuego</li>
-          <li>A aspersor · G goteo · P planta</li>
-        </ul>
-      </section>
-      <section id="ranking-panel" aria-labelledby="ranking-title" hidden>
-        <h2 id="ranking-title">Ranking</h2>
-        <p class="meta">Los diez que más hojas han ganado. <button id="refresh" type="button">Actualizar</button></p>
-        <table id="ranking-table">
-          <thead><tr><th scope="col">Puesto</th><th scope="col">Jugador</th><th scope="col">Hojas ganadas</th></tr></thead>
-          <tbody id="ranking-body"></tbody>
-        </table>
-        <p class="meta" id="ranking-status" role="status"></p>
-      </section>
-      <section id="report-panel" aria-labelledby="report-title" hidden>
-        <h2 id="report-title">Reporte de las 3R</h2>
-        <div role="tablist" aria-label="Alcance del reporte">
-          <button id="tab-me" type="button" role="tab" aria-selected="true" aria-controls="report-body">Mis 3R</button>
-          <button id="tab-global" type="button" role="tab" aria-selected="false" aria-controls="report-body">Valle</button>
-        </div>
-        <p class="meta" id="report-period"></p>
-        <table id="report-body" role="tabpanel">
-          <tbody id="report-rows"></tbody>
-        </table>
-        <p class="meta" id="report-note"></p>
-        <p class="meta" id="report-status" role="status"></p>
-      </section>
-      <h2>Registro</h2>
-      <ol id="log" reversed></ol>
-      <footer class="site-footer"><a href="/sistema.html">Panel del sistema</a></footer>
-    </main>
-    <script type="module" src="/js/main.js"></script>
+    <div id="root">
+      <noscript>
+        <h1>hydrovalley</h1>
+        <button type="button">Soltar gota</button>
+      </noscript>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

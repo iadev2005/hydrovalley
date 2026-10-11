@@ -3,53 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>hydrovalley · panel del sistema</title>
+    <title>hydrovalley · Panel del sistema</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main id="system-page">
-      <h1>Panel del sistema</h1>
-      <p class="meta">Estado en vivo de los servicios. Se actualiza cada 2 s. <a href="/">Volver al juego</a></p>
-      <p class="meta" id="system-updated" role="status">Esperando la primera respuesta…</p>
-      <p class="error" id="system-error" role="alert" hidden></p>
-
-      <section aria-labelledby="services-title">
-        <h2 id="services-title">Servicios</h2>
-        <ul id="services-list" class="services"></ul>
-      </section>
-
-      <p class="meta" id="hub-missing" hidden>Sin datos del hub.</p>
-
-      <section id="hub-section" aria-labelledby="hub-title" hidden>
-        <h2 id="hub-title">Hub</h2>
-        <dl class="stats">
-          <div><dt>Jugadores conectados</dt><dd data-field="sessions">—</dd></div>
-          <div><dt>Goroutines</dt><dd data-field="goroutines">—</dd></div>
-          <div><dt>Acciones por segundo (admitidas)</dt><dd data-field="actionsAdmitted">—</dd></div>
-          <div><dt>Acciones por segundo (aplicadas)</dt><dd data-field="actionsApplied">—</dd></div>
-          <div><dt>Latencia p50 (ms)</dt><dd data-field="latencyP50">—</dd></div>
-          <div><dt>Latencia p95 (ms)</dt><dd data-field="latencyP95">—</dd></div>
-          <div><dt>Tick</dt><dd data-field="tick">—</dd></div>
-          <div><dt>Duración de Step, última (ms)</dt><dd data-field="stepLast">—</dd></div>
-          <div><dt>Duración de Step, p95 (ms)</dt><dd data-field="stepP95">—</dd></div>
-          <div><dt>Fallos de Step</dt><dd data-field="stepFailures">—</dd></div>
-          <div><dt>Cola de comandos</dt><dd data-field="queue">—</dd></div>
-          <div><dt>Valle en pausa</dt><dd data-field="paused">—</dd></div>
-          <div><dt>Circuit Breaker</dt><dd data-field="breaker">—</dd></div>
-        </dl>
-      </section>
-
-      <section id="valley-section" aria-labelledby="valley-stats-title" hidden>
-        <h2 id="valley-stats-title">Valle</h2>
-        <dl class="stats">
-          <div><dt>Humedad total</dt><dd data-field="humidityTotal">—</dd></div>
-          <div><dt>Humedad aportada</dt><dd data-field="humidityContributed">—</dd></div>
-          <div><dt>Gotas aceptadas</dt><dd data-field="acceptedDrops">—</dd></div>
-          <div><dt>Incendios activos</dt><dd data-field="activeFires">—</dd></div>
-        </dl>
-        <p class="meta">En modo demo, lo que sube la humedad aportada debe coincidir con lo que suben las gotas aceptadas. Las gotas aceptadas se cuentan desde el último arranque del hub; la humedad aportada, desde siempre.</p>
-      </section>
-    </main>
-    <script type="module" src="/js/system-main.js"></script>
+    <div id="root">
+      <noscript><h1>Panel del sistema</h1></noscript>
+    </div>
+    <script type="module" src="/src/system.tsx"></script>
   </body>
 </html>

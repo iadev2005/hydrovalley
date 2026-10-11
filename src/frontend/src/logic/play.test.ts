@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from "vitest";
 import {
   buildBuyUpgradeFrame,
   buildDropFrame,
@@ -19,56 +18,55 @@ import {
   RECONNECT_CAP_MS,
   RECONNECT_STABLE_MS,
   reconnectDelay,
-} from "../js/play.js";
+  type StateFrame,
+} from "./play.ts";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe("newUuid", () => {
   it("builds a v4 UUID from random bytes", () => {
-    const fill = (bytes) => bytes.fill(0xff);
-    assert.equal(newUuid(fill), "ffffffff-ffff-4fff-bfff-ffffffffffff");
+    const fill = (bytes: Uint8Array<ArrayBuffer>) => bytes.fill(0xff);
+    expect(newUuid(fill)).toBe("ffffffff-ffff-4fff-bfff-ffffffffffff");
   });
 
   it("produces different v4 UUIDs with the real generator", () => {
     const a = newUuid();
     const b = newUuid();
-    assert.match(a, UUID_V4);
-    assert.match(b, UUID_V4);
-    assert.notEqual(a, b);
+    expect(a).toMatch(UUID_V4);
+    expect(b).toMatch(UUID_V4);
+    expect(a).not.toBe(b);
   });
 });
 
 describe("buildPlayUrl", () => {
   it("uses ws on http, keeps host and port and sends only the token", () => {
-    assert.equal(
+    expect(
       buildPlayUrl({ protocol: "http:", host: "localhost:8080" }, "a.b.c"),
-      "ws://localhost:8080/play?token=a.b.c&map=true",
-    );
+    ).toBe("ws://localhost:8080/play?token=a.b.c&map=true");
   });
 
   it("uses wss on https", () => {
-    assert.equal(
+    expect(
       buildPlayUrl({ protocol: "https:", host: "10.68.17.4:8080" }, "a.b.c"),
-      "wss://10.68.17.4:8080/play?token=a.b.c&map=true",
-    );
+    ).toBe("wss://10.68.17.4:8080/play?token=a.b.c&map=true");
   });
 
   it("url-encodes the token and never sends player_id", () => {
     const url = buildPlayUrl({ protocol: "http:", host: "h" }, "a b&c=d");
-    assert.equal(url, "ws://h/play?token=a+b%26c%3Dd&map=true");
-    assert.ok(!url.includes("player_id"));
+    expect(url).toBe("ws://h/play?token=a+b%26c%3Dd&map=true");
+    expect(url.includes("player_id")).toBe(false);
   });
 });
 
 describe("shouldReconnect", () => {
   it("does not reconnect after an invalid or expired token (4401)", () => {
-    assert.equal(AUTH_CLOSE_CODE, 4401);
-    assert.equal(shouldReconnect(4401), false);
+    expect(AUTH_CLOSE_CODE).toBe(4401);
+    expect(shouldReconnect(4401)).toBe(false);
   });
 
   it("reconnects after any other close", () => {
     for (const code of [1000, 1001, 1006, 1011, 4400, 4402]) {
-      assert.equal(shouldReconnect(code), true, String(code));
+      expect(shouldReconnect(code)).toBe(true);
     }
   });
 });
@@ -76,7 +74,7 @@ describe("shouldReconnect", () => {
 describe("buildDropFrame", () => {
   it("encodes the drop message of play.proto", () => {
     const actionId = "11111111-2222-4333-8444-555555555555";
-    assert.deepEqual(JSON.parse(buildDropFrame({ x: 14, y: 9, actionId })), {
+    expect(JSON.parse(buildDropFrame({ x: 14, y: 9, actionId }))).toEqual({
       type: "drop",
       action_id: actionId,
       x: 14,
@@ -86,22 +84,22 @@ describe("buildDropFrame", () => {
 
   it("rejects negative or non-integer coordinates", () => {
     const actionId = "11111111-2222-4333-8444-555555555555";
-    for (const [x, y] of [
+    const cases: [number, number][] = [
       [-1, 0],
       [0, 1.5],
       [Number.NaN, 0],
-    ]) {
-      assert.throws(() => buildDropFrame({ x, y, actionId }), RangeError);
+    ];
+    for (const [x, y] of cases) {
+      expect(() => buildDropFrame({ x, y, actionId })).toThrow(RangeError);
     }
   });
 });
 
 describe("map option of buildPlayUrl", () => {
   it("can ask for a map-less state", () => {
-    assert.equal(
+    expect(
       buildPlayUrl({ protocol: "http:", host: "h" }, "t", { map: false }),
-      "ws://h/play?token=t&map=false",
-    );
+    ).toBe("ws://h/play?token=t&map=false");
   });
 });
 
@@ -109,31 +107,30 @@ describe("frame builders for the other commands", () => {
   const actionId = "11111111-2222-4333-8444-555555555555";
 
   it("encodes place_installation, buy_upgrade, set_demo_mode and reset_valley", () => {
-    assert.deepEqual(
+    expect(
       JSON.parse(buildPlaceInstallationFrame({ installation: "drip", x: 2, y: 3, actionId })),
-      { type: "place_installation", action_id: actionId, installation: "drip", x: 2, y: 3 },
-    );
-    assert.deepEqual(JSON.parse(buildBuyUpgradeFrame({ upgrade: "bigger_tank", actionId })), {
+    ).toEqual({ type: "place_installation", action_id: actionId, installation: "drip", x: 2, y: 3 });
+    expect(JSON.parse(buildBuyUpgradeFrame({ upgrade: "bigger_tank", actionId }))).toEqual({
       type: "buy_upgrade",
       action_id: actionId,
       upgrade: "bigger_tank",
     });
-    assert.deepEqual(JSON.parse(buildSetDemoModeFrame({ enabled: true, actionId })), {
+    expect(JSON.parse(buildSetDemoModeFrame({ enabled: true, actionId }))).toEqual({
       type: "set_demo_mode",
       action_id: actionId,
       enabled: true,
     });
-    assert.deepEqual(JSON.parse(buildResetValleyFrame({ actionId })), {
+    expect(JSON.parse(buildResetValleyFrame({ actionId }))).toEqual({
       type: "reset_valley",
       action_id: actionId,
     });
   });
 
   it("rejects unknown kinds and bad coordinates", () => {
-    assert.throws(() => buildPlaceInstallationFrame({ installation: "dam", x: 0, y: 0, actionId }), RangeError);
-    assert.throws(() => buildPlaceInstallationFrame({ installation: "drip", x: -1, y: 0, actionId }), RangeError);
-    assert.throws(() => buildBuyUpgradeFrame({ upgrade: "bigger_roof", actionId }), RangeError);
-    assert.throws(() => buildSetDemoModeFrame({ enabled: "yes", actionId }), TypeError);
+    expect(() => buildPlaceInstallationFrame({ installation: "dam", x: 0, y: 0, actionId })).toThrow(RangeError);
+    expect(() => buildPlaceInstallationFrame({ installation: "drip", x: -1, y: 0, actionId })).toThrow(RangeError);
+    expect(() => buildBuyUpgradeFrame({ upgrade: "bigger_roof", actionId })).toThrow(RangeError);
+    expect(() => buildSetDemoModeFrame({ enabled: "yes" as unknown as boolean, actionId })).toThrow(TypeError);
   });
 });
 
@@ -160,42 +157,41 @@ describe("parseFrame of the full state", () => {
           next_treatment_plant_price: "40",
         },
       }),
-    );
-    assert.equal(state.demo_mode, true);
-    assert.equal(state.width, 2);
-    assert.equal(state.height, 1);
-    assert.deepEqual(state.stages, [1, 2]);
-    assert.deepEqual(state.humidity, [0n, 75n]);
-    assert.deepEqual(state.fires, [{ x: 1, y: 0, drops_received: 2 }]);
-    assert.deepEqual(state.installations, [{ x: 0, y: 0, installation: "drip", owner_id: "p1" }]);
-    assert.deepEqual(state.player.upgrades, ["bigger_drop"]);
-    assert.equal(state.player.next_sprinkler_price, 10n);
-    assert.equal(state.player.next_treatment_plant_price, 40n);
+    ) as StateFrame;
+    expect(state.demo_mode).toBe(true);
+    expect(state.width).toBe(2);
+    expect(state.height).toBe(1);
+    expect(state.stages).toEqual([1, 2]);
+    expect(state.humidity).toEqual([0n, 75n]);
+    expect(state.fires).toEqual([{ x: 1, y: 0, drops_received: 2 }]);
+    expect(state.installations).toEqual([{ x: 0, y: 0, installation: "drip", owner_id: "p1" }]);
+    expect(state.player?.upgrades).toEqual(["bigger_drop"]);
+    expect(state.player?.next_sprinkler_price).toBe(10n);
+    expect(state.player?.next_treatment_plant_price).toBe(40n);
   });
 
   it("defaults the map fields to empty when they are absent (map=false)", () => {
-    const state = parseFrame('{"type":"state"}');
-    assert.equal(state.demo_mode, false);
-    assert.deepEqual(state.stages, []);
-    assert.deepEqual(state.humidity, []);
-    assert.deepEqual(state.fires, []);
-    assert.deepEqual(state.installations, []);
+    const state = parseFrame('{"type":"state"}') as StateFrame;
+    expect(state.demo_mode).toBe(false);
+    expect(state.stages).toEqual([]);
+    expect(state.humidity).toEqual([]);
+    expect(state.fires).toEqual([]);
+    expect(state.installations).toEqual([]);
   });
 });
 
 describe("parseFrame", () => {
   it("reads result, state and error frames", () => {
-    assert.deepEqual(
+    expect(
       parseFrame('{"type":"result","action_id":"a","status":"applied"}'),
-      { type: "result", action_id: "a", status: "applied", reason: "" },
-    );
+    ).toEqual({ type: "result", action_id: "a", status: "applied", reason: "" });
     const state = parseFrame(
       '{"type":"state","tick":"57","width":32,"height":32,"player":{"water":"19","tank_capacity":"20"}}',
-    );
-    assert.equal(state.type, "state");
-    assert.equal(state.tick, 57n);
-    assert.equal(state.paused, false);
-    assert.deepEqual(state.player, {
+    ) as StateFrame;
+    expect(state.type).toBe("state");
+    expect(state.tick).toBe(57n);
+    expect(state.paused).toBe(false);
+    expect(state.player).toEqual({
       water: 19n,
       tank_capacity: 20n,
       leaves: 0n,
@@ -204,7 +200,7 @@ describe("parseFrame", () => {
       next_drip_price: 0n,
       next_treatment_plant_price: 0n,
     });
-    assert.deepEqual(parseFrame('{"type":"error","code":"invalid_message"}'), {
+    expect(parseFrame('{"type":"error","code":"invalid_message"}')).toEqual({
       type: "error",
       action_id: "",
       code: "invalid_message",
@@ -212,106 +208,127 @@ describe("parseFrame", () => {
   });
 
   it("reads a state without player and uint64 fields omitted", () => {
-    const state = parseFrame('{"type":"state","paused":true}');
-    assert.equal(state.tick, 0n);
-    assert.equal(state.paused, true);
-    assert.equal(state.player, null);
+    const state = parseFrame('{"type":"state","paused":true}') as StateFrame;
+    expect(state.tick).toBe(0n);
+    expect(state.paused).toBe(true);
+    expect(state.player).toBeNull();
   });
 
   it("returns an unknown frame for invalid JSON or unknown types", () => {
-    assert.equal(parseFrame("{nope").type, "unknown");
-    assert.equal(parseFrame('{"type":"chat"}').type, "unknown");
-    assert.equal(parseFrame("[1]").type, "unknown");
+    expect(parseFrame("{nope").type).toBe("unknown");
+    expect(parseFrame('{"type":"chat"}').type).toBe("unknown");
+    expect(parseFrame("[1]").type).toBe("unknown");
   });
 });
 
 describe("describeFrame", () => {
   it("summarises each frame in one log line", () => {
-    assert.equal(
+    expect(
       describeFrame({ type: "result", action_id: "a1", status: "rejected", reason: "out_of_bounds" }),
-      "result a1: rejected (out_of_bounds)",
-    );
-    assert.equal(
+    ).toBe("result a1: rejected (out_of_bounds)");
+    expect(
       describeFrame({ type: "result", action_id: "a1", status: "applied", reason: "" }),
-      "result a1: applied",
-    );
-    assert.equal(
+    ).toBe("result a1: applied");
+    expect(
       describeFrame({
         type: "state",
         tick: 57n,
         paused: false,
-        player: { water: 19n, tank_capacity: 20n, leaves: 0n },
+        demo_mode: false,
+        width: 32,
+        height: 32,
+        stages: [],
+        humidity: [],
+        fires: [],
+        installations: [],
+        player: {
+          water: 19n,
+          tank_capacity: 20n,
+          leaves: 0n,
+          upgrades: [],
+          next_sprinkler_price: 0n,
+          next_drip_price: 0n,
+          next_treatment_plant_price: 0n,
+        },
       }),
-      "state tick 57, agua 19/20",
-    );
-    assert.equal(
-      describeFrame({ type: "state", tick: 3n, paused: true, player: null }),
-      "state tick 3 (en pausa)",
-    );
-    assert.equal(
+    ).toBe("state tick 57, agua 19/20");
+    expect(
+      describeFrame({
+        type: "state",
+        tick: 3n,
+        paused: true,
+        demo_mode: false,
+        width: 32,
+        height: 32,
+        stages: [],
+        humidity: [],
+        fires: [],
+        installations: [],
+        player: null,
+      }),
+    ).toBe("state tick 3 (en pausa)");
+    expect(
       describeFrame({ type: "error", action_id: "", code: "unknown_type" }),
-      "error unknown_type",
-    );
-    assert.equal(describeFrame({ type: "unknown", raw: "x" }), "mensaje no reconocido: x");
+    ).toBe("error unknown_type");
+    expect(describeFrame({ type: "unknown", raw: "x" })).toBe("mensaje no reconocido: x");
   });
 });
 
 describe("GRID_SIZE", () => {
   it("matches the 32x32 valley of D-01", () => {
-    assert.equal(GRID_SIZE, 32);
+    expect(GRID_SIZE).toBe(32);
   });
 });
 
 describe("reconnectDelay", () => {
   it("uses base 500 ms, cap 10 s and a 5 s stability window", () => {
-    assert.equal(RECONNECT_BASE_MS, 500);
-    assert.equal(RECONNECT_CAP_MS, 10_000);
-    assert.equal(RECONNECT_STABLE_MS, 5_000);
+    expect(RECONNECT_BASE_MS).toBe(500);
+    expect(RECONNECT_CAP_MS).toBe(10_000);
+    expect(RECONNECT_STABLE_MS).toBe(5_000);
   });
 
   it("doubles the ceiling on each attempt (random just below 1)", () => {
     const almostOne = () => 0.999999;
-    assert.deepEqual(
-      [0, 1, 2, 3, 4].map((a) => reconnectDelay(a, almostOne)),
-      [499, 999, 1999, 3999, 7999],
-    );
+    expect([0, 1, 2, 3, 4].map((a) => reconnectDelay(a, almostOne))).toEqual([
+      499, 999, 1999, 3999, 7999,
+    ]);
   });
 
   it("caps the ceiling at 10 s, even for huge attempt counts", () => {
     const almostOne = () => 0.999999;
-    assert.equal(reconnectDelay(5, almostOne), 9999);
-    assert.equal(reconnectDelay(60, almostOne), 9999);
-    assert.equal(reconnectDelay(10_000, almostOne), 9999);
+    expect(reconnectDelay(5, almostOne)).toBe(9999);
+    expect(reconnectDelay(60, almostOne)).toBe(9999);
+    expect(reconnectDelay(10_000, almostOne)).toBe(9999);
   });
 
   it("applies full jitter: the delay is random * ceiling", () => {
-    assert.equal(reconnectDelay(0, () => 0), 0);
-    assert.equal(reconnectDelay(2, () => 0.5), 1000);
-    assert.equal(reconnectDelay(10, () => 0.25), 2500);
+    expect(reconnectDelay(0, () => 0)).toBe(0);
+    expect(reconnectDelay(2, () => 0.5)).toBe(1000);
+    expect(reconnectDelay(10, () => 0.25)).toBe(2500);
   });
 
   it("rejects a negative or non-integer attempt", () => {
-    assert.throws(() => reconnectDelay(-1, () => 0), RangeError);
-    assert.throws(() => reconnectDelay(1.5, () => 0), RangeError);
+    expect(() => reconnectDelay(-1, () => 0)).toThrow(RangeError);
+    expect(() => reconnectDelay(1.5, () => 0)).toThrow(RangeError);
   });
 });
 
 describe("createReconnectBackoff", () => {
   function fakeClock(start = 0) {
     let t = start;
-    return { now: () => t, advance: (ms) => (t += ms) };
+    return { now: () => t, advance: (ms: number) => (t += ms) };
   }
   const almostOne = () => 0.999999;
 
   it("grows the delay across consecutive failed attempts", () => {
     const clock = fakeClock();
     const backoff = createReconnectBackoff({ random: almostOne, now: clock.now });
-    const delays = [];
+    const delays: number[] = [];
     for (let i = 0; i < 6; i++) {
       backoff.closed();
       delays.push(backoff.nextDelay());
     }
-    assert.deepEqual(delays, [499, 999, 1999, 3999, 7999, 9999]);
+    expect(delays).toEqual([499, 999, 1999, 3999, 7999, 9999]);
   });
 
   it("does not reset when the connection closes before 5 s", () => {
@@ -324,7 +341,7 @@ describe("createReconnectBackoff", () => {
     backoff.opened();
     clock.advance(RECONNECT_STABLE_MS - 1);
     backoff.closed();
-    assert.equal(backoff.nextDelay(), 1999);
+    expect(backoff.nextDelay()).toBe(1999);
   });
 
   it("resets after the connection stays open for at least 5 s", () => {
@@ -337,13 +354,13 @@ describe("createReconnectBackoff", () => {
     backoff.opened();
     clock.advance(RECONNECT_STABLE_MS);
     backoff.closed();
-    assert.equal(backoff.nextDelay(), 499);
+    expect(backoff.nextDelay()).toBe(499);
   });
 
   it("uses the injected random source", () => {
     const backoff = createReconnectBackoff({ random: () => 0, now: () => 0 });
     backoff.closed();
-    assert.equal(backoff.nextDelay(), 0);
+    expect(backoff.nextDelay()).toBe(0);
   });
 });
 
@@ -351,25 +368,25 @@ describe("decideOnClose", () => {
   const base = { code: 1006, current: true, expiresAt: 10_000, now: 1_000 };
 
   it("reconnects after a network drop with a live session", () => {
-    assert.equal(decideOnClose(base), "reconnect");
-    assert.equal(decideOnClose({ ...base, code: 1001 }), "reconnect");
+    expect(decideOnClose(base)).toBe("reconnect");
+    expect(decideOnClose({ ...base, code: 1001 })).toBe("reconnect");
   });
 
   it("shows the access panel on 4401", () => {
-    assert.equal(decideOnClose({ ...base, code: 4401 }), "show_access");
+    expect(decideOnClose({ ...base, code: 4401 })).toBe("show_access");
   });
 
   it("ignores the close of a socket that is no longer the current one (logout)", () => {
-    assert.equal(decideOnClose({ ...base, current: false }), "ignore");
-    assert.equal(decideOnClose({ ...base, current: false, code: 4401 }), "ignore");
+    expect(decideOnClose({ ...base, current: false })).toBe("ignore");
+    expect(decideOnClose({ ...base, current: false, code: 4401 })).toBe("ignore");
   });
 
   it("stops when the stored session has already expired", () => {
-    assert.equal(decideOnClose({ ...base, now: 10_000 }), "expired");
-    assert.equal(decideOnClose({ ...base, now: 20_000 }), "expired");
+    expect(decideOnClose({ ...base, now: 10_000 })).toBe("expired");
+    expect(decideOnClose({ ...base, now: 20_000 })).toBe("expired");
   });
 
   it("prefers 4401 over expiry (same outcome for the user, one clear reason)", () => {
-    assert.equal(decideOnClose({ ...base, code: 4401, now: 20_000 }), "show_access");
+    expect(decideOnClose({ ...base, code: 4401, now: 20_000 })).toBe("show_access");
   });
 });

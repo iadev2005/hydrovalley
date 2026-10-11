@@ -119,7 +119,7 @@ Y de la portabilidad (plan A ↔ plan B):
 | `src/world` (Rust 1.97, edición 2024) | `cargo test --locked` | `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings` | `cargo run` con `PERSISTENCE_ADDR`, `WORLD_LISTEN` |
 | `src/persistence` (Python 3.12, uv) | `uv run pytest -m "not integration"`; con base de datos: `-m integration` y `TEST_DATABASE_URL` | — | Ver su README |
 | `src/api` (Node 22, Fastify 5) | `npm test` (Vitest) | `npm run lint`, `npm run typecheck` | `npm run gen` y `npm run dev` |
-| `src/frontend` (JS plano hoy) | `npm test` (`node --test`) | — | Lo sirve nginx |
+| `src/frontend` (TypeScript, Vite, React) | `pnpm test` (Vitest) | `pnpm run lint`, `pnpm run typecheck` | `pnpm run dev` (o lo sirve nginx) |
 | `proto` | `buf lint` y `buf breaking` (en el CI) | — | `scripts/gen-proto.sh` |
 
 **Todo el sistema (plan B):** sigue `deploy/README.md`. En resumen: copia `deploy/.env.example` a `deploy/.env`, rellena PostgreSQL y las claves Ed25519 (el comando está en el README), y `docker compose -f deploy/compose.yml up --build`. Abre `http://localhost:8080` (juego) y `http://localhost:8080/sistema.html` (panel).
@@ -201,14 +201,14 @@ Prioridad para la semana 5 (12–16 oct, se cierra el nivel 1): **A1 primero** (
   3. Los paneles (acceso, sesión, depósito, compras, mejoras, administración, ranking, reporte, panel del sistema) como componentes React (contenedor-presentacional).
   4. Mientras A3 no esté, el valle sigue en el `<canvas>` actual dentro de un componente.
   5. El job `frontend` del CI corre lint, typecheck, pruebas y `build`.
-- **Aceptación:** la página hace todo lo que hace hoy (ver la lista en `src/frontend/README.md`); el e2e (`tests/e2e/run.sh`) sigue en verde; `npm run build` produce los estáticos que sirve nginx.
+- **Aceptación:** la página hace todo lo que hace hoy (ver la lista en `src/frontend/README.md`); el e2e (`tests/e2e/run.sh`) sigue en verde; `pnpm run build` produce los estáticos que sirve nginx.
 - **Verificación:** prueba manual en el navegador: registrarse, entrar, soltar gotas, comprar, ranking, reporte, panel del sistema, reconexión al reiniciar el hub. **Comprobar en un navegador de verdad** (pendiente desde varias funcionalidades).
 - **Ojo:** el token va en la URL del WebSocket (riesgo aceptado); los u64 llegan como texto y no se convierten a `Number` si pueden pasar de 2^53.
 
 #### A3 · Valle isométrico con Phaser
 
 - **Por qué:** nivel 1, el corazón visual del juego (RF-03, RF-04).
-- **Archivos:** `src/frontend/` (escena de Phaser), `src/frontend/assets/`.
+- **Archivos:** `src/frontend/` (escena de Phaser), `src/frontend/public/assets/`.
 - **Qué hacer:**
   1. Escena de Phaser que dibuja las 32 × 32 casillas en isométrico a partir del marco `state` (`stages`, `humidity`, `fires`, `installations`; ver `proto/hydrovalley/play/v1/play.proto`). El servidor no sabe cómo se dibuja: la conversión `(x, y)` → pantalla es solo del cliente.
   2. Clic → casilla: la conversión inversa de pantalla a `(x, y)`, con prueba unitaria (función pura).

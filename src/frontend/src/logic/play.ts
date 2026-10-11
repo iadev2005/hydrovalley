@@ -1,5 +1,5 @@
 // Mensajes del WebSocket /play (proto/hydrovalley/play/v1/play.proto) y
-// utilidades sin DOM, para poder probarlas con node:test.
+// utilidades sin DOM, para poder probarlas con vitest.
 
 /**
  * Lado del valle (32 × 32 casillas, D-01). Solo sirve para proponer
@@ -12,13 +12,18 @@ export const GRID_SIZE = 32;
  * UUID v4 a partir de bytes aleatorios. Usa `crypto.getRandomValues`, que
  * también existe fuera de un contexto seguro (http://10.68.17.x:8080), a
  * diferencia de `crypto.randomUUID`.
- * @param {(bytes: Uint8Array) => Uint8Array} [fill]
- * @returns {string}
  */
-export function newUuid(fill = (bytes) => globalThis.crypto.getRandomValues(bytes)) {
+export function newUuid(
+  fill: (bytes: Uint8Array<ArrayBuffer>) => Uint8Array<ArrayBuffer> = (bytes) => {
+    globalThis.crypto.getRandomValues(bytes);
+    return bytes;
+  },
+): string {
   const b = fill(new Uint8Array(16));
-  b[6] = (b[6] & 0x0f) | 0x40; // versión 4
-  b[8] = (b[8] & 0x3f) | 0x80; // variante RFC 9562
+  const byte6 = b[6] ?? 0;
+  const byte8 = b[8] ?? 0;
+  b[6] = (byte6 & 0x0f) | 0x40; // versión 4
+  b[8] = (byte8 & 0x3f) | 0x80; // variante RFC 9562
   const hex = Array.from(b, (v) => v.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
@@ -32,11 +37,12 @@ export const AUTH_CLOSE_CODE = 4401;
 /**
  * Si conviene reintentar tras un cierre. Con 4401 no: hace falta un token
  * nuevo y reintentar con el mismo solo repetiría el rechazo.
- * @param {number} code código de cierre del WebSocket
  */
-export function shouldReconnect(code) {
+export function shouldReconnect(code: number): boolean {
   return code !== AUTH_CLOSE_CODE;
 }
+
+export type CloseAction = "ignore" | "show_access" | "expired" | "reconnect";
 
 /**
  * Qué hacer cuando se cierra el WebSocket de la sesión:
@@ -46,10 +52,18 @@ export function shouldReconnect(code) {
  * - `expired`: la sesión guardada ya venció, así que reconectar solo
  *   repetiría el rechazo: volver a entrar;
  * - `reconnect`: caída de red con sesión vigente: reintentar con espera.
- * @param {{code: number, current: boolean, expiresAt: number, now: number}} close
- * @returns {"ignore" | "show_access" | "expired" | "reconnect"}
  */
-export function decideOnClose({ code, current, expiresAt, now }) {
+export function decideOnClose({
+  code,
+  current,
+  expiresAt,
+  now,
+}: {
+  code: number;
+  current: boolean;
+  expiresAt: number;
+  now: number;
+}): CloseAction {
   if (!current) return "ignore";
   if (!shouldReconnect(code)) return "show_access";
   if (expiresAt <= now) return "expired";
@@ -60,47 +74,59 @@ export function decideOnClose({ code, current, expiresAt, now }) {
  * Dirección del WebSocket en el mismo origen que la página (nginx la
  * reenvía al hub). La identidad sale solo del token firmado. Con
  * `map: true` (por defecto) el estado trae el mapa del valle.
- * @param {{protocol: string, host: string}} location
- * @param {string} token
- * @param {{map?: boolean}} [options]
  */
-export function buildPlayUrl(location, token, { map = true } = {}) {
+export function buildPlayUrl(
+  location: { protocol: string; host: string },
+  token: string,
+  { map = true }: { map?: boolean } = {},
+): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   const query = new URLSearchParams({ token, map: String(map) });
   return `${scheme}//${location.host}/play?${query.toString()}`;
 }
 
-/**
- * `DropMessage` en JSON. Las coordenadas son enteros no negativos; el
- * servidor decide si caen dentro del valle.
- * @param {{x: number, y: number, actionId: string}} drop
- */
-export function buildDropFrame({ x, y, actionId }) {
-  assertCoordinates(x, y);
-  return JSON.stringify({ type: "drop", action_id: actionId, x, y });
-}
-
-function assertCoordinates(x, y) {
+function assertCoordinates(x: number, y: number): void {
   for (const [name, v] of [
     ["x", x],
     ["y", y],
-  ]) {
+  ] as const) {
     if (!Number.isInteger(v) || v < 0) {
       throw new RangeError(`${name} must be a non-negative integer, got ${v}`);
     }
   }
 }
 
+/**
+ * `DropMessage` en JSON. Las coordenadas son enteros no negativos; el
+ * servidor decide si caen dentro del valle.
+ */
+export function buildDropFrame({ x, y, actionId }: { x: number; y: number; actionId: string }): string {
+  assertCoordinates(x, y);
+  return JSON.stringify({ type: "drop", action_id: actionId, x, y });
+}
+
 /** Instalaciones y mejoras que acepta el hub (play.proto). */
-export const INSTALLATIONS = ["sprinkler", "drip", "treatment_plant"];
-export const UPGRADES = ["bigger_drop", "bigger_tank"];
+export const INSTALLATIONS = ["sprinkler", "drip", "treatment_plant"] as const;
+export type InstallationType = (typeof INSTALLATIONS)[number];
+
+export const UPGRADES = ["bigger_drop", "bigger_tank"] as const;
+export type UpgradeType = (typeof UPGRADES)[number];
 
 /**
  * `PlaceInstallationMessage` en JSON.
- * @param {{installation: string, x: number, y: number, actionId: string}} command
  */
-export function buildPlaceInstallationFrame({ installation, x, y, actionId }) {
-  if (!INSTALLATIONS.includes(installation)) {
+export function buildPlaceInstallationFrame({
+  installation,
+  x,
+  y,
+  actionId,
+}: {
+  installation: string;
+  x: number;
+  y: number;
+  actionId: string;
+}): string {
+  if (!INSTALLATIONS.includes(installation as InstallationType)) {
     throw new RangeError(`unknown installation ${installation}`);
   }
   assertCoordinates(x, y);
@@ -109,32 +135,43 @@ export function buildPlaceInstallationFrame({ installation, x, y, actionId }) {
 
 /**
  * `BuyUpgradeMessage` en JSON.
- * @param {{upgrade: string, actionId: string}} command
  */
-export function buildBuyUpgradeFrame({ upgrade, actionId }) {
-  if (!UPGRADES.includes(upgrade)) throw new RangeError(`unknown upgrade ${upgrade}`);
+export function buildBuyUpgradeFrame({
+  upgrade,
+  actionId,
+}: {
+  upgrade: string;
+  actionId: string;
+}): string {
+  if (!UPGRADES.includes(upgrade as UpgradeType)) {
+    throw new RangeError(`unknown upgrade ${upgrade}`);
+  }
   return JSON.stringify({ type: "buy_upgrade", action_id: actionId, upgrade });
 }
 
 /**
  * `SetDemoModeMessage` en JSON (solo administrador, RF-31).
- * @param {{enabled: boolean, actionId: string}} command
  */
-export function buildSetDemoModeFrame({ enabled, actionId }) {
+export function buildSetDemoModeFrame({
+  enabled,
+  actionId,
+}: {
+  enabled: boolean;
+  actionId: string;
+}): string {
   if (typeof enabled !== "boolean") throw new TypeError("enabled must be a boolean");
   return JSON.stringify({ type: "set_demo_mode", action_id: actionId, enabled });
 }
 
 /**
  * `ResetValleyMessage` en JSON (solo administrador, RF-31).
- * @param {{actionId: string}} command
  */
-export function buildResetValleyFrame({ actionId }) {
+export function buildResetValleyFrame({ actionId }: { actionId: string }): string {
   return JSON.stringify({ type: "reset_valley", action_id: actionId });
 }
 
 /** uint64 de protojson: texto (o número si es pequeño); ausente → 0. */
-function toBigInt(value) {
+function toBigInt(value: unknown): bigint {
   if (typeof value === "string" || typeof value === "number") {
     try {
       return BigInt(value);
@@ -145,15 +182,71 @@ function toBigInt(value) {
   return 0n;
 }
 
-const str = (value) => (typeof value === "string" ? value : "");
+const str = (value: unknown): string => (typeof value === "string" ? value : "");
+
+export interface FireState {
+  x: number;
+  y: number;
+  drops_received: number;
+}
+
+export interface PlacedInstallation {
+  x: number;
+  y: number;
+  installation: string;
+  owner_id: string;
+}
+
+export interface PlayerState {
+  water: bigint;
+  tank_capacity: bigint;
+  leaves: bigint;
+  upgrades: string[];
+  next_sprinkler_price: bigint;
+  next_drip_price: bigint;
+  next_treatment_plant_price: bigint;
+}
+
+export interface ResultFrame {
+  type: "result";
+  action_id: string;
+  status: string;
+  reason: string;
+}
+
+export interface ErrorFrame {
+  type: "error";
+  action_id: string;
+  code: string;
+}
+
+export interface StateFrame {
+  type: "state";
+  tick: bigint;
+  paused: boolean;
+  demo_mode: boolean;
+  width: number;
+  height: number;
+  stages: number[];
+  humidity: bigint[];
+  fires: FireState[];
+  installations: PlacedInstallation[];
+  player: PlayerState | null;
+}
+
+export interface UnknownFrame {
+  type: "unknown";
+  raw: string;
+}
+
+export type PlayFrame = ResultFrame | ErrorFrame | StateFrame | UnknownFrame;
 
 /**
  * Decodifica un mensaje del hub. Los campos ausentes toman su valor cero
  * (convención de protojson) y los uint64 se leen como BigInt (regla 7).
- * @param {string} text
  */
-export function parseFrame(text) {
-  let msg;
+export function parseFrame(text: string): PlayFrame {
+  let msg: unknown;
   try {
     msg = JSON.parse(text);
   } catch {
@@ -162,49 +255,56 @@ export function parseFrame(text) {
   if (msg === null || typeof msg !== "object" || Array.isArray(msg)) {
     return { type: "unknown", raw: text };
   }
-  switch (msg.type) {
+  const rec = msg as Record<string, unknown>;
+  switch (rec["type"]) {
     case "result":
       return {
         type: "result",
-        action_id: str(msg.action_id),
-        status: str(msg.status),
-        reason: str(msg.reason),
+        action_id: str(rec["action_id"]),
+        status: str(rec["status"]),
+        reason: str(rec["reason"]),
       };
     case "error":
-      return { type: "error", action_id: str(msg.action_id), code: str(msg.code) };
+      return { type: "error", action_id: str(rec["action_id"]), code: str(rec["code"]) };
     case "state": {
-      const p = msg.player;
-      const list = (value) => (Array.isArray(value) ? value : []);
+      const p = rec["player"] as Record<string, unknown> | null | undefined;
+      const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
       return {
         type: "state",
-        tick: toBigInt(msg.tick),
-        paused: msg.paused === true,
-        demo_mode: msg.demo_mode === true,
-        width: Number(msg.width) || 0,
-        height: Number(msg.height) || 0,
-        stages: list(msg.stages).map((v) => Number(v) || 0),
-        humidity: list(msg.humidity).map(toBigInt),
-        fires: list(msg.fires).map((f) => ({
-          x: Number(f?.x) || 0,
-          y: Number(f?.y) || 0,
-          drops_received: Number(f?.drops_received) || 0,
-        })),
-        installations: list(msg.installations).map((i) => ({
-          x: Number(i?.x) || 0,
-          y: Number(i?.y) || 0,
-          installation: str(i?.installation),
-          owner_id: str(i?.owner_id),
-        })),
+        tick: toBigInt(rec["tick"]),
+        paused: rec["paused"] === true,
+        demo_mode: rec["demo_mode"] === true,
+        width: Number(rec["width"]) || 0,
+        height: Number(rec["height"]) || 0,
+        stages: list(rec["stages"]).map((v) => Number(v) || 0),
+        humidity: list(rec["humidity"]).map(toBigInt),
+        fires: list(rec["fires"]).map((f) => {
+          const rf = (f && typeof f === "object" ? f : {}) as Record<string, unknown>;
+          return {
+            x: Number(rf["x"]) || 0,
+            y: Number(rf["y"]) || 0,
+            drops_received: Number(rf["drops_received"]) || 0,
+          };
+        }),
+        installations: list(rec["installations"]).map((i) => {
+          const ri = (i && typeof i === "object" ? i : {}) as Record<string, unknown>;
+          return {
+            x: Number(ri["x"]) || 0,
+            y: Number(ri["y"]) || 0,
+            installation: str(ri["installation"]),
+            owner_id: str(ri["owner_id"]),
+          };
+        }),
         player:
           p && typeof p === "object"
             ? {
-                water: toBigInt(p.water),
-                tank_capacity: toBigInt(p.tank_capacity),
-                leaves: toBigInt(p.leaves),
-                upgrades: list(p.upgrades).filter((u) => typeof u === "string"),
-                next_sprinkler_price: toBigInt(p.next_sprinkler_price),
-                next_drip_price: toBigInt(p.next_drip_price),
-                next_treatment_plant_price: toBigInt(p.next_treatment_plant_price),
+                water: toBigInt(p["water"]),
+                tank_capacity: toBigInt(p["tank_capacity"]),
+                leaves: toBigInt(p["leaves"]),
+                upgrades: list(p["upgrades"]).filter((u): u is string => typeof u === "string"),
+                next_sprinkler_price: toBigInt(p["next_sprinkler_price"]),
+                next_drip_price: toBigInt(p["next_drip_price"]),
+                next_treatment_plant_price: toBigInt(p["next_treatment_plant_price"]),
               }
             : null,
       };
@@ -215,7 +315,7 @@ export function parseFrame(text) {
 }
 
 /** Una línea del registro de la página para cada mensaje decodificado. */
-export function describeFrame(frame) {
+export function describeFrame(frame: PlayFrame): string {
   switch (frame.type) {
     case "result":
       return `result ${frame.action_id}: ${frame.status}${frame.reason ? ` (${frame.reason})` : ""}`;
@@ -243,11 +343,8 @@ export const RECONNECT_STABLE_MS = 5_000;
  * Espera antes del reintento número `attempt` (desde 0): espera exponencial
  * con *full jitter*, un valor al azar en [0, min(techo, base · 2^attempt)).
  * El azar evita que todos los clientes se reconecten a la vez tras una caída.
- * @param {number} attempt
- * @param {() => number} [random] fuente en [0, 1)
- * @returns {number} milisegundos
  */
-export function reconnectDelay(attempt, random = Math.random) {
+export function reconnectDelay(attempt: number, random: () => number = Math.random): number {
   if (!Number.isInteger(attempt) || attempt < 0) {
     throw new RangeError(`attempt must be a non-negative integer, got ${attempt}`);
   }
@@ -257,17 +354,27 @@ export function reconnectDelay(attempt, random = Math.random) {
   return Math.floor(random() * ceiling);
 }
 
+export interface ReconnectBackoff {
+  opened(): void;
+  closed(): void;
+  nextDelay(): number;
+}
+
 /**
  * Estado de la reconexión de un WebSocket. `opened()` al abrirse,
  * `closed()` al cerrarse y `nextDelay()` para saber cuánto esperar antes
  * del siguiente intento. Si la conexión duró al menos `RECONNECT_STABLE_MS`,
  * la secuencia vuelve a empezar desde la espera base.
- * @param {{random?: () => number, now?: () => number}} [deps]
  */
-export function createReconnectBackoff({ random = Math.random, now = Date.now } = {}) {
+export function createReconnectBackoff({
+  random = Math.random,
+  now = Date.now,
+}: {
+  random?: () => number;
+  now?: () => number;
+} = {}): ReconnectBackoff {
   let attempt = 0;
-  /** @type {number | null} */
-  let openedAt = null;
+  let openedAt: number | null = null;
   return {
     opened() {
       openedAt = now();
