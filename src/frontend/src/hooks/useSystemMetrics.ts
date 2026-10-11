@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FetchFn } from "../logic/auth.ts";
+import { browserFetch } from "./browserFetch.ts";
 import {
   createPollBackoff,
   loadSystem,
@@ -18,7 +19,7 @@ export interface UseSystemMetricsReturn {
 }
 
 export function useSystemMetrics({
-  fetchFn = typeof window !== "undefined" ? (window.fetch.bind(window) as FetchFn) : undefined,
+  fetchFn = browserFetch,
 }: UseSystemMetricsOptions = {}): UseSystemMetricsReturn {
   const [metrics, setMetrics] = useState<SystemView | null>(null);
   const [error, setError] = useState<string | null>(null);

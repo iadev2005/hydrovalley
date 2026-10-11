@@ -2,7 +2,7 @@
   "name": "@hydrovalley/frontend",
   "version": "0.0.0",
   "private": true,
-  "description": "Frontend de Hydrovalley: Vite + React + TypeScript (migración A2 en curso; la lógica sigue en js/ hasta la fase 1).",
+  "description": "Frontend de Hydrovalley: Vite + React + TypeScript.",
   "type": "module",
   "engines": {
     "node": ">=22.12"
@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "vitest run --passWithNoTests",
     "test:vitest": "vitest run --passWithNoTests"
   },
   "dependencies": {

@@ -1,43 +1,143 @@
 # Frontend
 
-Página mínima del esqueleto, sin React ni Phaser todavía: módulos ES de JavaScript que el navegador carga tal cual, sin paso de compilación. No es un servicio (RES-03): nginx la sirve desde su propia imagen (`deploy/nginx/Dockerfile`).
+Frontend de Hydrovalley desarrollado con **Vite**, **React 19** y **TypeScript estricto** (`tsc -b`). No es un servicio independiente (RES-03): Nginx sirve los activos estáticos compilados directamente desde su propia imagen mediante una compilación multi-etapa (`deploy/nginx/Dockerfile`).
 
-- Muestra un panel de acceso (usuario, contraseña, **Registrarse** y **Entrar**) que llama a `POST /api/auth/register` y `POST /api/auth/login` en el mismo origen. Los errores de la API se traducen a mensajes (409 nombre repetido, 401 credenciales incorrectas, 429 con los segundos de `Retry-After`, 503 servicio no disponible, 400 el mensaje de la API).
-- Con éxito guarda la sesión (`token`, `expiresAt`, `username`) en `localStorage`, oculta el formulario y muestra «Conectado como …» con el botón **Salir**. La contraseña nunca se guarda y el token no se escribe en la consola ni en el registro de la página. Tras un `429` los botones Registrarse y Entrar siguen desactivados hasta que pasa el `Retry-After` (5 s si no lo trae). La decisión al cerrarse el WebSocket (reconectar, volver a entrar con 4401 o con la sesión vencida, ignorar un socket ya soltado) es la función pura `decideOnClose` de `js/play.js`. Al cargar, si hay una sesión vigente se conecta sin pedir datos; si caducó, se descarta.
-- Abre `WS /play?token=…&map=true` en el mismo origen, así que funciona igual en `http://localhost:8080` que detrás de nginx en el laboratorio. La identidad (`player_id`) sale solo del token, que la página no decodifica salvo para leer `username` tras el acceso (el login no lo devuelve).
-- Si el hub cierra con el código **4401** (token inválido o caducado), borra la sesión, muestra el panel con «la sesión caducó, vuelve a entrar» y **no** reconecta.
-- Con cualquier otro cierre, reintenta con espera exponencial y *full jitter* (base 500 ms, techo 10 s); una conexión que dura 5 s o más reinicia la secuencia.
-- **Valle** (`<canvas>` de 32 × 32 casillas): color por etapa (tierra seca, pasto, arbusto, flores, árbol), cuadro rojo para el fuego y una letra para cada instalación (A aspersor, G goteo, P planta). Un clic selecciona la casilla. El panel muestra agua y capacidad, hojas y el precio de la siguiente instalación de cada tipo.
-- Botones: **Soltar gota**, **Colocar aspersor / riego por goteo / planta de tratamiento** (sobre la casilla elegida) y **Comprar gota grande / depósito mayor**. Cada acción lleva un `action_id` y queda pendiente hasta su resultado final; el mensaje de resultado traduce `applied`, `duplicate` (cuenta como aplicada), `rejected` con su motivo, `expired`, `rate_limited`, `paused` y `forbidden`.
-- **Reconexión**: las acciones pendientes se guardan con su mensaje y se reenvían al reabrir el WebSocket (regla 2 de `CLAUDE.md`); un resultado final, de cualquier clase, las quita. El hub ignora las que siguen en cola y responde `duplicate` a las ya aplicadas.
-- **Administración (RF-31)**: si el token trae `role = admin` (se lee de su carga útil solo para mostrar los controles; el hub decide), aparecen **Activar/Desactivar modo demo** y **Reiniciar valle**, este último con una confirmación dentro de la página.
+La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada independientes:
+1. `index.html` → Interfaz principal del juego (`/src/main.tsx`).
+2. `sistema.html` → Panel de observabilidad para el profesor (`/src/system.tsx`).
 
-- **Ranking y reporte (RF-10, RF-11, RF-12)**: con sesión, la página pide `GET /api/ranking?limit=10` y `GET /api/report?scope=me|global` con `Authorization: Bearer`, y los refresca cada 10 s y con el botón **Actualizar**; al salir o caducar la sesión se detienen. El ranking muestra puesto, jugador y hojas ganadas, y resalta al jugador actual. El reporte tiene dos pestañas, **Mis 3R** y **Valle**, con agua reducida, reutilizada, reciclada, recargada y gastada, hojas ganadas y gastadas, y la época y los ticks del periodo. Reducida y reutilizada se muestran en puntos de humedad y reciclada en litros, con una nota: la equivalencia entre litros y humedad sigue pendiente (`[DATO]`) y no se suman. Errores: `401` vuelve al panel de acceso, `429` espera el `Retry-After`, `503` muestra «no disponible» y `404` indica que aún no hay datos (el reporte sale de instantáneas, hasta 5 s por detrás del valle).
-- **Panel del sistema (RNF-08)**: página aparte para el profesor, en `/sistema.html` (enlace discreto en el pie de `index.html`). Consulta `GET /api/system` cada 2 s (el límite de la API es 120 por minuto por IP) y muestra los cinco servicios con punto verde o rojo **y** el texto «En línea» o «Caído» (con el motivo si está caído); del hub, jugadores conectados, goroutines, acciones por segundo (admitidas y aplicadas), latencia p50 y p95, tick, duración de `Step` (última y p95), fallos, cola, pausa y estado del *breaker*; del valle, humedad total, humedad aportada, gotas aceptadas (en modo demo, lo que sube la humedad aportada debe coincidir con lo que suben las gotas aceptadas; estas se cuentan desde el último arranque del hub) e incendios activos; y la hora de la última actualización. Si `hub` es `null` muestra «Sin datos del hub» y deja visibles los servicios. Los u64 llegan como texto y se agrupan sin pasar por `Number`. Un `429` espera el `Retry-After` (entre 2 y 60 s); un fallo de red o un estado distinto de 200 muestra «sin conexión con la API» y espacia el reintento (4, 8, 16 y 30 s como máximo), y el ciclo sigue. Con la pestaña oculta no consulta.
+---
 
-| Ruta | Qué contiene |
-| --- | --- |
-| `index.html`, `styles.css` | La página |
-| `sistema.html` | El panel del sistema |
-| `js/system.js` | Panel del sistema sin DOM: respuesta de `/api/system` a vista, formato de números, errores y espera entre consultas |
-| `js/system-main.js` | DOM y temporizador del panel |
-| `js/auth.js` | Registro, entrada y sesión guardada, sin DOM (`fetch`, almacenamiento y reloj inyectados) |
-| `js/play.js` | Mensajes de `play.proto` y utilidades sin DOM (UUID de `action_id`, URL con token, cierre 4401, construir y leer mensajes, espera de reconexión, tamaño del valle) |
-| `js/valley.js` | Vista del valle sin DOM: estado → casillas y panel, resultado → mensaje, rol del token y acciones pendientes |
-| `js/reports.js` | Ranking y reporte sin DOM: peticiones con token, enteros u64 en texto a vista, error a mensaje |
-| `js/main.js` | DOM, lienzo y WebSocket |
-| `test/` | Pruebas de `auth.js`, `play.js`, `valley.js`, `reports.js` y `system.js` con `node:test` |
+## Características y Funcionalidades
 
-## Pruebas
+### 1. Autenticación y Sesión
+- Panel de acceso con pestañas para **Registrarse** y **Entrar** contra `POST /api/auth/register` y `POST /api/auth/login`.
+- Manejo estricto de errores HTTP (400, 401 credenciales incorrectas, 409 usuario duplicado, 429 límite de tasa, 503 servicio no disponible).
+- Persistencia segura de sesión (`token`, `expiresAt`, `username`) en `localStorage`. La contraseña nunca se almacena y el token JWT no se imprime en consola.
+- Respeto del encabezado `Retry-After` ante respuestas `429 Too Many Requests`, bloqueando los botones durante el tiempo indicado (5 s por defecto).
+- Cierre de sesión manual o automático si la sesión vence.
 
-Desde `src/frontend/`, con Node 22 o superior y sin dependencias:
+### 2. Conexión WebSocket y Protocolo de Juego (`/play`)
+- Conexión WebSocket nativa hacia `/play?token=…&map=true` en el mismo origen.
+- Protocolo binario/JSON conforme a `play.proto`:
+  - Manejo de cierre **4401** (token inválido o expirado): borra la sesión y notifica al usuario sin reintentar.
+  - Reconexión resiliente ante cualquier otra desconexión mediante retroceso exponencial (*exponential backoff*) y *full jitter* (base 500 ms, techo 10 s; conexiones exitosas de ≥ 5 s reinician el temporizador).
+  - Cola de acciones pendientes con reenvío automático al restablecer la conexión (regla 2 de `CLAUDE.md`).
+  - Deduplicación y traducción de respuestas del hub: `applied`, `duplicate` (se asume aplicada), `rejected` con motivo, `expired`, `rate_limited`, `paused` y `forbidden`.
+
+### 3. Vista del Valle e Interacción
+- Componente `<ValleyCanvas />` que aloja un lienzo 2D de 32 × 32 casillas encapsulado con `useRef`, desacoplado y preparado para su sustitución por Phaser en la tarea A3.
+- Visualización de etapas de vegetación (tierra seca, pasto, arbusto, flores, árbol), fuego activo e instalaciones (A: Aspersor, G: Goteo, P: Planta de tratamiento).
+- Panel de recursos: agua disponible, capacidad del depósito, hojas ganadas y costos dinámicos de las siguientes instalaciones.
+- Botones de acción: **Soltar gota**, colocar instalaciones en la casilla seleccionada y adquirir mejoras de depósito/gota.
+- **Panel de administración (RF-31)**: visible solo para usuarios con rol `admin` (leído de la carga útil del JWT; validado autoritativamente por el hub), permitiendo activar/desactivar el modo demo y reiniciar el valle previa confirmación modal.
+
+### 4. Ranking y Reportes 3R (RF-10, RF-11, RF-12)
+- Consulta periódica (cada 10 s) a `GET /api/ranking?limit=10` y `GET /api/report?scope=me|global` con cabecera `Authorization: Bearer <token>`.
+- Tabla de posiciones destacando al jugador actual.
+- Reporte detallado en pestañas (**Mis 3R** y **Valle**):
+  - Métricas de Reducir, Reutilizar, Reciclar, agua recargada/gastada y balance de hojas.
+  - Los enteros de 64 bits (`u64`) se procesan como cadenas de texto (`string`) en la capa de lógica para prevenir pérdida de precisión sobre $2^{53}-1$ (IEEE 754).
+  - Pausa de consultas cuando la pestaña está en segundo plano (`document.visibilityState === "hidden"`) o al cerrar sesión.
+
+### 5. Panel del Sistema (RNF-08)
+- Página dedicada en `/sistema.html` accesible mediante enlace en el pie de página de `index.html`.
+- Sondeo cada 2 s a `GET /api/system` (límite API: 120 req/min por IP).
+- Semáforo y estado textual («En línea» / «Caído» con motivo) para los 5 microservicios (`gateway`, `auth`, `hub`, `world`, `persistence`).
+- Métricas del hub: jugadores conectados, goroutines, acciones por segundo (admitidas/aplicadas), latencia p50 y p95, tick actual, duración de `Step`, fallos acumulados, longitud de cola, pausa y estado del *circuit breaker*.
+- Métricas del valle: humedad total y aportada, gotas aceptadas e incendios activos.
+- Estrategia de retroceso ante fallos de red o errores HTTP (intervalos escalonados de 4s, 8s, 16s y 30s) y respeto a `Retry-After` en respuestas 429.
+
+---
+
+## Estructura del Proyecto
 
 ```
-npm test
+src/frontend/
+├── index.html                  # Punto de entrada HTML del juego
+├── sistema.html                # Punto de entrada HTML del panel del sistema
+├── styles.css                  # Estilos globales y paleta visual retro-pixel
+├── vite.config.ts              # Configuración multi-página, proxy y setup de tests
+├── tsconfig.json               # Configuración base de TypeScript
+├── tsconfig.app.json           # Configuración TS para la aplicación (strict)
+├── tsconfig.node.json          # Configuración TS para scripts y Vite
+├── eslint.config.js            # Reglas de ESLint para TypeScript y React Hooks
+├── package.json                # Scripts y dependencias (pnpm)
+├── public/                     # Activos estáticos públicos (preparado para sprites A3)
+└── src/
+    ├── main.tsx                # Montaje de React para index.html (GameApp)
+    ├── system.tsx              # Montaje de React para sistema.html (SystemApp)
+    ├── test-setup.ts           # Configuración de cleanup para Vitest
+    ├── containers/             # Contenedores con gestión de estado
+    │   ├── GameApp.tsx         # Contenedor principal del juego
+    │   ├── GameApp.test.tsx
+    │   ├── SystemApp.tsx       # Contenedor del panel del sistema
+    │   └── SystemApp.test.tsx
+    ├── components/             # Componentes presentacionales
+    │   ├── AdminPanel.tsx      # Controles de administración (modo demo / reinicio)
+    │   ├── AuthPanel.tsx       # Formulario de registro y login
+    │   ├── LogConsole.tsx      # Consola de eventos y avisos
+    │   ├── RankingTable.tsx    # Tabla del ranking de jugadores
+    │   ├── ReportPanel.tsx     # Panel de reportes de sostenibilidad 3R
+    │   ├── SessionBar.tsx      # Barra de usuario activo y botón salir
+    │   ├── SystemDashboard.tsx # Métricas de servicios y componentes del sistema
+    │   ├── ValleyCanvas.tsx    # Canvas 2D interactivo (32x32) con useRef
+    │   ├── ValleyControls.tsx  # Botones de acciones del juego y costes
+    │   └── *.test.tsx          # Pruebas unitarias de componentes
+    ├── hooks/                  # Custom Hooks para ciclo de vida y red
+    │   ├── useGameSocket.ts    # WebSocket /play, reconexión y cola de acciones
+    │   ├── useReports.ts       # Sondeo de ranking y reportes
+    │   ├── useSession.ts       # Estado de sesión y persistencia local
+    │   ├── useSystemMetrics.ts # Sondeo y reintentos del panel del sistema
+    │   └── *.test.ts           # Pruebas unitarias de hooks
+    └── logic/                  # Lógica de dominio pura sin dependencias de DOM
+        ├── auth.ts             # Funciones de login, registro y parsing de JWT
+        ├── play.ts             # Protocolo WebSocket, backoff, UUIDs y frames
+        ├── reports.ts          # Procesamiento numérico seguro de reportes 3R
+        ├── system.ts           # Normalización de métricas de salud de servicios
+        ├── valley.ts           # Renderizado de celdas del valle y costes
+        └── *.test.ts           # Pruebas unitarias de lógica de negocio
 ```
 
-## Pendiente
+---
 
-- React para los paneles y Phaser para el valle isométrico, con su etapa de compilación en la imagen de nginx.
-- El dibujo del lienzo y los clics no tienen prueba automática (solo la lógica pura de `valley.js`, `play.js`, `reports.js` y `system.js`); falta comprobar la página en un navegador.
-- El token viaja en la URL del WebSocket y queda en los registros de nginx (riesgo aceptado, ver `src/hub/README.md`).
+## Comandos y Desarrollo
+
+Se utiliza **pnpm** como gestor de paquetes.
+
+```bash
+# Instalar dependencias
+pnpm install
+
+# Servidor de desarrollo con recarga en caliente (HMR) y proxy
+pnpm run dev
+
+# Ejecutar verificación de tipos TypeScript (modo estricto)
+pnpm run typecheck
+
+# Ejecutar linter (ESLint)
+pnpm run lint
+
+# Ejecutar suite de pruebas unitarias y de integración (Vitest)
+pnpm test
+
+# Compilar para producción (genera carpeta dist/ con index.html y sistema.html)
+pnpm run build
+
+# Previsualizar la compilación de producción localmente
+pnpm run preview
+```
+
+---
+
+## Despliegue en Docker
+
+El frontend se compila dentro de la imagen de Nginx mediante una construcción multi-etapa definida en `deploy/nginx/Dockerfile`:
+
+1. **Etapa constructora (`frontend-builder`)**:
+   - Imagen base: `node:22-alpine` fijada con digest seguro (`@sha256:...`).
+   - Activa Corepack para pnpm y corre `pnpm install --frozen-lockfile`.
+   - Ejecuta `pnpm run build` produciendo el directorio `/build/dist/`.
+2. **Etapa final de producción (`nginx`)**:
+   - Copia los artefactos compilados desde `/build/dist/` hacia `/usr/share/nginx/html/`.
+   - Nginx sirve los activos estáticos y actúa como proxy inverso hacia la API (`/api/`) y el Hub (`/play`).

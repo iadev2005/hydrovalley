@@ -13,6 +13,7 @@ import {
   type StorageLike,
 } from "../logic/auth.ts";
 import { isAdminRole, tokenRole } from "../logic/valley.ts";
+import { browserFetch } from "./browserFetch.ts";
 
 export interface UseSessionOptions {
   storage?: StorageLike;
@@ -35,7 +36,7 @@ export interface UseSessionReturn {
 
 export function useSession({
   storage = typeof window !== "undefined" ? window.localStorage : undefined,
-  fetchFn = typeof window !== "undefined" ? (window.fetch.bind(window) as FetchFn) : undefined,
+  fetchFn = browserFetch,
   now = Date.now,
 }: UseSessionOptions = {}): UseSessionReturn {
   const [session, setSession] = useState<Session | null>(() => {

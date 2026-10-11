@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FetchFn, Session } from "../logic/auth.ts";
+import { browserFetch } from "./browserFetch.ts";
 import {
   loadRanking,
   loadReport,
@@ -29,7 +30,7 @@ export interface UseReportsReturn {
 export function useReports({
   session,
   onSessionExpired,
-  fetchFn = typeof window !== "undefined" ? (window.fetch.bind(window) as FetchFn) : undefined,
+  fetchFn = browserFetch,
 }: UseReportsOptions): UseReportsReturn {
   const [ranking, setRanking] = useState<RankingView | null>(null);
   const [rankingStatus, setRankingStatus] = useState<string>("");

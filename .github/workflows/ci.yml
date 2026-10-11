@@ -383,8 +383,7 @@ jobs:
         run: npm test
 
   # Frontend (Vite + React + TypeScript estricto). Lint, chequeo de tipos,
-  # pruebas en Vitest, pruebas legadas de node:test, compilación del bundle
-  # de producción y pruebas del arnés e2e.
+  # pruebas en Vitest, compilación del bundle de producción y pruebas del arnés e2e.
   frontend:
     name: frontend
     runs-on: ubuntu-latest
@@ -436,11 +435,6 @@ jobs:
         run: pnpm run typecheck
 
       - name: Pruebas unitarias y de componentes (Vitest)
-        if: steps.changes.outputs.frontend == 'true'
-        working-directory: src/frontend
-        run: pnpm run test:vitest
-
-      - name: Pruebas de compatibilidad legada (node:test)
         if: steps.changes.outputs.frontend == 'true'
         working-directory: src/frontend
         run: pnpm test
