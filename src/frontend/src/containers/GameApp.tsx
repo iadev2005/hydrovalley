@@ -1,11 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AdminPanel } from "../components/AdminPanel.tsx";
 import { AuthPanel } from "../components/AuthPanel.tsx";
 import { LogConsole } from "../components/LogConsole.tsx";
 import { RankingTable } from "../components/RankingTable.tsx";
 import { ReportPanel } from "../components/ReportPanel.tsx";
 import { SessionBar } from "../components/SessionBar.tsx";
-import { ValleyCanvas } from "../components/ValleyCanvas.tsx";
+import { ValleyPhaser, type ValleyPhaserHandle } from "../components/ValleyPhaser.tsx";
 import { ValleyControls } from "../components/ValleyControls.tsx";
 import { useGameSocket, type UseGameSocketOptions } from "../hooks/useGameSocket.ts";
 import { useReports, type UseReportsOptions } from "../hooks/useReports.ts";
@@ -24,6 +24,7 @@ export function GameApp({
   reportsOptions,
 }: GameAppProps = {}) {
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
+  const phaserRef = useRef<ValleyPhaserHandle | null>(null);
 
   const sessionHook = useSession(sessionOptions);
   const { session, isAdmin, error, isBusy, isRetryLocked, login, register, logout, clearError, setSessionExpired } =
@@ -33,14 +34,38 @@ export function GameApp({
     (reason: string) => {
       setSessionExpired(reason);
       setSelected(null);
+      phaserRef.current?.clearPendingDrops();
     },
     [setSessionExpired],
   );
+
+  const handleActionSent = useCallback(
+    (action: { actionId: string; type: string; x?: number; y?: number }) => {
+      if (action.type === "drop" && action.x !== undefined && action.y !== undefined) {
+        phaserRef.current?.spawnPendingDrop(action.actionId, action.x, action.y);
+      }
+    },
+    [],
+  );
+
+  const handleActionResult = useCallback(
+    (result: { actionId: string; status: string }) => {
+      phaserRef.current?.resolvePendingDrop(result.actionId, result.status);
+    },
+    [],
+  );
+
+  const handleResetPending = useCallback(() => {
+    phaserRef.current?.clearPendingDrops();
+  }, []);
 
   const socketHook = useGameSocket({
     ...socketOptions,
     session,
     onSessionExpired: handleSessionExpired,
+    onActionSent: handleActionSent,
+    onActionResult: handleActionResult,
+    onResetPending: handleResetPending,
   });
 
   const reportsHook = useReports({
@@ -52,6 +77,7 @@ export function GameApp({
   const handleLogout = useCallback(() => {
     logout();
     setSelected(null);
+    phaserRef.current?.clearPendingDrops();
   }, [logout]);
 
   const handleDrop = useCallback(() => {
@@ -117,7 +143,8 @@ export function GameApp({
       <section id="game" aria-labelledby="valley-title">
         <h2 id="valley-title">Valle</h2>
         <div className="layout">
-          <ValleyCanvas
+          <ValleyPhaser
+            ref={phaserRef}
             gameState={socketHook.gameState}
             selected={selected}
             onSelectTile={setSelected}

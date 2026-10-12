@@ -31,6 +31,9 @@ export interface ActionMessage {
 export interface UseGameSocketOptions {
   session: Session | null;
   onSessionExpired?: (reason: string) => void;
+  onActionSent?: (action: { actionId: string; type: string; x?: number; y?: number }) => void;
+  onActionResult?: (result: { actionId: string; status: string }) => void;
+  onResetPending?: () => void;
   random?: () => number;
   now?: () => number;
   location?: { protocol: string; host: string };
@@ -58,6 +61,9 @@ const MAX_LOG_LINES = 100;
 export function useGameSocket({
   session,
   onSessionExpired,
+  onActionSent,
+  onActionResult,
+  onResetPending,
   random = Math.random,
   now = Date.now,
   location = typeof window !== "undefined" ? window.location : { protocol: "http:", host: "localhost:8080" },
@@ -98,9 +104,17 @@ export function useGameSocket({
       ws.send(frame);
       addLog(`${label} ${actionId} enviado (pendiente)`);
       setActionMessage({ text: `${label}: pendiente…`, ok: true });
+      try {
+        const parsed = JSON.parse(frame) as { type?: string; x?: number; y?: number };
+        if (parsed.type && onActionSent) {
+          onActionSent({ actionId, type: parsed.type, x: parsed.x, y: parsed.y });
+        }
+      } catch {
+        // ignore parse error
+      }
       return true;
     },
-    [addLog],
+    [addLog, onActionSent],
   );
 
   const sendDrop = useCallback(
@@ -193,12 +207,14 @@ export function useGameSocket({
           if (entry) {
             const outcome = describeActionResult(frame);
             setActionMessage({ text: `${entry.label}: ${outcome.text}`, ok: outcome.ok });
+            onActionResult?.({ actionId: frame.action_id, status: frame.status });
           }
         } else if (frame.type === "error") {
           const settled = pendingRef.current.settle(frame.action_id);
           setPendingCount(pendingRef.current.size);
           if (settled) {
             setActionMessage({ text: `mensaje rechazado por el hub (${frame.code})`, ok: false });
+            onActionResult?.({ actionId: frame.action_id, status: "error" });
           }
         }
       });
@@ -215,6 +231,7 @@ export function useGameSocket({
 
         if (decision === "ignore") return;
         backoffRef.current.closed();
+        onResetPending?.();
         setStatus("disconnected");
 
         if (decision !== "reconnect") {
@@ -244,7 +261,7 @@ export function useGameSocket({
         ws.close();
       }
     };
-  }, [session, location, random, now, onSessionExpired, addLog]);
+  }, [session, location, random, now, onSessionExpired, addLog, onActionResult, onResetPending]);
 
   const effectiveStatus = session ? status : "disconnected";
   const effectiveStatusText = session ? statusText : "desconectado";
