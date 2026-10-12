@@ -7,13 +7,14 @@ on:
     branches: [dev, main]
   push:
     branches: [dev]
+    tags: ['v*']
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   proto:
@@ -503,3 +504,67 @@ jobs:
         env:
           E2E_SKIP_BUILD: "1"
         run: tests/e2e/run.sh
+
+  # Publicación de imágenes en GitHub Container Registry (ghcr.io).
+  # Corre en push a la rama dev (tras fusionar) y en etiquetas de versión v* sobre main.
+  # Construye para linux/amd64 y publica las 6 imágenes: api, hub, world, persistence, proxy y bots.
+  publish:
+    name: publish
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [proto, codegen, persistence, world, hub, bots, api, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      POSTGRES_USER: hydrovalley
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: hydrovalley
+      TOKEN_PRIVATE_KEY: bake-only-placeholder
+      TOKEN_PUBLIC_KEY: bake-only-placeholder
+      COMPOSE_PROFILES: bots
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Validar que la etiqueta pertenezca a main
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Error: La etiqueta ${{ github.ref_name }} no apunta a un commit de la rama main." >&2
+            exit 1
+          fi
+          echo "La etiqueta ${{ github.ref_name }} pertenece a la rama main."
+
+      - name: Determinar etiqueta y registro
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            echo "HV_TAG=dev" >> "$GITHUB_ENV"
+          else
+            echo "HV_TAG=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          fi
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "HV_REGISTRY=ghcr.io/${OWNER}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Iniciar sesión en ghcr.io
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar las imágenes
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        with:
+          source: .
+          files: deploy/compose.yml
+          push: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=e2e
+            *.cache-to=type=gha,scope=e2e,mode=max
