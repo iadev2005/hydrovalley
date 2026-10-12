@@ -115,7 +115,9 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   docker compose --profile bots build bots
 fi
 
-node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
+#vesion para smoake.test node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
+target="${1:-${repo_root}/tests/e2e/cp01-concurrent-drops.test.mjs}"
+node --test --test-reporter=spec "${target}"
 
 # CP-05 a CP-08 y CP-12: fallos de servicios (faults*.test.mjs; CP-08, el más
 # disruptivo, va al final). Corren después de la prueba de
