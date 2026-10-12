@@ -49,6 +49,11 @@ input {
   gap: 1rem;
   align-items: flex-start;
 }
+.valley-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
 #valley {
   width: 512px;
   max-width: 100%;
@@ -56,6 +61,32 @@ input {
   image-rendering: pixelated;
   border: 1px solid #888;
   cursor: crosshair;
+  background: #2e1c0c;
+  overflow: hidden;
+}
+#valley canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+.valley-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+.btn-camera {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) {
+  .valley-toolbar {
+    color: #aaa;
+  }
 }
 .panel {
   flex: 1 1 16rem;
