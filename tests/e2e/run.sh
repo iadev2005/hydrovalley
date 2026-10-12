@@ -115,11 +115,16 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   docker compose --profile bots build bots
 fi
 
-#ajuste para testeo de cp01
-#target="${1:-${repo_root}/tests/e2e/cp01-concurrent-drops.test.mjs}"
-#node --test --test-reporter=spec "${target}"
+# Si le pasas argumentos, ejecuta solo los archivos indicados y termina.
+if [[ $# -gt 0 ]]; then
+  node --test --test-reporter=spec "$@"
+  exit 0
+fi
 
-node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
+# Flujo por defecto (sin argumentos): corre toda la suite.
+node --test --test-reporter=spec \
+  "${repo_root}/tests/e2e/smoke.test.mjs" \
+  "${repo_root}/tests/e2e/cp01-concurrent-drops.test.mjs"
 
 # CP-05 a CP-08 y CP-12: fallos de servicios (faults*.test.mjs; CP-08, el más
 # disruptivo, va al final). Corren después de la prueba de
