@@ -26,7 +26,11 @@ La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada indepen
   - Deduplicación y traducción de respuestas del hub: `applied`, `duplicate` (se asume aplicada), `rejected` con motivo, `expired`, `rate_limited`, `paused` y `forbidden`.
 
 ### 3. Vista del Valle e Interacción
-- Componente `<ValleyCanvas />` que aloja un lienzo 2D de 32 × 32 casillas encapsulado con `useRef`, desacoplado y preparado para su sustitución por Phaser en la tarea A3.
+- **Valle isométrico en Phaser (`<ValleyPhaser />`, tarea A3)**: renderizado 2.5D de 32 × 32 casillas con proyección de diamante, elevación visual por etapas de vegetación, cámara interactiva con paneo y zoom, y animación de gotas en vuelo.
+- **Salida de emergencia a vista cenital (`<ValleyCanvas />`, tarea A4)**: cuadrícula 2D interactiva sobre lienzo nativo (32 × 32 casillas) que garantiza que el juego se mantenga 100% jugable si Phaser no carga, va lento o si el dispositivo carece de aceleración gráfica / WebGL.
+- **Conmutación manual y persistencia**: botón de alternancia (`#btn-toggle-view`) que permite al jugador cambiar entre la vista isométrica y cenital en cualquier momento; la preferencia se guarda y recupera de `localStorage` (`hydrovalley.view_mode`).
+- **Degradación elegante automática (*Graceful Degradation*)**: si `new Phaser.Game(...)` lanza una excepción o el entorno carece de soporte Canvas2D/WebGL, la aplicación conmuta inmediatamente a la vista cenital de emergencia y muestra la insignia informativa `.view-emergency-badge`, sin interrumpir la partida.
+- **Paridad funcional total**: ambas vistas reflejan el mismo estado del mundo (`gameState`), sincronizan la casilla seleccionada (`selected`) y aceptan las mismas acciones (gotas, compra de mejoras, colocación de instalaciones).
 - Visualización de etapas de vegetación (tierra seca, pasto, arbusto, flores, árbol), fuego activo e instalaciones (A: Aspersor, G: Goteo, P: Planta de tratamiento).
 - Panel de recursos: agua disponible, capacidad del depósito, hojas ganadas y costos dinámicos de las siguientes instalaciones.
 - Botones de acción: **Soltar gota**, colocar instalaciones en la casilla seleccionada y adquirir mejoras de depósito/gota.
@@ -56,20 +60,20 @@ La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada indepen
 src/frontend/
 ├── index.html                  # Punto de entrada HTML del juego
 ├── sistema.html                # Punto de entrada HTML del panel del sistema
-├── styles.css                  # Estilos globales y paleta visual retro-pixel
+├── styles.css                  # Estilos globales, paleta retro-pixel y toolbar del valle
 ├── vite.config.ts              # Configuración multi-página, proxy y setup de tests
 ├── tsconfig.json               # Configuración base de TypeScript
 ├── tsconfig.app.json           # Configuración TS para la aplicación (strict)
 ├── tsconfig.node.json          # Configuración TS para scripts y Vite
 ├── eslint.config.js            # Reglas de ESLint para TypeScript y React Hooks
 ├── package.json                # Scripts y dependencias (pnpm)
-├── public/                     # Activos estáticos públicos (preparado para sprites A3)
+├── public/                     # Activos estáticos públicos (sprites isométricos y catálogo)
 └── src/
     ├── main.tsx                # Montaje de React para index.html (GameApp)
     ├── system.tsx              # Montaje de React para sistema.html (SystemApp)
     ├── test-setup.ts           # Configuración de cleanup para Vitest
     ├── containers/             # Contenedores con gestión de estado
-    │   ├── GameApp.tsx         # Contenedor principal del juego
+    │   ├── GameApp.tsx         # Contenedor principal del juego (integra Phaser y Canvas 2D)
     │   ├── GameApp.test.tsx
     │   ├── SystemApp.tsx       # Contenedor del panel del sistema
     │   └── SystemApp.test.tsx
@@ -81,21 +85,25 @@ src/frontend/
     │   ├── ReportPanel.tsx     # Panel de reportes de sostenibilidad 3R
     │   ├── SessionBar.tsx      # Barra de usuario activo y botón salir
     │   ├── SystemDashboard.tsx # Métricas de servicios y componentes del sistema
-    │   ├── ValleyCanvas.tsx    # Canvas 2D interactivo (32x32) con useRef
+    │   ├── ValleyCanvas.tsx    # Vista cenital 2D (salida de emergencia A4)
     │   ├── ValleyControls.tsx  # Botones de acciones del juego y costes
+    │   ├── ValleyPhaser.tsx    # Valle isométrico en Phaser con cámara y animaciones (A3)
     │   └── *.test.tsx          # Pruebas unitarias de componentes
     ├── hooks/                  # Custom Hooks para ciclo de vida y red
     │   ├── useGameSocket.ts    # WebSocket /play, reconexión y cola de acciones
     │   ├── useReports.ts       # Sondeo de ranking y reportes
     │   ├── useSession.ts       # Estado de sesión y persistencia local
     │   ├── useSystemMetrics.ts # Sondeo y reintentos del panel del sistema
+    │   ├── useValleyView.ts    # Conmutación de vista isométrica/cenital y fallback de emergencia (A4)
     │   └── *.test.ts           # Pruebas unitarias de hooks
     └── logic/                  # Lógica de dominio pura sin dependencias de DOM
         ├── auth.ts             # Funciones de login, registro y parsing de JWT
+        ├── isometric.ts        # Matemáticas de proyección isométrica 2.5D (pantalla ↔ cuadrícula)
         ├── play.ts             # Protocolo WebSocket, backoff, UUIDs y frames
         ├── reports.ts          # Procesamiento numérico seguro de reportes 3R
         ├── system.ts           # Normalización de métricas de salud de servicios
         ├── valley.ts           # Renderizado de celdas del valle y costes
+        ├── viewMode.ts         # Resolución de modo de vista y persistencia (A4)
         └── *.test.ts           # Pruebas unitarias de lógica de negocio
 ```
 
@@ -141,3 +149,29 @@ El frontend se compila dentro de la imagen de Nginx mediante una construcción m
 2. **Etapa final de producción (`nginx`)**:
    - Copia los artefactos compilados desde `/build/dist/` hacia `/usr/share/nginx/html/`.
    - Nginx sirve los activos estáticos y actúa como proxy inverso hacia la API (`/api/`) y el Hub (`/play`).
+
+---
+
+## Verificación Manual de la Salida de Emergencia (A4)
+
+1. **Conmutación manual y persistencia:**
+   - Iniciar el servidor local (`pnpm run dev`) o navegar a `http://localhost:8080`.
+   - Pulsar el botón **🗺️ Vista cenital** en la barra inferior del valle: el renderizado cambia inmediatamente a la cuadrícula 2D nativa (`<ValleyCanvas />`).
+   - Interactuar seleccionando casillas o soltando gotas: el comportamiento y la actualización de recursos son idénticos a la vista isométrica.
+   - Recargar la página (`F5`): verificar que la vista cenital permanece seleccionada al leer `localStorage` (`hydrovalley.view_mode`).
+   - Pulsar **⛰️ Vista isométrica** y recargar: la vista isométrica de Phaser persiste.
+
+2. **Salida de emergencia automática ante fallo o bloqueo de Phaser:**
+   - Para simular un entorno sin soporte gráfico o con fallo en Phaser, abrir la consola de desarrollo del navegador (`F12`) y ejecutar:
+     ```js
+     localStorage.setItem("hydrovalley.view_mode", "isometric");
+     // Simular que el navegador no puede inicializar contextos gráficos para Phaser:
+     const origGetContext = HTMLCanvasElement.prototype.getContext;
+     HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+       if (type === "webgl" || type === "experimental-webgl") return null;
+       return origGetContext.apply(this, [type, ...args]);
+     };
+     ```
+   - Al recargar la página, si Phaser no puede instanciar el renderer, `ValleyPhaser` notifica el error y conmuta automáticamente a `<ValleyCanvas />`.
+   - La interfaz muestra la insignia `(Salida de emergencia activa)` y el valle continúa 100% jugable sin bloqueos ni pantallas en blanco.
+

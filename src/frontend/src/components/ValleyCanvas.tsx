@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { GRID_SIZE, type StateFrame } from "../logic/play.ts";
 import { buildTiles, tileAt } from "../logic/valley.ts";
 
@@ -21,12 +21,14 @@ export interface ValleyCanvasProps {
   gameState: StateFrame | null;
   selected: { x: number; y: number } | null;
   onSelectTile: (coord: { x: number; y: number }) => void;
+  toolbarExtra?: ReactNode;
 }
 
 export function ValleyCanvas({
   gameState,
   selected,
   onSelectTile,
+  toolbarExtra,
 }: ValleyCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -101,13 +103,21 @@ export function ValleyCanvas({
   };
 
   return (
-    <canvas
-      id="valley"
-      ref={canvasRef}
-      width={512}
-      height={512}
-      aria-label="Valle de 32 por 32 casillas"
-      onClick={handleClick}
-    />
+    <div className="valley-wrapper">
+      <canvas
+        id="valley"
+        ref={canvasRef}
+        width={512}
+        height={512}
+        aria-label="Valle de 32 por 32 casillas"
+        onClick={handleClick}
+      />
+      <div className="valley-toolbar">
+        <div className="valley-toolbar-left">
+          <span className="camera-hint">Cuadrícula 2D (vista cenital)</span>
+        </div>
+        {toolbarExtra ? <div className="valley-toolbar-right">{toolbarExtra}</div> : null}
+      </div>
+    </div>
   );
 }
