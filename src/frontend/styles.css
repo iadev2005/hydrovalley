@@ -77,15 +77,33 @@ input {
   gap: 0.5rem;
   font-size: 0.8rem;
   color: #666;
+  flex-wrap: wrap;
 }
-.btn-camera {
+.valley-toolbar-left,
+.valley-toolbar-right,
+.view-switch-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.btn-camera,
+.btn-toggle-view {
   padding: 0.2rem 0.5rem;
   font-size: 0.8rem;
   cursor: pointer;
 }
+.view-emergency-badge {
+  font-size: 0.75rem;
+  color: #b00020;
+  font-weight: bold;
+}
 @media (prefers-color-scheme: dark) {
   .valley-toolbar {
     color: #aaa;
+  }
+  .view-emergency-badge {
+    color: #ff8a80;
   }
 }
 .panel {

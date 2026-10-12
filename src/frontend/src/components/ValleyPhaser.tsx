@@ -5,6 +5,7 @@ import {
   useImperativeHandle,
   useRef,
   type ForwardedRef,
+  type ReactNode,
 } from "react";
 import Phaser from "phaser";
 import { ValleyScene } from "../game/ValleyScene.ts";
@@ -21,6 +22,8 @@ export interface ValleyPhaserProps {
   gameState: StateFrame | null;
   selected: { x: number; y: number } | null;
   onSelectTile: (coord: { x: number; y: number }) => void;
+  onError?: (error: unknown) => void;
+  toolbarExtra?: ReactNode;
 }
 
 function isCanvasSupported(): boolean {
@@ -34,7 +37,7 @@ function isCanvasSupported(): boolean {
 }
 
 export const ValleyPhaser = forwardRef(function ValleyPhaser(
-  { gameState, selected, onSelectTile }: ValleyPhaserProps,
+  { gameState, selected, onSelectTile, onError, toolbarExtra }: ValleyPhaserProps,
   ref: ForwardedRef<ValleyPhaserHandle>,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -75,7 +78,12 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
   // 1. Inicialización y limpieza del juego Phaser
   useEffect(() => {
     const parent = containerRef.current;
-    if (!parent || !isCanvasSupported()) return;
+    if (!parent) return;
+
+    if (!isCanvasSupported()) {
+      onError?.(new Error("Canvas2D no soportado en este entorno"));
+      return;
+    }
 
     let game: Phaser.Game | null = null;
     try {
@@ -107,6 +115,7 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
     } catch (err) {
       // Entornos de prueba como happy-dom/node pueden carecer de WebGL/Canvas2D
       console.warn("No se pudo instanciar Phaser en el entorno actual:", err);
+      onError?.(err);
     }
 
     return () => {
@@ -146,15 +155,18 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
         aria-label="Valle isométrico de 32 por 32 casillas"
       />
       <div className="valley-toolbar">
-        <button
-          type="button"
-          onClick={handleResetCamera}
-          className="btn-camera"
-          title="Restablecer la cámara al centro del valle"
-        >
-          ⊙ Centrar vista
-        </button>
-        <span className="camera-hint">Arrastra para mover · Rueda para zoom</span>
+        <div className="valley-toolbar-left">
+          <button
+            type="button"
+            onClick={handleResetCamera}
+            className="btn-camera"
+            title="Restablecer la cámara al centro del valle"
+          >
+            ⊙ Centrar vista
+          </button>
+          <span className="camera-hint">Arrastra para mover · Rueda para zoom</span>
+        </div>
+        {toolbarExtra ? <div className="valley-toolbar-right">{toolbarExtra}</div> : null}
       </div>
     </div>
   );
