@@ -9,15 +9,67 @@
 
 ## Plan B
 
-```
+### Desarrollo local (con construcción)
+
+```bash
 cp deploy/.env.example deploy/.env      # y rellenar los valores (ver «Claves y variables»)
 docker compose -f deploy/compose.yml up --build
+```
+
+### Despliegue en el laboratorio (con imágenes del pipeline, sin `--build`)
+
+En las máquinas del laboratorio no se compila nada: se descargan las imágenes publicadas por el CI en `ghcr.io` para `linux/amd64` (cubriendo RF-21 y RES-06):
+
+```bash
+cp deploy/.env.example deploy/.env      # y rellenar los valores (HV_TAG=dev o la versión deseada)
+HV_TAG=dev docker compose -f deploy/compose.yml pull
+HV_TAG=dev docker compose -f deploy/compose.yml up -d
+```
+
+Para incluir la imagen de los bots en la descarga:
+
+```bash
+HV_TAG=dev docker compose -f deploy/compose.yml --profile bots pull
 ```
 
 Luego, http://localhost:8080. Solo nginx publica un puerto (`HV_HTTP_PORT`, 8080 por defecto); PostgreSQL no se publica. Los servicios se encuentran por su nombre (`world:50051`, `persistence:50051`…) mediante variables de entorno.
 
 - **Arranque**: no se usa `depends_on`. Cada servicio arranca aunque los demás no estén y se reconecta solo (regla 5); `restart: unless-stopped` cubre las caídas. Hasta que la persistencia conecta con PostgreSQL y el simulador carga su instantánea, el hub tiene el valle en pausa.
 - **Healthchecks**: van en cada imagen, para que el plan A los herede. Hub: `hub healthcheck` (`/healthz`). Simulador y persistencia: `grpc_health_probe` contra `grpc.health.v1` (SERVING solo con la instantánea cargada o la base conectada). API: `node dist/healthcheck.js`. nginx: `wget` a `/healthz`. PostgreSQL: `pg_isready`, en `compose.yml`.
+
+## Imágenes en ghcr.io (pipeline de CI)
+
+El job `publish` de `.github/workflows/ci.yml` construye con `docker buildx bake` para la plataforma `linux/amd64` y publica automáticamente las seis imágenes del sistema:
+
+| Servicio Compose | Imagen publicada | Descripción |
+| --- | --- | --- |
+| `persistence` | `ghcr.io/iadev2005/hydrovalley-persistence:${HV_TAG}` | Base de datos PostgreSQL (Python) |
+| `world` | `ghcr.io/iadev2005/hydrovalley-world:${HV_TAG}` | Simulador del valle (Rust) |
+| `hub` | `ghcr.io/iadev2005/hydrovalley-hub:${HV_TAG}` | Hub WebSocket en tiempo real (Go) |
+| `api` | `ghcr.io/iadev2005/hydrovalley-api:${HV_TAG}` | API REST de autenticación y catálogo (TypeScript) |
+| `nginx` | `ghcr.io/iadev2005/hydrovalley-proxy:${HV_TAG}` | Proxy inverso y frontend compilado (nginx) |
+| `bots` | `ghcr.io/iadev2005/hydrovalley-bots:${HV_TAG}` | Bots simuladores y pruebas de carga (Go, perfil `bots`) |
+
+> Nota: PostgreSQL no se compila en el repositorio; usa la imagen oficial `postgres:16` de Docker Hub.
+
+### Etiquetas publicadas
+
+- `:dev`: Se publica en cada `push` a la rama `dev` tras fusionar un PR. Usada para pruebas continuas y ensayos de integración en el laboratorio.
+- `:vX.Y` (ej. `:v0.1`): Se publica al crear y subir una etiqueta Git `v*` sobre un commit de `main`. Garantiza una versión fija, inmutable y reproducible para la defensa y entrega final.
+
+### Visibilidad de los paquetes y acceso en el laboratorio (Decisión D1)
+
+Al ser un repositorio privado (`iadev2005/hydrovalley`), los paquetes en GitHub Packages nacen como privados por defecto. Existen dos formas de descargarlos en el laboratorio:
+
+1. **Opción recomendada (Paquetes públicos):** Tras la primera publicación por el CI, el administrador del repositorio cambia la visibilidad de los 6 paquetes a *Público* en la interfaz de GitHub (*Package settings → Danger Zone → Change visibility*). El código fuente del repositorio permanece completamente privado, pero las máquinas del laboratorio pueden hacer `docker compose pull` directamente sin configurar credenciales ni iniciar sesión.
+2. **Opción con autenticación (Paquetes privados):** Si se mantienen privados, cada integrante debe generar un Personal Access Token (PAT) clásico con permiso exclusivo `read:packages`. En la máquina del laboratorio, iniciar sesión antes de descargar:
+   ```bash
+   echo "$PAT" | docker login ghcr.io -u <usuario_github> --password-stdin
+   ```
+   *Seguridad en máquinas compartidas:* Al terminar la sesión de trabajo o ensayo en el laboratorio, cerrar sesión con:
+   ```bash
+   docker logout ghcr.io
+   ```
 
 ## Claves y variables
 
