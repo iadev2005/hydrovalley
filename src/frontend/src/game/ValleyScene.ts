@@ -125,19 +125,20 @@ export class ValleyScene extends Phaser.Scene {
         // 3. Instalación de las 3R
         const installationSprite = this.add
           .image(screenPos.x, screenPos.y, "sprinkler")
+          .setOrigin(0.5, 0.75)
           .setVisible(false)
           .setDepth(depth + 0.2);
 
-        // 4. Fuego animado
+        // 4. Fuego animado (32x32 con base romboide en y=24: anclado en 0.75 calza perfecto con la casilla)
         const fireSprite = this.add
-          .sprite(screenPos.x, screenPos.y - 8, "fire_sheet")
+          .sprite(screenPos.x, screenPos.y, "fire_sheet")
           .setOrigin(0.5, 0.75)
           .setVisible(false)
           .setDepth(depth + 0.3);
 
         // 5. Contador de gotas recibidas por el fuego
         const fireBadgeText = this.add
-          .text(screenPos.x, screenPos.y - 20, "", {
+          .text(screenPos.x, screenPos.y - 24, "", {
             fontSize: "9px",
             fontFamily: "monospace",
             color: "#ffffff",
@@ -188,7 +189,7 @@ export class ValleyScene extends Phaser.Scene {
    */
   private setupCameraAndInput(): void {
     const cam = this.cameras.main;
-    cam.setZoom(1.0);
+    cam.setZoom(0.5);
 
     // Centrar inicialmente en el punto medio del valle
     const centerY = this.originY + (VALLEY_GRID_SIZE * ISO_TILE_HEIGHT) / 2;
@@ -247,7 +248,7 @@ export class ValleyScene extends Phaser.Scene {
       ) => {
         const oldZoom = cam.zoom;
         const zoomFactor = deltaY > 0 ? 0.9 : 1.1;
-        const nextZoom = Phaser.Math.Clamp(oldZoom * zoomFactor, 0.6, 2.5);
+        const nextZoom = Phaser.Math.Clamp(oldZoom * zoomFactor, 0.4, 2.5);
         if (nextZoom !== oldZoom) {
           cam.setZoom(nextZoom);
         }
@@ -294,7 +295,7 @@ export class ValleyScene extends Phaser.Scene {
   public resetCamera(): void {
     const cam = this.cameras.main;
     const centerY = this.originY + (VALLEY_GRID_SIZE * ISO_TILE_HEIGHT) / 2;
-    cam.setZoom(1.0);
+    cam.setZoom(0.5);
     cam.centerOn(this.originX, centerY);
   }
 
@@ -484,6 +485,17 @@ export class ValleyScene extends Phaser.Scene {
       } else {
         view.installationSprite.setTexture("sprinkler");
       }
+
+      // Las instalaciones verticales 32x32 (potabilizadora y aspersor) tienen su
+      // base en y=24: se anclan con origin (0.5, 0.75) para que su rombo base calce
+      // con la casilla y la estructura se eleve sin enterrarse en el suelo.
+      // El goteo (32x16) es plano al ras del suelo y usa origin (0.5, 0.5).
+      if (kind === "treatment_plant" || kind === "sprinkler") {
+        view.installationSprite.setOrigin(0.5, 0.75);
+      } else {
+        view.installationSprite.setOrigin(0.5, 0.5);
+      }
+
       view.installationSprite.setVisible(true);
     } else {
       view.installationSprite.setVisible(false);

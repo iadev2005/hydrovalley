@@ -21,7 +21,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": { target, changeOrigin: true },
-      "/play": { target, ws: true, changeOrigin: true },
+      // El hub compara Origin con Host: sin changeOrigin, el Host sigue siendo
+      // el de Vite (localhost:5173), igual que el Origin del navegador.
+      "/play": { target, ws: true, changeOrigin: false },
     },
   },
   test: {
