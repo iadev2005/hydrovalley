@@ -1,3 +1,8 @@
+//comando para correr la prueba
+// linux sudo E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh
+// otros  E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh
+
+
 // CP-01: Acciones simultáneas de un mismo jugador (RF-08).
 // Modo demo; un jugador envía 100 gotas sin esperar resultados individuales.
 // Invariantes:
