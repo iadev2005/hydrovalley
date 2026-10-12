@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package hydrovalley.persistence.v1;
+
+// ReportService calcula el reporte de las 3R (RF-12) a partir de las
+// instantáneas guardadas; no hay tabla de reportes. Solo usa las
+// instantáneas de la época actual (el último reinicio del valle pone los
+// contadores a cero, RF-31).
+//
+// Política de llamadas: plazo de 2 s; idempotente, hasta 3 reintentos con
+// esperas de 100, 200 y 400 ms.
+service ReportService {
+  // Por jugador: su fila en las instantáneas. Global: la suma de las filas
+  // de todos los jugadores. Con periodo: la diferencia entre las
+  // instantáneas de to_tick y from_tick. NOT_FOUND si no hay ninguna
+  // instantánea en la época actual o si el player_id no tiene cuenta; una
+  // cuenta que aún no aparece en ninguna instantánea recibe ceros.
+  // INVALID_ARGUMENT si un tick queda fuera de la época actual.
+  rpc GetReport(GetReportRequest) returns (GetReportResponse);
+}
+
+message GetReportRequest {
+  // Vacío para el reporte global.
+  string player_id = 1;
+  // Inicio del periodo. Sin valor: inicio de la época actual (contadores a
+  // 0).
+  optional uint64 from_tick = 2;
+  // Fin del periodo. Sin valor: la última instantánea.
+  optional uint64 to_tick = 3;
+}
+
+message GetReportResponse {
+  // Copia de la petición; vacío en el reporte global.
+  string player_id = 1;
+  uint32 epoch = 2;
+  // Ticks de las instantáneas usadas (from_tick = 0: inicio de la época).
+  uint64 from_tick = 3;
+  uint64 to_tick = 4;
+  ReportTotals totals = 5;
+}
+
+message ReportTotals {
+  // 3R: goteo (Reducir), aspersores (Reutilizar), planta de tratamiento
+  // (Reciclar).
+  uint64 water_reduced = 1;
+  uint64 water_reused = 2;
+  uint64 water_recycled = 3;
+  // Saldos de RF-27.
+  uint64 water_refilled = 4;
+  uint64 water_spent = 5;
+  uint64 leaves_earned = 6;
+  uint64 leaves_spent = 7;
+}

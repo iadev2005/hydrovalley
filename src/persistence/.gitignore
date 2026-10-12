@@ -1,0 +1,4 @@
+# Entorno local de uv y cachés de Python
+.venv/
+__pycache__/
+.pytest_cache/

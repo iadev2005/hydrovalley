@@ -1,0 +1,146 @@
+@startuml 08-despliegue
+title Despliegue de destino en el laboratorio (RES-07)
+top to bottom direction
+skinparam nodesep 50
+skinparam ranksep 70
+
+node "Navegador del jugador" as Browser <<device>> {
+  artifact "Frontend\n(React + Phaser)" as FrontendRuntime
+}
+
+node "Nodo 4 · TypeScript\nPC del laboratorio (10.68.17.x)" as N4 <<device>> {
+  node "Windows 10 Pro\nDocker Desktop + WSL 2" as N4Env <<execution environment>> {
+    node "proxy" as ProxyC <<container>> {
+      artifact "nginx" as Nginx
+      artifact "frontend\n(archivos estáticos)" as FrontendStatic
+    }
+    node "api" as ApiC <<container>> {
+      artifact "API (TypeScript)\nREST + Swagger" as Api
+    }
+  }
+}
+
+node "Nodo 3 · Go\nPC del laboratorio (10.68.17.x)" as N3 <<device>> {
+  node "Windows 10 Pro\nDocker Desktop + WSL 2" as N3Env <<execution environment>> {
+    node "hub" as HubC <<container>> {
+      artifact "Hub en tiempo real (Go)" as Hub
+    }
+    node "chat" as ChatC <<container>> {
+      artifact "Chat (Go)\nnivel 2" as Chat
+    }
+    node "bots\n(a demanda)" as BotsC <<container>> {
+      artifact "Bots (Go)" as Bots
+    }
+  }
+}
+
+node "Nodo 2 · Rust\nPC del laboratorio (10.68.17.x)" as N2 <<device>> {
+  node "Windows 10 Pro\nDocker Desktop + WSL 2" as N2Env <<execution environment>> {
+    node "world" as WorldC <<container>> {
+      artifact "Simulador del valle (Rust)\nWorldService :50051\n(plan B de D-03: world-go en su lugar)" as World
+    }
+  }
+}
+
+node "Nodo 5 · Python\nPC del laboratorio (10.68.17.x)" as N5 <<device>> {
+  node "Windows 10 Pro\nDocker Desktop + WSL 2" as N5Env <<execution environment>> {
+    node "persistence" as PersistenceC <<container>> {
+      artifact "Persistencia (Python)\nPersistenceService, AccountService,\nCatalogService, ReportService" as Persistence
+    }
+  }
+}
+
+node "Nodo 1 · Base de datos\nPC del laboratorio (10.68.17.x)" as N1 <<device>> {
+  node "Windows 10 Pro\nDocker Desktop + WSL 2" as N1Env <<execution environment>> {
+    node "db" as DbC <<container>> {
+      database "PostgreSQL" as Db
+    }
+  }
+}
+
+Browser --> ProxyC : HTTPS / WSS :8080\n(única dirección; TLS en nginx)
+ProxyC --> ApiC : /api\nHTTP (red de Docker)
+ProxyC --> HubC : /play\nWebSocket :8081
+ProxyC --> ChatC : /chat\nWebSocket :8082
+HubC --> ChatC : gRPC :50051\nChatService (red de Docker)
+BotsC --> ProxyC : HTTPS / WSS :8080
+HubC --> WorldC : gRPC :50051\nStep cada 100 ms
+ApiC --> WorldC : gRPC :50051\nGetRanking
+ApiC --> PersistenceC : gRPC :50051\nAccount, Catalog, Report
+WorldC --> PersistenceC : gRPC :50051\nSaveSnapshot, LoadSnapshot,\nGetCatalog
+PersistenceC --> DbC : PostgreSQL :5433\n(host 5433 → contenedor 5432)
+
+note right of N1
+  <b>Solo el nodo 5 (Python) llega a PostgreSQL</b>:
+  ningún otro nodo tiene sus credenciales.
+  Se publica en el 5433 porque el 5432 lo ocupa
+  el PostgreSQL 16 nativo del laboratorio.
+end note
+
+note as NLab
+  <b>Puertos publicados en el host</b>: nodo 4, 8080 (nginx, HTTPS);
+  nodo 3, 8081 (hub), 8082 (chat) y 50051 (gRPC del chat); nodos 2 y 5,
+  50051 (cada uno en su máquina, sin choque); nodo 1, 5433 (PostgreSQL).
+  El cortafuegos bloquea las conexiones entrantes entre máquinas hasta
+  que el encargado cree la regla de entrada (TCP 8080, 8081, 8082,
+  50051 y 5433 desde 10.68.17.0/24). El gRPC interno va sin cifrar
+  dentro de la red del laboratorio: la contraseña nunca viaja por él,
+  pero el hash Argon2id sí (API ↔ Persistencia); riesgo aceptado en una
+  red cerrada. Las direcciones de los demás servicios se configuran por
+  nodo, no se fijan en el código.
+  <b>Imágenes</b>: las construye el pipeline de GitHub para linux/amd64
+  (etiqueta dev o versión de main) y cada nodo descarga la suya del
+  registro (ghcr.io responde desde el laboratorio).
+  <b>Bots</b> (Go): se lanzan a demanda en el nodo 3
+  (docker compose run bots load-test) y entran por el 8080 del
+  nodo 4. world-go no se despliega: se usa en local para la
+  comparativa Go vs. Rust (ahí puede escuchar en el 50052). El
+  frontend no es un servicio: son archivos estáticos que sirve el
+  contenedor de nginx.
+end note
+
+@enduml
+
+@startuml 08-despliegue-plan-b
+title Plan B: todo en una sola máquina con Docker Compose
+top to bottom direction
+skinparam nodesep 40
+skinparam ranksep 60
+
+node "PC del laboratorio (p. ej. LABBD-01, 10.68.17.1)" as Pc <<device>> {
+  node "Navegador" as BrowserB <<device>>
+  node "Windows 10 Pro\nDocker Desktop + WSL 2 · Docker Compose" as Env <<execution environment>> {
+    node "nginx\n:8080" as NginxB <<container>>
+    node "api\n:3000" as ApiB <<container>>
+    node "hub\n:8081" as HubB <<container>>
+    node "chat\n:8082 · :50051" as ChatB <<container>>
+    node "world\n:50051" as WorldB <<container>>
+    node "persistence\n:50051" as PersistenceB <<container>>
+    node "postgres\n:5432" as PostgresB <<container>>
+    node "bots" as BotsB <<container>>
+  }
+}
+
+BrowserB --> NginxB : HTTPS / WSS\nlocalhost:8080 (único puerto publicado)
+BotsB --> NginxB : WebSocket /play
+NginxB --> ApiB : /api
+NginxB --> HubB : /play
+NginxB --> ChatB : /chat
+HubB --> WorldB : gRPC Step
+HubB --> ChatB : gRPC
+ApiB --> WorldB : gRPC
+ApiB --> PersistenceB : gRPC
+WorldB --> PersistenceB : gRPC
+PersistenceB --> PostgresB : PostgreSQL
+
+note bottom of Env
+  Se usa mientras no exista la regla del cortafuegos. Solo el 8080 se
+  publica en el host; los servicios se hablan por la red de Compose con
+  el nombre del servicio de deploy/compose.yml (p. ej. world:50051), sin
+  cruzar máquinas. chat y bots aún no están en deploy/compose.yml.
+  Como el cortafuegos bloquea las conexiones entrantes, el navegador y los
+  bots también corren en esta máquina. Es el plan B, no el destino (RES-07);
+  el día de la defensa, el mismo archivo levanta el sistema en una laptop.
+end note
+
+@enduml

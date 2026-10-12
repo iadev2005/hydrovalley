@@ -1,0 +1,152 @@
+# Plan B: el sistema completo en una sola máquina, un contenedor por
+# servicio (diagrama 08-despliegue-plan-b, regla 6 de portabilidad).
+#
+#   cp deploy/.env.example deploy/.env      # y cambiar la clave
+#   docker compose -f deploy/compose.yml up --build
+#
+# Solo nginx publica un puerto en el host (HV_HTTP_PORT, 8080 por defecto).
+# Los servicios se encuentran por su nombre en la red de Compose mediante
+# variables de entorno (world:50051…), nunca por localhost. El plan A usa
+# las mismas imágenes con deploy/nodes/<nodo>.yml.
+#
+# depends_on no se usa a propósito: cada servicio arranca aunque los demás
+# no estén y se reconecta solo (regla 5, RNF-09, CP-08). Los healthchecks
+# vienen en cada imagen (hub healthcheck, grpc_health_probe, node, wget);
+# aquí solo se define el de PostgreSQL.
+
+name: hydrovalley
+
+x-service: &service
+  restart: unless-stopped
+  networks: [backend]
+
+services:
+  postgres:
+    <<: *service
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?definir POSTGRES_USER en deploy/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD en deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?definir POSTGRES_DB en deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Sin ports: solo la persistencia llega a la base de datos.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  persistence:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-persistence:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/persistence/Dockerfile
+    environment:
+      # La clave va dentro de la URL: sin caracteres reservados (@ : / ? #)
+      # o codificados.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PERSISTENCE_LISTEN: 0.0.0.0:50051
+      # Cuenta de administrador (RF-31): se siembra al arrancar si están las dos
+      # variables; vacías, no se crea ninguna. El hash Argon2id va entre
+      # comillas simples en deploy/.env (lleva `$`).
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  world:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-world:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/world/Dockerfile
+    environment:
+      PERSISTENCE_ADDR: persistence:50051
+      WORLD_LISTEN: 0.0.0.0:50051
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  hub:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-hub:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/hub/Dockerfile
+    environment:
+      WORLD_ADDR: world:50051
+      HUB_LISTEN: :8081
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Clave pública Ed25519 (PEM o su base64) con la que el hub verifica el
+      # token de /play. Es la pareja de TOKEN_PRIVATE_KEY; va en deploy/.env.
+      TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?define TOKEN_PUBLIC_KEY en deploy/.env}
+
+  api:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/api/Dockerfile
+    environment:
+      API_LISTEN: 0.0.0.0:3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PERSISTENCE_ADDR: persistence:50051
+      WORLD_ADDR: world:50051
+      # HTTP interno del hub (`/stats`), para `GET /api/system` (panel del
+      # sistema). Nginx no lo reenvía.
+      HUB_STATS_ADDR: hub:8081
+      # Clave privada Ed25519 (PEM o su base64) con la que la API firma los
+      # tokens. Nunca en el repositorio: va en deploy/.env (RNF-13).
+      TOKEN_PRIVATE_KEY: ${TOKEN_PRIVATE_KEY:?define TOKEN_PRIVATE_KEY en deploy/.env}
+      # Vigencia del token en segundos (12 h por defecto; máximo 7 días).
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-43200}
+      # nginx es el único proxy delante de la API: la IP del cliente sale de
+      # X-Forwarded-For (límite de intentos de acceso).
+      TRUST_PROXY: "true"
+
+  nginx:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-proxy:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: deploy/nginx/Dockerfile
+    environment:
+      API_ADDR: api:3000
+      HUB_ADDR: hub:8081
+      NGINX_RESOLVER: 127.0.0.11
+    ports:
+      - "${HV_HTTP_PORT:-8080}:8080"
+
+  # Bots (Go): jugadores simulados que entran por nginx como cualquier
+  # navegador. No arrancan con `up`: viven bajo el perfil «bots» y se lanzan
+  # a demanda (deploy/README.md, «Bots»):
+  #   docker compose --profile bots run --rm bots load-test
+  # Sin restart (corren y terminan) y sin depends_on (regla 5): si nginx aún
+  # no responde, el bot falla con un mensaje claro y se relanza.
+  bots:
+    profiles: ["bots"]
+    networks: [backend]
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-bots:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/bots/Dockerfile
+    environment:
+      # Solo por nginx, dentro de la red de Compose (puerto interno 8080).
+      HV_BASE_URL: http://nginx:8080
+      # Cuenta de administrador (RF-31) para crear las cuentas de los bots; la
+      # contraseña va en claro (no es el hash de ADMIN_PASSWORD_HASH). Sin
+      # ellas el binario se detiene con un mensaje que las nombra.
+      HV_ADMIN_USERNAME: ${HV_ADMIN_USERNAME:-}
+      HV_ADMIN_PASSWORD: ${HV_ADMIN_PASSWORD:-}
+      BOTS_COUNT: ${BOTS_COUNT:-}
+      BOTS_DURATION: ${BOTS_DURATION:-}
+      BOTS_SEED: ${BOTS_SEED:-}
+      BOTS_RESET: ${BOTS_RESET:-}
+      BOTS_REPORT_PATH: ${BOTS_REPORT_PATH:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+networks:
+  backend: {}
+
+volumes:
+  pgdata: {}

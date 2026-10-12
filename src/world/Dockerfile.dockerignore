@@ -1,0 +1,11 @@
+# Filtro del contexto para src/world/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: solo
+# entran proto/ y los archivos del simulador, sin target/.
+*
+!proto/
+!src/world/Cargo.toml
+!src/world/Cargo.lock
+!src/world/build.rs
+!src/world/src/
+!src/world/tests/
+!src/world/benches/

@@ -1,0 +1,38 @@
+{
+  "name": "@hydrovalley/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "API REST de hydrovalley (registro, acceso, catálogo, ranking y reportes).",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "gen": "node scripts/sync-gen.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.10.0",
+    "@connectrpc/connect": "2.2.0",
+    "@connectrpc/connect-node": "2.2.0",
+    "@fastify/swagger": "9.9.0",
+    "@fastify/swagger-ui": "6.1.1",
+    "@node-rs/argon2": "2.2.1",
+    "fastify": "5.12.5",
+    "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.4",
+    "eslint": "10.11.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.2"
+  }
+}

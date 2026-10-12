@@ -1,0 +1,121 @@
+@startuml 09-secuencia-acceso
+title Registro, acceso y apertura del canal en vivo
+
+actor "Jugador" as Player
+participant "Navegador" as Browser
+participant "Proxy de entrada\n(nginx)" as Proxy
+participant "API\n(TypeScript)" as Api
+participant "Persistencia (Python)\nAccountService" as Persistence
+database "PostgreSQL" as Db
+participant "Hub (Go)" as Hub
+
+== Registro (RF-01) ==
+
+Player -> Browser : nombre de usuario y contraseña
+Browser -> Proxy : POST /api/auth/register (HTTPS)\n{"username": "…", "password": "…"}
+Proxy -> Api : reenvía /api
+Api -> Api : calcular el hash Argon2id\nde la contraseña (RNF-12)
+Api -> Persistence : AccountService.Register(username, password_hash)
+Persistence -> Db : INSERT INTO accounts\n(id, username, password_hash, role = 'player', created_at)
+alt nombre de usuario libre
+  Db --> Persistence : fila creada
+  Persistence --> Api : account_id, role = player
+  Api --> Browser : 201 + token firmado (ver «Acceso»)
+else nombre de usuario ya registrado
+  Db --> Persistence : violación de UNIQUE (username)
+  Persistence --> Api : ALREADY_EXISTS
+  Api --> Browser : 409 {"error": "El nombre de usuario ya existe"}
+end
+
+== Acceso (RF-01, RF-02) ==
+
+Player -> Browser : nombre de usuario y contraseña
+Browser -> Proxy : POST /api/auth/login (HTTPS)\n{"username": "…", "password": "…"}
+Proxy -> Api : reenvía /api
+Api -> Persistence : AccountService.GetAccount(username)
+Persistence -> Db : SELECT id, password_hash, role\nFROM accounts WHERE username = …
+Db --> Persistence : fila (o ninguna)
+Persistence --> Api : id, password_hash, role\n(o NOT_FOUND)
+Api -> Api : verificar la contraseña contra el hash Argon2id\n(si NOT_FOUND, contra un hash de relleno:\nmismo tiempo de respuesta)
+
+alt credenciales correctas
+  Api -> Api : firmar el token con la clave privada Ed25519\n{player_id, username, role,\niss = hydrovalley-api, aud = hydrovalley-play,\nexp = ahora + 12 h}
+  Api --> Browser : 200 {"token": "…", "expires_at": "ISO 8601 en UTC"}
+  Browser -> Browser : guardar el token
+else usuario inexistente o contraseña incorrecta
+  Api --> Browser : 401 {"error": "Usuario o contraseña incorrectos"}
+  note right of Browser
+    El mismo mensaje en los dos casos:
+    no revela si el usuario existe.
+  end note
+end
+
+note over Api, Hub
+  Firma asimétrica Ed25519: solo la API tiene la clave privada y firma; el hub
+  tiene la clave pública y verifica por sí solo, sin llamar a nadie.
+  Las dos llegan por variables de entorno, nunca en el repositorio (RNF-13).
+  RNF-12: nginx termina TLS (certificado autofirmado en el laboratorio), así que
+  navegador ↔ proxy va por HTTPS/WSS. La contraseña no sale de la API: el gRPC
+  interno va sin cifrar dentro de la red del laboratorio y solo lleva el hash.
+end note
+
+== Apertura del canal en vivo (RF-02, RF-31) ==
+
+Browser -> Proxy : WSS /play?token=…
+Proxy -> Hub : reenvía /play (upgrade a WebSocket)
+Hub -> Hub : verificar la firma del token
+Hub -> Hub : comprobar el emisor y la audiencia\n(iss = hydrovalley-api, aud = hydrovalley-play)
+Hub -> Hub : comprobar que no ha vencido (exp)
+Hub -> Hub : comprobar el rol: player | admin
+
+alt token válido
+  Hub -> Hub : abrir la goroutine del jugador\ncon player_id y role
+  Hub --> Browser : conexión aceptada
+  Browser -> Browser : reenviar las acciones pendientes,\nsi las hay (Capa 3)
+  note right of Hub
+    El rol se guarda en la sesión: los comandos de
+    administración (modo demo, reiniciar el valle)
+    solo se admiten con role = admin; con role = player
+    reciben forbidden (diagrama 03).
+    El token se comprueba solo al abrir /play: si vence
+    con la conexión abierta, no se corta; dura hasta
+    que se cierra.
+  end note
+else firma inválida, emisor o audiencia incorrectos,\ntoken vencido o rol desconocido
+  Hub --> Browser : cierra la conexión (código 4401)
+  Browser -> Player : «La sesión ha vencido. Vuelve a entrar.»
+end
+
+note over Browser, Hub
+  Recarga de la página (RF-02): el navegador conserva el token y abre /play
+  de nuevo sin pasar por la API mientras el token siga vigente (12 h).
+  Toda reconexión necesita un token vigente; si venció, se vuelve a entrar.
+end note
+
+== Persistencia caída (RNF-04, CP-07) ==
+
+hnote over Persistence #FFCCCC : contenedor de Python\no de PostgreSQL detenido
+
+Browser -> Proxy : POST /api/auth/login
+Proxy -> Api : reenvía /api
+Api -> Persistence : AccountService.GetAccount(…)
+Persistence --> Api : UNAVAILABLE o plazo agotado
+Api --> Browser : 503 {"error": "El acceso no está disponible en este momento.\nInténtalo de nuevo en unos minutos."}
+note right of Browser
+  Aviso claro, nunca un error interno (RNF-06).
+  El registro se comporta igual.
+end note
+
+Browser -> Proxy : WSS /play?token=… (jugador con token vigente)
+Proxy -> Hub : reenvía /play
+Hub -> Hub : verificar firma, vencimiento y rol\n(sin llamar a la persistencia)
+Hub --> Browser : conexión aceptada: sigue jugando
+
+note over Hub, Db
+  Quien ya juega no nota nada: el hub no depende de la persistencia para
+  validar tokens ni para llamar a Step, y las gotas siguen por debajo de 200 ms.
+  Las instantáneas que fallen se reintentan en el siguiente tick de
+  instantánea (Capa 5).
+end note
+
+@enduml

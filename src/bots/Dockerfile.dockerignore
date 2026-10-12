@@ -1,0 +1,8 @@
+# Filtro del contexto para src/bots/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: solo
+# entran los archivos de los bots.
+*
+!src/bots/go.mod
+!src/bots/go.sum
+!src/bots/cmd/
+!src/bots/internal/

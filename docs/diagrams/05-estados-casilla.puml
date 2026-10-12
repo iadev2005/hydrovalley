@@ -1,0 +1,56 @@
+@startuml 05-estados-casilla
+title Estados de una casilla
+
+state Casilla {
+  state "Crecimiento" as Crecimiento {
+    state "Tierra seca" as Seca
+    state "Pasto" as Pasto
+    state "Arbusto" as Arbusto
+    state "Flores" as Flores
+    state "Árbol" as Arbol
+    Arbol : humedad máxima 100
+
+    [*] --> Seca
+    Seca --> Pasto : humedad llega a 100 [sin fuego]\n/ humedad −100
+    Pasto --> Arbusto : humedad llega a 100 [sin fuego]\n/ humedad −100
+    Arbusto --> Flores : humedad llega a 100 [sin fuego]\n/ humedad −100
+    Flores --> Arbol : humedad llega a 100 [sin fuego]\n/ humedad −100
+    Arbol --> Flores : humedad 0\ndurante 100 ticks [sin fuego]
+    Flores --> Arbusto : humedad 0\ndurante 100 ticks [sin fuego]
+    Arbusto --> Pasto : humedad 0\ndurante 100 ticks [sin fuego]
+    Pasto --> Seca : humedad 0\ndurante 100 ticks [sin fuego]
+    Pasto -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
+    Arbusto -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
+    Flores -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
+    Arbol -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
+  }
+  --
+  state "Fuego" as Fuego {
+    state "Sin fuego" as SinFuego
+    state "Ardiendo" as Ardiendo
+    Ardiendo : cuenta las gotas recibidas
+    Ardiendo : congela el crecimiento\n(ni crece ni se seca; dry_ticks no avanza)
+
+    [*] --> SinFuego
+    SinFuego --> Ardiendo : azar, si está seca\ny tiene planta
+    Ardiendo --> SinFuego : tercera gota\n(de cualquier jugador)
+    Ardiendo --> SinFuego : aspersor en su zona
+    Ardiendo -[#B22222]-> SinFuego : <color:#B22222>se consume (300 ticks)</color>\n<color:#B22222>/ crecimiento := Tierra seca</color>
+  }
+}
+
+note right of Casilla
+  Regiones ortogonales (Harel): avanzan a la vez.
+  Mientras arde, el crecimiento queda congelado
+  (guarda [sin fuego]); las gotas siguen sumando a la
+  humedad aportada y cuentan para apagarlo.
+  El fuego siempre se resuelve: tercera gota, aspersor
+  o se consume a los 300 ticks.
+  Punto de contacto (en rojo): si el fuego <b>se consume</b>
+  antes de que lo apaguen, dispara en la región de
+  crecimiento el paso a <b>Tierra seca</b>, desde
+  cualquier etapa.
+  Cifras iniciales del catálogo (catalog/).
+end note
+
+@enduml

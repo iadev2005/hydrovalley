@@ -1,0 +1,570 @@
+# CI común. El job `proto` es una comprobación obligatoria en dev y main.
+# Cada servicio tiene su job, con un filtro de rutas dentro del job.
+name: ci
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  proto:
+    name: proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Historial completo: buf breaking compara con la rama base desde .git.
+          fetch-depth: 0
+
+      # buf breaking solo tiene sentido si la rama base ya tiene proto/.
+      - name: Detectar proto/ en la rama base
+        id: base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git cat-file -e "${BASE_SHA}:proto/buf.yaml" 2>/dev/null; then
+            echo "has_proto=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_proto=false" >> "$GITHUB_OUTPUT"
+            echo "La rama base no tiene proto/buf.yaml; se omite buf breaking."
+          fi
+
+      # buf build siempre; lint en todo evento; breaking solo en pull requests.
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        with:
+          version: 1.73.0
+          input: proto
+          lint: true
+          format: false
+          breaking: ${{ steps.base.outputs.has_proto == 'true' }}
+          breaking_against: .git#ref=${{ github.event.pull_request.base.sha }},subdir=proto
+          push: false
+          archive: false
+          pr_comment: false
+
+  codegen:
+    name: codegen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # Comprueba que la generación funciona; el resultado no se guarda.
+      - name: buf generate
+        run: buf generate --template proto/buf.gen.yaml
+
+  # Persistencia (Python). El filtro de rutas va dentro del job, no en
+  # `on.paths`: sin cambios en sus rutas los pasos se saltan y el job termina
+  # en verde, así puede ser una comprobación obligatoria.
+  persistence:
+    name: persistence
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    services:
+      postgres:
+        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+        env:
+          # Base desechable del CI; esta clave no protege nada real.
+          POSTGRES_USER: hydrovalley
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: hydrovalley_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hydrovalley -d hydrovalley_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            persistence:
+              - 'src/persistence/**'
+              - 'proto/**'
+              - 'catalog/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en la persistencia
+        if: steps.changes.outputs.persistence != 'true'
+        run: echo "Sin cambios en src/persistence, proto, catalog ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.persistence == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      - name: buf generate
+        if: steps.changes.outputs.persistence == 'true'
+        run: buf generate --template proto/buf.gen.yaml
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: steps.changes.outputs.persistence == 'true'
+        with:
+          version: 0.12.3
+          working-directory: src/persistence
+
+      - name: Instalar dependencias
+        if: steps.changes.outputs.persistence == 'true'
+        working-directory: src/persistence
+        run: uv sync --frozen
+
+      - name: Pruebas unitarias
+        if: steps.changes.outputs.persistence == 'true'
+        working-directory: src/persistence
+        run: uv run pytest -v -m "not integration"
+
+      - name: Pruebas de integración (PostgreSQL 16)
+        if: steps.changes.outputs.persistence == 'true'
+        working-directory: src/persistence
+        env:
+          TEST_DATABASE_URL: postgresql://hydrovalley:ci-only@127.0.0.1:5432/hydrovalley_test
+        run: uv run pytest -v -m integration
+
+  # Simulador del valle (Rust). Mismo patrón que `persistence`: el filtro de
+  # rutas va dentro del job, así que sin cambios termina en verde y puede
+  # ser una comprobación obligatoria. build.rs genera el código desde
+  # proto/ con un protoc incluido (protoc-bin-vendored): no necesita buf.
+  world:
+    name: world
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            world:
+              - 'src/world/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el simulador
+        if: steps.changes.outputs.world != 'true'
+        run: echo "Sin cambios en src/world, proto ni el workflow; no hay nada que probar."
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1 (sin versiones semánticas; mismo commit que master)
+        if: steps.changes.outputs.world == 'true'
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: steps.changes.outputs.world == 'true'
+        with:
+          workspaces: src/world
+
+      - name: Formato
+        if: steps.changes.outputs.world == 'true'
+        working-directory: src/world
+        run: cargo fmt --check
+
+      - name: Clippy
+        if: steps.changes.outputs.world == 'true'
+        working-directory: src/world
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Pruebas
+        if: steps.changes.outputs.world == 'true'
+        working-directory: src/world
+        run: cargo test --locked
+
+  # Hub en tiempo real (Go). Mismo patrón que `persistence`: el filtro de
+  # rutas va dentro del job, así que sin cambios termina en verde y puede
+  # ser una comprobación obligatoria. Usa el código generado en gen/go.
+  hub:
+    name: hub
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            hub:
+              - 'src/hub/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el hub
+        if: steps.changes.outputs.hub != 'true'
+        run: echo "Sin cambios en src/hub, proto ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.hub == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El go.mod de gen/go sale de proto/go.mod.tmpl, la misma plantilla
+      # que usan scripts/gen-proto.sh y el Dockerfile del hub.
+      - name: buf generate
+        if: steps.changes.outputs.hub == 'true'
+        run: |
+          buf generate --template proto/buf.gen.yaml
+          cp proto/go.mod.tmpl gen/go/go.mod
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        if: steps.changes.outputs.hub == 'true'
+        with:
+          go-version-file: src/hub/go.mod
+          cache-dependency-path: src/hub/go.sum
+
+      - name: Formato
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: go vet ./...
+
+      - name: staticcheck
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Pruebas (con el detector de carreras)
+        if: steps.changes.outputs.hub == 'true'
+        working-directory: src/hub
+        run: go test -race ./...
+
+  # Bots (Go). Mismo patrón que `hub`: el filtro de rutas va dentro del job,
+  # así que sin cambios termina en verde y puede ser una comprobación
+  # obligatoria. No usa proto/ ni gen/: los marcos de /play se escriben a mano.
+  bots:
+    name: bots
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            bots:
+              - 'src/bots/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en los bots
+        if: steps.changes.outputs.bots != 'true'
+        run: echo "Sin cambios en src/bots ni el workflow; no hay nada que probar."
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        if: steps.changes.outputs.bots == 'true'
+        with:
+          go-version-file: src/bots/go.mod
+          cache-dependency-path: src/bots/go.sum
+
+      - name: Formato
+        if: steps.changes.outputs.bots == 'true'
+        working-directory: src/bots
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        if: steps.changes.outputs.bots == 'true'
+        working-directory: src/bots
+        run: go vet ./...
+
+      - name: staticcheck
+        if: steps.changes.outputs.bots == 'true'
+        working-directory: src/bots
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Pruebas (con el detector de carreras)
+        if: steps.changes.outputs.bots == 'true'
+        working-directory: src/bots
+        run: go test -race ./...
+
+  # API (TypeScript). Mismo patrón que `persistence`: el filtro de rutas va
+  # dentro del job, así que sin cambios termina en verde y puede ser una
+  # comprobación obligatoria.
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            api:
+              - 'src/api/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en la API
+        if: steps.changes.outputs.api != 'true'
+        run: echo "Sin cambios en src/api, proto ni el workflow; no hay nada que probar."
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        if: steps.changes.outputs.api == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/api/package-lock.json
+
+      - name: Instalar dependencias
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm ci --ignore-scripts
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.api == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El cliente gRPC de AccountService importa el código de proto/.
+      - name: buf generate
+        if: steps.changes.outputs.api == 'true'
+        run: buf generate --template proto/buf.gen.yaml
+
+      # Copia gen/ts a src/gen para que resuelva @bufbuild/protobuf.
+      - name: Copiar el código generado
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm run gen
+
+      - name: ESLint
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm run lint
+
+      - name: Tipos (tsc estricto)
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm run typecheck
+
+      - name: Pruebas
+        if: steps.changes.outputs.api == 'true'
+        working-directory: src/api
+        run: npm test
+
+  # Frontend (Vite + React + TypeScript estricto). Lint, chequeo de tipos,
+  # pruebas en Vitest, compilación del bundle de producción y pruebas del arnés e2e.
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'src/frontend/**'
+              - 'deploy/nginx/**'
+              - 'tests/e2e/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el frontend
+        if: steps.changes.outputs.frontend != 'true'
+        run: echo "Sin cambios en src/frontend, deploy/nginx, tests/e2e ni el workflow; no hay nada que probar."
+
+      # pnpm va antes de setup-node y con la versión de `packageManager`
+      # (src/frontend/package.json): setup-node calcula la ruta del almacén con
+      # `pnpm store path` al iniciar, y con otra versión de pnpm esa ruta no es
+      # la que usa `pnpm install`, así que no existe al guardar la caché.
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        if: steps.changes.outputs.frontend == 'true'
+        with:
+          package_json_file: src/frontend/package.json
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        if: steps.changes.outputs.frontend == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: src/frontend/pnpm-lock.yaml
+
+      - name: Instalar dependencias
+        if: steps.changes.outputs.frontend == 'true'
+        working-directory: src/frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: ESLint
+        if: steps.changes.outputs.frontend == 'true'
+        working-directory: src/frontend
+        run: pnpm run lint
+
+      - name: Tipos (tsc estricto)
+        if: steps.changes.outputs.frontend == 'true'
+        working-directory: src/frontend
+        run: pnpm run typecheck
+
+      - name: Pruebas unitarias y de componentes (Vitest)
+        if: steps.changes.outputs.frontend == 'true'
+        working-directory: src/frontend
+        run: pnpm test
+
+      - name: Compilar bundle de producción (Vite)
+        if: steps.changes.outputs.frontend == 'true'
+        working-directory: src/frontend
+        run: pnpm run build
+
+      - name: Pruebas unitarias del arnés (tests/e2e)
+        if: steps.changes.outputs.frontend == 'true'
+        run: node --test tests/e2e/play-session.test.mjs tests/e2e/faults.unit.test.mjs
+
+  # Prueba de humo de punta a punta (CP-01-lite) con el plan B: construye
+  # todas las imágenes, levanta deploy/compose.yml y suelta una gota por
+  # nginx, y corre el bot tramposo (imagen de los bots, perfil «bots») contra
+  # el stack. Solo en pull requests; tarda varios minutos (sobre todo Rust la
+  # primera vez). Las capas se guardan en la caché de GitHub Actions.
+  e2e:
+    name: e2e
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Solo para interpolar deploy/compose.yml al construir; run.sh usa
+      # deploy/.env.example al levantar.
+      POSTGRES_USER: hydrovalley
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: hydrovalley
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Construye las imágenes de compose.yml con sus nombres (image:) y las
+      # carga en Docker, así `compose up` no vuelve a construir. Bake resuelve
+      # el `context: ..` de compose.yml desde el directorio de trabajo, no
+      # desde deploy/: se fija la raíz del repositorio a mano.
+      - name: Construir las imágenes
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        env:
+          # bake interpreta compose.yml y exige las variables obligatorias, pero
+          # solo construye: la clave real la genera tests/e2e/run.sh al arrancar.
+          TOKEN_PRIVATE_KEY: bake-only-placeholder
+          TOKEN_PUBLIC_KEY: bake-only-placeholder
+        with:
+          source: .
+          files: deploy/compose.yml
+          load: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=e2e
+            *.cache-to=type=gha,scope=e2e,mode=max
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+
+      - name: Prueba de humo (tests/e2e/run.sh)
+        env:
+          E2E_SKIP_BUILD: "1"
+        run: tests/e2e/run.sh
+
+  # Publicación de imágenes en GitHub Container Registry (ghcr.io).
+  # Corre en push a la rama dev (tras fusionar) y en etiquetas de versión v* sobre main.
+  # Construye para linux/amd64 y publica las 6 imágenes: api, hub, world, persistence, proxy y bots.
+  publish:
+    name: publish
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [proto, codegen, persistence, world, hub, bots, api, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      POSTGRES_USER: hydrovalley
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: hydrovalley
+      TOKEN_PRIVATE_KEY: bake-only-placeholder
+      TOKEN_PUBLIC_KEY: bake-only-placeholder
+      COMPOSE_PROFILES: bots
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Validar que la etiqueta pertenezca a main
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Error: La etiqueta ${{ github.ref_name }} no apunta a un commit de la rama main." >&2
+            exit 1
+          fi
+          echo "La etiqueta ${{ github.ref_name }} pertenece a la rama main."
+
+      - name: Determinar etiqueta y registro
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            echo "HV_TAG=dev" >> "$GITHUB_ENV"
+          else
+            echo "HV_TAG=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          fi
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "HV_REGISTRY=ghcr.io/${OWNER}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Iniciar sesión en ghcr.io
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar las imágenes
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        with:
+          source: .
+          files: deploy/compose.yml
+          push: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=e2e
+            *.cache-to=type=gha,scope=e2e,mode=max

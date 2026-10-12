@@ -1,0 +1,71 @@
+@startuml 03-secuencia-gota
+title Una gota de punta a punta
+
+actor "Jugador (Ana)" as Ana
+participant "Navegador" as Browser
+participant "Proxy de entrada\n(nginx)" as Proxy
+participant "Hub (Go)\ngoroutine de Ana" as Goroutine
+queue "Cola del tick\n(hub)" as Queue
+participant "Hub (Go)\nmarcador del tick" as Ticker
+participant "Simulador\n(Rust)" as World
+
+Ana -> Browser : clic sobre la casilla (14, 9)
+Browser -> Proxy : WS /play\n{"type": "drop", "x": 14, "y": 9, "action_id": "…"}
+Proxy -> Goroutine : reenvía el mensaje
+
+group Filtro del hub (Gatekeeper, Rate Limiting)
+  Goroutine -> Goroutine : comprobar la sesión (token firmado)
+  Goroutine -> Goroutine : ¿action_id nuevo? (pending: en cola o en curso;\nconfirmed: aplicado en los últimos 60 s)
+  Goroutine -> Goroutine : ¿≤ 15 gotas por segundo?
+end
+
+alt ya pendiente (reenvío de una acción en cola o en curso)
+  Goroutine -> Goroutine : ignorar: sin entrada nueva en la cola\nni resultado (el resultado final llegará)
+else rechazada por el hub (confirmada, límite, valle en pausa o sin rol de administrador)
+  Goroutine -> Browser : al instante: {"type": "result", "action_id": "…",\n"status": "duplicate | rate_limited | paused | forbidden"}
+  note right
+    limite: más de 15 gotas por segundo (RF-05, CP-03).
+    pausa: valle en pausa y cola llena (5.000).
+  end note
+else admitida
+  Goroutine -> Goroutine : añadir el action_id a pending
+  Goroutine -> Queue : encolar el comando
+end
+
+... espera hasta el siguiente tick ...
+
+loop cada 100 ms (aunque nadie juegue)
+  Ticker -> Queue : tomar los comandos admitidos
+  Queue --> Ticker : comandos del tick
+  opt comandos con más de 30 s en la cola (desde que el hub los admitió)
+    Ticker -> Goroutine : descartarlos: resultado final expired
+  end
+  Ticker -> World : WorldService.Step(comandos admitidos)
+  activate World
+  World -> World : aplicar los comandos en orden\n(cobrar el litro, sumar humedad, hacer crecer, repartir hojas)
+  World -> World : avanzar el valle un paso\n(aspersores, evaporación, incendios)
+  World --> Ticker : estado nuevo +\nresultado por comando: applied | duplicate | rejected
+  deactivate World
+  Ticker -> Goroutine : resultado de cada comando del tick\n(solo a los jugadores con comandos en ese tick);\ntodo resultado final quita la acción de pending:\napplied y duplicate pasan a confirmed (con su tick),\nrejected y expired solo salen; applied suma a las gotas aceptadas
+  Goroutine -> Browser : {"type": "result", "action_id": "…",\n"status": "applied | duplicate | rejected | expired"}
+  note right
+    Un solo resultado final por acción admitida.
+    Hasta que llega, el navegador la muestra pendiente.
+    duplicate = éxito (ya estaba aplicada): igual que applied.
+    rejected y expired: fallo que ve el jugador.
+  end note
+end
+
+note over Ticker, World
+  El hub nunca solapa llamadas: si un Step tarda más de 100 ms,
+  el siguiente tick espera y los comandos se acumulan en la cola.
+end note
+
+loop una vez por segundo (Publisher-Subscriber)
+  Ticker -> Goroutine : estado del valle + estado de Ana
+  Goroutine -> Proxy : WS /play
+  Proxy -> Browser : estado
+  Browser -> Ana : anima la barra del depósito\nhasta el siguiente mensaje
+end
+
+@enduml

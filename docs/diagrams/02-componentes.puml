@@ -1,0 +1,101 @@
+@startuml 02-componentes
+title Componentes de hydrovalley (notación lollipop)
+top to bottom direction
+skinparam componentStyle uml2
+skinparam nodesep 60
+skinparam ranksep 70
+
+' --- Clientes ---
+component "Navegador\n(React + Phaser)" as Browser <<TypeScript>>
+component "Bots" as Bots <<Go>>
+
+' --- Borde: HTTP y WebSocket ---
+component "Proxy de entrada\n(nginx)" as Proxy
+() "Entrada única\n(HTTPS / WSS)" as I_Entry
+
+component "API" as Api <<TypeScript>>
+component "Hub en tiempo real" as Hub <<Go>>
+component "Chat" as Chat <<Go>>
+() "HTTP /api" as I_Api
+() "WebSocket /play" as I_Play
+() "WebSocket /chat" as I_Chat
+
+' --- Interior: gRPC (pregunta y respuesta, sin streams) ---
+component "Simulador del valle" as World <<Rust>>
+component "Persistencia" as Persistence <<Python>>
+database "PostgreSQL" as Db
+() "WorldService\nStep, GetRanking" as I_World
+() "ChatService\nSendMessage, ListMessages" as I_ChatSvc
+() "PersistenceService\nSaveSnapshot, LoadSnapshot" as I_Persistence
+() "AccountService\nRegister, GetAccount,\nGetUsernames" as I_Account
+() "CatalogService\nGetCatalog" as I_Catalog
+() "ReportService\nGetReport" as I_Report
+
+' Entrada
+Proxy -up- I_Entry
+Browser -down-( I_Entry
+Bots -down-( I_Entry
+
+' Borde hacia los servicios
+Api -up- I_Api
+Hub -up- I_Play
+Chat -up- I_Chat
+Proxy -down-( I_Api
+Proxy -down-( I_Play
+Proxy -down-( I_Chat
+
+' Chat por gRPC
+Chat -down- I_ChatSvc
+Hub -right-( I_ChatSvc : SendMessage\n(avisos del sistema)
+
+' Simulador
+World -up- I_World
+Hub -down-( I_World : Step\n(cada 100 ms)
+Api -down-( I_World : GetRanking
+
+' Persistencia
+Persistence -up--- I_Persistence
+Persistence -left- I_Account
+Persistence -up- I_Catalog
+Persistence -right- I_Report
+World -down-( I_Persistence : SaveSnapshot (cada 50 ticks)\nLoadSnapshot (al arrancar)
+World -down-( I_Catalog : GetCatalog (al arrancar\ny al reiniciar el valle)
+Api -down-( I_Account
+Api -down-( I_Catalog
+Api -down-( I_Report
+
+Persistence -down-> Db : SQL\n(único con credenciales)
+
+' Orden horizontal dentro de cada fila
+Browser -[hidden]right- Bots
+Api -[hidden]right- Hub
+Hub -[hidden]right- Chat
+
+' --- Patrones de la nube ---
+note right of Proxy
+  <b>Gateway Routing</b>
+  /api → API, /play → hub, /chat → chat
+end note
+
+note left of Hub
+  <b>Gatekeeper</b>: sesión, action_id y
+  límite de 15 gotas/s antes del simulador
+  <b>Queue-Based Load Leveling</b>: cola del
+  tick, entregada a Step cada 100 ms
+  <b>Publisher-Subscriber</b>: difunde el
+  estado a todos los jugadores 1 vez/s
+  <b>Circuit Breaker</b>: si Step falla, pausa
+  el valle y encola (máx. 5.000); tras 3
+  fallos seguidos deja de llamar a Step,
+  avisa y prueba cada 1 s
+end note
+
+note right of Chat
+  <b>Publisher-Subscriber</b>: publica cada
+  mensaje, con su número de secuencia,
+  a todos los conectados a /chat.
+  Historial en memoria (últimos 200).
+  Nivel 2.
+end note
+
+@enduml

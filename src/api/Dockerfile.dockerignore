@@ -1,0 +1,12 @@
+# Filtro del contexto para src/api/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: solo
+# entran los archivos de la API, sin node_modules ni dist.
+*
+!src/api/package.json
+!src/api/package-lock.json
+!src/api/tsconfig.json
+!src/api/tsconfig.build.json
+!src/api/src/
+# La copia local de gen/ts no entra: la imagen la genera desde proto/.
+src/api/src/gen
+!proto/

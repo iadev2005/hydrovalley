@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package hydrovalley.persistence.v1;
+
+// CatalogService entrega todas las cifras del juego (D-01). Las cifras viven
+// en `catalog/`; la persistencia carga ese archivo al arrancar y lo guarda en
+// `catalog_entries`. Lo piden la API y el simulador (al arrancar y en cada
+// reinicio del valle).
+//
+// Unidades: cantidades en litros, hojas o puntos de humedad (uint64); los
+// intervalos terminados en `_seconds` son segundos; las duraciones
+// terminadas en `_ticks` cuentan ticks (100 ms cada uno), tal como las
+// expresa D-01.
+//
+// Política de llamadas: plazo de 2 s; idempotente, hasta 3 reintentos con
+// esperas de 100, 200 y 400 ms.
+service CatalogService {
+  rpc GetCatalog(GetCatalogRequest) returns (GetCatalogResponse);
+}
+
+message GetCatalogRequest {}
+
+message GetCatalogResponse {
+  Catalog catalog = 1;
+}
+
+message Catalog {
+  // Hash del contenido del catálogo; se guarda en cada instantánea.
+  string catalog_version = 1;
+  DropRules drop = 2;
+  TankRules tank = 3;
+  GrowthRules growth = 4;
+  EvaporationRules evaporation = 5;
+  FireRules fire = 6;
+  SprinklerRules sprinkler = 7;
+  DripRules drip = 8;
+  TreatmentPlantRules treatment_plant = 9;
+  // Aumento de precio por cada compra del mismo tipo de instalación (15,
+  // RF-07).
+  uint32 installation_price_increase_percent = 10;
+  BiggerDropRules bigger_drop = 11;
+  BiggerTankRules bigger_tank = 12;
+  // Las instalaciones siguen trabajando este tiempo después de la última
+  // acción de su dueño (7200 = 2 h, RF-25).
+  uint64 offline_installation_seconds = 13;
+}
+
+message DropRules {
+  // Agua que se toma del depósito por gota (1 L). Modo demo: gratis.
+  uint64 water_cost = 1;
+  // Humedad que suma a la casilla (25) fuera del modo demo.
+  uint64 humidity = 2;
+  // Humedad que suma una gota en modo demo (1): la gota es gratis y de una
+  // sola casilla, para verificar a ojo el total de `humidity_contributed`
+  // (D-01, RF-30).
+  uint64 demo_humidity = 3;
+}
+
+message TankRules {
+  // Capacidad inicial (20 L).
+  uint64 capacity = 1;
+  // Recarga por intervalo (1 L cada 2 s).
+  uint64 refill_amount = 2;
+  uint32 refill_interval_seconds = 3;
+}
+
+message GrowthRules {
+  // Humedad que hace falta, y se gasta, para subir una etapa (100).
+  uint64 humidity_per_stage = 1;
+  // Hojas que se ganan al llegar a cada etapa (1, 2, 4, 8).
+  uint64 leaves_grass = 2;
+  uint64 leaves_shrub = 3;
+  uint64 leaves_flowers = 4;
+  uint64 leaves_tree = 5;
+  // Humedad máxima de un árbol (100).
+  uint64 tree_max_humidity = 6;
+}
+
+message EvaporationRules {
+  // Humedad que pierde cada casilla por segundo (2).
+  uint64 humidity_per_second = 1;
+  // Ticks con humedad 0 antes de que la casilla se marchite una etapa (100).
+  uint32 wither_after_ticks = 2;
+}
+
+message FireRules {
+  // Gotas necesarias para apagar un incendio (3).
+  uint32 drops_to_extinguish = 1;
+  // Hojas para quien suelta la última (5).
+  uint64 extinguish_bonus_leaves = 2;
+  // Ticks hasta que un incendio sin atender se consume y la casilla vuelve a
+  // tierra seca (300).
+  uint32 burn_out_ticks = 3;
+  // Probabilidad por tick de que arda cada casilla seca con planta, en
+  // partes por millón. D-01 todavía no la fija.
+  uint32 ignition_chance_ppm = 4;
+}
+
+message SprinklerRules {
+  // Precio del primero (10 hojas).
+  uint64 price = 1;
+  // Lado del área cuadrada que cubre (3 -> 3 x 3).
+  uint32 area_side = 2;
+  // Humedad que suma a cada casilla por intervalo (25 cada 2 s).
+  uint64 humidity = 3;
+  uint32 interval_seconds = 4;
+}
+
+message DripRules {
+  // Precio del primero (25 hojas).
+  uint64 price = 1;
+  // Lado del área cuadrada que cubre (5 -> 5 x 5).
+  uint32 area_side = 2;
+  // La evaporación en su área se divide entre este valor (2 -> la mitad).
+  uint32 evaporation_divisor = 3;
+}
+
+message TreatmentPlantRules {
+  // Precio de la primera (40 hojas).
+  uint64 price = 1;
+  // Recarga extra del depósito de su dueño por intervalo (1 L cada 2 s).
+  uint64 refill_amount = 2;
+  uint32 interval_seconds = 3;
+}
+
+message BiggerDropRules {
+  // Precio (30 hojas).
+  uint64 price = 1;
+  // Lado del área cuadrada que cubre una gota (3 -> 3 x 3).
+  uint32 area_side = 2;
+}
+
+message BiggerTankRules {
+  // Precio (20 hojas).
+  uint64 price = 1;
+  // Capacidad extra del depósito (10 L).
+  uint64 extra_capacity = 2;
+}

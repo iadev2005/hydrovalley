@@ -1,0 +1,29 @@
+[project]
+name = "hydrovalley-persistence"
+version = "0.1.0"
+description = "Persistencia de hydrovalley: única puerta a PostgreSQL (gRPC)."
+requires-python = ">=3.12"
+dependencies = [
+    # El código generado (buf: protobuf/python v33.2, grpc/python v1.76.0)
+    # exige protobuf 6.33.2 o superior y grpcio 1.76 o superior.
+    "grpcio>=1.76,<2",
+    "grpcio-health-checking>=1.76,<2",
+    "protobuf>=6.33.2,<7",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+# gen/python lo crea scripts/gen-proto.sh; no se versiona.
+pythonpath = [".", "../../gen/python"]
+testpaths = ["tests"]
+markers = [
+    "integration: necesita PostgreSQL real (TEST_DATABASE_URL)",
+]

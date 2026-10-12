@@ -1,0 +1,127 @@
+@startuml 07-entidad-relacion
+title Entidad-relación de PostgreSQL (dueño único: Persistencia en Python)
+hide circle
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+
+entity "accounts" as accounts {
+  * id : UUID <<PK>>
+  --
+  * username : TEXT <<UNIQUE lower(username)>>
+  * password_hash : TEXT
+  * role : TEXT <<CHECK role IN ('player', 'admin')>>
+  * created_at : TIMESTAMPTZ
+}
+
+entity "snapshots" as snapshots {
+  * tick : NUMERIC(20,0) <<PK>> <<u64>>
+  --
+  * epoch : INTEGER
+  * catalog_version : TEXT
+  * taken_at : TIMESTAMPTZ
+  * world_state : BYTEA
+  * world_state_sha256 : BYTEA
+}
+
+entity "snapshot_players" as snapshot_players {
+  * tick : NUMERIC(20,0) <<PK, FK>>
+  * player_id : UUID <<PK, FK>>
+  --
+  * water : NUMERIC(20,0) <<u64>>
+  * leaves : NUMERIC(20,0) <<u64>>
+  * water_refilled : NUMERIC(20,0) <<u64>>
+  * water_spent : NUMERIC(20,0) <<u64>>
+  * leaves_earned : NUMERIC(20,0) <<u64>>
+  * leaves_spent : NUMERIC(20,0) <<u64>>
+  * water_reduced : NUMERIC(20,0) <<u64>>
+  * water_reused : NUMERIC(20,0) <<u64>>
+  * water_recycled : NUMERIC(20,0) <<u64>>
+}
+
+entity "catalog_entries" as catalog_entries {
+  * key : TEXT <<PK>>
+  --
+  * kind : TEXT <<CHECK kind IN ('rule', 'installation', 'upgrade')>>
+  * value : JSONB
+  * updated_at : TIMESTAMPTZ
+}
+
+snapshots ||--o{ snapshot_players : una fila por jugador\npresente en el mundo
+accounts ||--o{ snapshot_players : player_id
+
+catalog_entries -[hidden]down- accounts
+
+note right of snapshots
+  <b>Capa 5</b>: una fila cada 50 ticks (tick % 50 == 0).
+  SaveSnapshot inserta snapshots y sus snapshot_players
+  en <b>una sola transacción</b>, con INSERT ... ON CONFLICT
+  (tick) DO NOTHING. Si la fila ya existía, compara epoch y
+  <b>world_state_sha256</b> (SHA-256 de world_state): iguales,
+  es un reintento y responde OK; distintos, ALREADY_EXISTS
+  (Rust lo registra como error: no debe ocurrir nunca).
+  LoadSnapshot devuelve la de mayor tick (NOT_FOUND solo la
+  primera vez: el tick nunca retrocede). El tick es la clave:
+  es el reloj lógico y solo crece (Capa 4). La del tick N se
+  toma tras aplicar los comandos del tick N y avanzar el valle.
+  <b>epoch</b>: se incrementa con cada reinicio del valle (RF-31);
+  el tick no se reinicia. <b>catalog_version</b>: hash del
+  catálogo vigente al tomar la instantánea.
+  <b>Retención</b>: todas las de la última hora (720) y una por
+  hora de las anteriores; tras cada guardado correcto,
+  Persistencia borra el resto en otra transacción.
+  <b>world_state</b>: el mundo completo serializado en protobuf,
+  tal como lo envía Rust (casillas, instalaciones, incendios,
+  estado del generador de azar y action_id recientes por
+  jugador de los últimos 600 ticks). Python no lo interpreta.
+end note
+
+note right of snapshot_players
+  Copia en columnas de los contadores de cada jugador que
+  también viajan dentro de world_state, para consultarlos
+  con SQL sin abrir el protobuf.
+  <b>RF-27</b>: water = water_refilled − water_spent y
+  leaves = leaves_earned − leaves_spent.
+  <b>3R</b> (acumulados): water_reduced (goteo, Reducir),
+  water_reused (aspersores, Reutilizar),
+  water_recycled (planta de tratamiento, Reciclar).
+  <b>ReportService.GetReport</b> (RF-12) no tiene tabla propia:
+  por jugador, su fila en la última instantánea; global, la
+  suma de esas filas; por periodo, la diferencia entre dos
+  instantáneas de la época actual (tras el último reinicio,
+  que pone a cero los contadores).
+end note
+
+note left of catalog_entries
+  Clave y valor: una fila por cifra o elemento del juego
+  (p. ej. drop, tank, evaporation, sprinkler, drip,
+  treatment_plant, bigger_drop, bigger_tank, fire).
+  Las cifras son heterogéneas (precio, efecto, área,
+  plazos en ticks o segundos), GetCatalog las lee todas
+  de golpe y nunca se filtra por un campo, así que una
+  columna JSONB evita migrar el esquema al añadir una cifra.
+  Persistencia carga el archivo de catalog/ al arrancar
+  y lo guarda aquí para consultarlo.
+end note
+
+note left of accounts
+  <b>AccountService</b> (Register / GetAccount). Solo guarda y
+  devuelve el hash Argon2id que calcula la API (RNF-12);
+  la contraseña nunca llega aquí.
+  El id es el player_id del token y del mundo.
+  Register crea siempre role = 'player'. Las cuentas admin
+  las crea Persistencia al arrancar, si no existen, desde
+  ADMIN_USERNAME y ADMIN_PASSWORD_HASH. El reinicio del
+  valle conserva las cuentas.
+end note
+
+legend bottom
+  <b>u64 → NUMERIC(20,0)</b> con CHECK (col BETWEEN 0 AND 18446744073709551615).
+  PostgreSQL no tiene enteros sin signo y BIGINT llega solo a 2^63 − 1:
+  NUMERIC(20,0) guarda el rango completo de u64 sin redondeo, y con una
+  instantánea cada 5 s su coste es irrelevante.
+  Identificadores: UUID. Fechas: TIMESTAMPTZ, siempre en UTC.
+  Solo la Persistencia (Python) tiene credenciales de esta base de datos.
+end legend
+
+@enduml

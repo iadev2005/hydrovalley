@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Copia de gen/ts (npm run gen); no se versiona.
+src/gen/

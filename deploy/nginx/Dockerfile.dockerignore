@@ -1,0 +1,13 @@
+# Filtro del contexto para deploy/nginx/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: entran
+# la configuración de nginx y los fuentes de src/frontend necesarios para
+# compilar el bundle con Vite + pnpm.
+*
+!deploy/nginx/templates/
+!deploy/nginx/templates/**
+!src/frontend/
+!src/frontend/**
+src/frontend/node_modules/
+src/frontend/node_modules/**
+src/frontend/dist/
+src/frontend/dist/**

@@ -1,0 +1,10 @@
+# Local agent/tooling state
+.atl/
+
+# Environment files with secrets (RNF-13); keep the example template
+.env
+.env.*
+!.env.example
+
+# Código generado a partir de proto/ (scripts/gen-proto.sh)
+gen/

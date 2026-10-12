@@ -1,0 +1,99 @@
+@startuml 01-casos-de-uso
+title Casos de uso de hydrovalley
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "Jugador" as Jugador
+actor "Bot" as Bot
+actor "Administrador" as Admin
+actor "Tick" as Tick <<tiempo>>
+
+Bot -|> Jugador
+
+rectangle "hydrovalley" {
+  usecase "Registrarse" as UC_Registrarse
+  usecase "Entrar" as UC_Entrar
+  usecase "Soltar gota" as UC_Gota
+  usecase "Apagar incendio" as UC_Incendio
+  usecase "Comprar y colocar instalación" as UC_Instalacion
+  usecase "Comprar mejora" as UC_Mejora
+  usecase "Ver ranking" as UC_Ranking
+  usecase "Ver reporte de las 3R" as UC_Reporte
+  usecase "Enviar mensaje" as UC_Mensaje <<nivel 2>>
+  usecase "Aportar a obra" as UC_Obra <<nivel 2>>
+
+  usecase "Activar o desactivar modo demo" as UC_Demo
+  usecase "Reiniciar valle" as UC_Reiniciar
+  usecase "Lanzar prueba de carga" as UC_Carga
+
+  usecase "Evaporar y hacer crecer" as UC_Evolucion
+}
+
+Jugador --> UC_Registrarse
+Jugador --> UC_Entrar
+Jugador --> UC_Gota
+Jugador --> UC_Instalacion
+Jugador --> UC_Mejora
+Jugador --> UC_Ranking
+Jugador --> UC_Reporte
+Jugador --> UC_Mensaje
+Jugador --> UC_Obra
+
+UC_Incendio .> UC_Gota : <<extend>>\n(la casilla está ardiendo)
+
+Admin --> UC_Demo
+Admin --> UC_Reiniciar
+Admin --> UC_Carga
+
+Tick --> UC_Evolucion
+
+note right of UC_Registrarse
+  RF-01, RF-02
+end note
+note right of UC_Entrar
+  RF-01, RF-02
+end note
+note right of UC_Gota
+  RF-03, RF-04, RF-05, RF-06,
+  RF-08, RF-09, RF-30
+end note
+note right of UC_Incendio
+  RF-29, RF-30
+end note
+note right of UC_Instalacion
+  RF-04, RF-06, RF-07, RF-09
+end note
+note right of UC_Mejora
+  RF-07, RF-09
+end note
+note right of UC_Ranking
+  RF-10, RF-11
+end note
+note right of UC_Reporte
+  RF-12
+end note
+note right of UC_Mensaje
+  RF-13, RF-14, RF-15
+end note
+note right of UC_Obra
+  RF-26
+end note
+note right of UC_Evolucion
+  RF-25, RF-27, RF-28, RF-29
+end note
+note right of UC_Demo
+  RF-31 (comando por WS /play,
+  solo con rol de administrador)
+end note
+note right of UC_Reiniciar
+  RF-31
+end note
+note right of UC_Carga
+  RNF-01, RNF-02, CP-11.
+  Se lanza desde el contenedor de
+  los bots (docker compose run bots
+  load-test), no desde la interfaz.
+end note
+
+@enduml

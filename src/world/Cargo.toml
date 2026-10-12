@@ -1,0 +1,36 @@
+[package]
+name = "hydrovalley-world"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+description = "Simulador del valle de hydrovalley: escritor único del estado del mundo."
+publish = false
+
+[lib]
+name = "world"
+path = "src/lib.rs"
+
+[[bin]]
+name = "world"
+path = "src/main.rs"
+
+# Versiones fijadas con `=`; Cargo.lock se versiona.
+[dependencies]
+prost = "=0.14.4"
+tokio-stream = { version = "=0.1.19", features = ["net"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "sync", "time", "signal", "net"] }
+tonic = "=0.14.6"
+tonic-health = "=0.14.6"
+tonic-prost = "=0.14.6"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
+uuid = { version = "=1.26.1", features = ["v4"] }
+
+[dev-dependencies]
+# Reloj de Tokio en pausa para las pruebas con plazos.
+tokio = { version = "=1.53.1", features = ["test-util"] }
+
+[build-dependencies]
+prost-build = "=0.14.4"
+protoc-bin-vendored = "=3.2.0"
+tonic-prost-build = "=0.14.6"
