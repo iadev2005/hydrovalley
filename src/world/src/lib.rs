@@ -5,12 +5,14 @@
 //! - [`store`]: puerto y adaptador gRPC de las instantáneas y el catálogo.
 //! - [`simulator`]: servicio de aplicación (catálogo, arranque, tick e instantáneas).
 //! - [`grpc`], [`server`] y [`config`]: la frontera de red.
+//! - [`request_id`]: identificador de petición (RNF-07) del metadato `x-request-id`.
 //! - [`proto`]: código generado desde `proto/` en `build.rs`.
 
 pub mod codec;
 pub mod config;
 pub mod domain;
 pub mod grpc;
+pub mod request_id;
 pub mod server;
 pub mod simulator;
 pub mod store;

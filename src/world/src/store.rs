@@ -13,6 +13,7 @@ use crate::domain::Catalog;
 use crate::proto::persistence::v1 as persistence_pb;
 use crate::proto::persistence::v1::catalog_service_client::CatalogServiceClient;
 use crate::proto::persistence::v1::persistence_service_client::PersistenceServiceClient;
+use crate::request_id;
 
 /// Fila de instantánea tal como viaja a la persistencia.
 pub type Snapshot = persistence_pb::Snapshot;
@@ -113,29 +114,44 @@ impl GrpcPersistenceStore {
     /// (`Request::set_timeout`); con el mismo plazo, esos dos compiten con
     /// este y, si ganan, tonic devuelve CANCELLED («Timeout expired»), que no
     /// se reintenta. Por eso se quitaron.
+    ///
+    /// RNF-07: cada llamada genera un id (`world-<uuid>`, el mismo en todos
+    /// sus reintentos) que `attempt` pone en la petición con
+    /// [`request_id::tag`]; así se correlaciona con el registro de la
+    /// persistencia. Se registra a nivel `debug`; un fallo final, a `warn`.
     async fn call<T, F, Fut>(&self, method: &str, mut attempt: F) -> Result<T, Status>
     where
-        F: FnMut(Channel) -> Fut,
+        F: FnMut(Channel, String) -> Fut,
         Fut: Future<Output = Result<T, Status>>,
     {
+        let id = request_id::outgoing_id();
         let mut delays = self.policy.retry_delays.iter();
         loop {
             let deadline = self.policy.deadline;
-            let result = match tokio::time::timeout(deadline, attempt(self.channel.clone())).await {
-                Ok(result) => result,
-                Err(_) => Err(Status::deadline_exceeded(format!(
-                    "{method}: plazo de {deadline:?} agotado"
-                ))),
-            };
+            let result =
+                match tokio::time::timeout(deadline, attempt(self.channel.clone(), id.clone()))
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(_) => Err(Status::deadline_exceeded(format!(
+                        "{method}: plazo de {deadline:?} agotado"
+                    ))),
+                };
             match result {
                 Err(status) if is_retryable(status.code()) => match delays.next() {
                     Some(delay) => {
-                        tracing::debug!(method, code = ?status.code(), ?delay, "reintento");
+                        tracing::debug!(method, request_id = %id, code = ?status.code(), ?delay, "reintento");
                         tokio::time::sleep(*delay).await;
                     }
-                    None => return Err(status),
+                    None => {
+                        tracing::warn!(method, request_id = %id, code = ?status.code(), "llamada a la persistencia fallida");
+                        return Err(status);
+                    }
                 },
-                other => return other,
+                other => {
+                    tracing::debug!(method, request_id = %id, ok = other.is_ok(), "llamada a la persistencia");
+                    return other;
+                }
             }
         }
     }
@@ -153,9 +169,11 @@ fn store_error(status: &Status) -> StoreError {
 impl PersistenceStore for GrpcPersistenceStore {
     async fn get_catalog(&self) -> Result<Catalog, StoreError> {
         let response = self
-            .call("GetCatalog", |channel| async move {
+            .call("GetCatalog", |channel, id| async move {
+                let mut request = Request::new(persistence_pb::GetCatalogRequest {});
+                request_id::tag(&mut request, &id);
                 CatalogServiceClient::new(channel)
-                    .get_catalog(Request::new(persistence_pb::GetCatalogRequest {}))
+                    .get_catalog(request)
                     .await
             })
             .await
@@ -169,9 +187,11 @@ impl PersistenceStore for GrpcPersistenceStore {
 
     async fn load(&self) -> Result<Option<Snapshot>, StoreError> {
         let result = self
-            .call("LoadSnapshot", |channel| async move {
+            .call("LoadSnapshot", |channel, id| async move {
+                let mut request = Request::new(persistence_pb::LoadSnapshotRequest {});
+                request_id::tag(&mut request, &id);
                 PersistenceServiceClient::new(channel)
-                    .load_snapshot(Request::new(persistence_pb::LoadSnapshotRequest {}))
+                    .load_snapshot(request)
                     .await
             })
             .await;
@@ -186,13 +206,15 @@ impl PersistenceStore for GrpcPersistenceStore {
     }
 
     async fn save(&self, snapshot: Snapshot) -> Result<(), StoreError> {
-        self.call("SaveSnapshot", |channel| {
+        self.call("SaveSnapshot", |channel, id| {
             let snapshot = snapshot.clone();
             async move {
+                let mut request = Request::new(persistence_pb::SaveSnapshotRequest {
+                    snapshot: Some(snapshot),
+                });
+                request_id::tag(&mut request, &id);
                 PersistenceServiceClient::new(channel)
-                    .save_snapshot(Request::new(persistence_pb::SaveSnapshotRequest {
-                        snapshot: Some(snapshot),
-                    }))
+                    .save_snapshot(request)
                     .await
             }
         })
