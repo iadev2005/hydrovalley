@@ -8,3 +8,6 @@
 
 # Código generado a partir de proto/ (scripts/gen-proto.sh)
 gen/
+
+# Informes JSON de la prueba de carga (artefactos, no resultados versionados)
+reports/

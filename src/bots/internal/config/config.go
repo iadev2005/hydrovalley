@@ -47,12 +47,26 @@ type Config struct {
 	// 0 = el valor del catálogo de arranque (5).
 	SeedPlants bool
 	FireBonus  uint64
+	// LoadRanking (BOTS_LOAD_RANKING) activa la consulta en bucle de
+	// GET /api/ranking durante la prueba de carga para medir RNF-03.
+	// LoadRankingInterval (BOTS_LOAD_RANKING_INTERVAL) es la espera entre
+	// consultas; 2 s por defecto, para quedar por debajo del límite de la API
+	// (60 lecturas por minuto y por IP).
+	LoadRanking         bool
+	LoadRankingInterval time.Duration
+	// LoadBaselineReport (BOTS_LOAD_BASELINE_REPORT) es la ruta del informe
+	// JSON de una ejecución sin ranking; su p95 es la línea base de RNF-03.
+	LoadBaselineReport string
 	// LogLevel es el nivel de slog.
 	LogLevel slog.Level
 }
 
 // Valores de arranque de la prueba de carga (CP-11).
 const (
+	// DefaultLoadRankingInterval es la única fuente del intervalo por defecto
+	// entre consultas de ranking; la prueba de carga la toma de aquí.
+	DefaultLoadRankingInterval = 2 * time.Second
+
 	loadCount    = 30
 	loadDuration = 60 * time.Second
 )
@@ -137,6 +151,22 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		c.Seed, c.SeedSet = n, true
 	}
+	c.LoadRankingInterval = DefaultLoadRankingInterval
+	if v := getenv("BOTS_LOAD_RANKING"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("BOTS_LOAD_RANKING must be true or false, got %q", v)
+		}
+		c.LoadRanking = b
+	}
+	if v := getenv("BOTS_LOAD_RANKING_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return c, fmt.Errorf("BOTS_LOAD_RANKING_INTERVAL must be a positive duration such as 1s or 500ms, got %q", v)
+		}
+		c.LoadRankingInterval = d
+	}
+	c.LoadBaselineReport = strings.TrimSpace(getenv("BOTS_LOAD_BASELINE_REPORT"))
 	if v := getenv("LOG_LEVEL"); v != "" {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {
 			return c, fmt.Errorf("LOG_LEVEL must be debug, info, warn or error, got %q", v)

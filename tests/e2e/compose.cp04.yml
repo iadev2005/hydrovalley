@@ -1,0 +1,12 @@
+# Variación de deploy/compose.yml solo para la fase de CP-04 de run.sh: la
+# persistencia siembra un catálogo de prueba con `fire.ignition_chance_ppm`
+# alto (incendios casi seguros). El archivo vive en tests/e2e/fixtures/ y se
+# monta de solo lectura junto al catálogo de la imagen, que no se toca.
+# Es solo para pruebas: el despliegue (plan A y B) usa el catálogo de la imagen.
+# run.sh la suma a COMPOSE_FILE y define E2E_FIXTURES_DIR.
+services:
+  persistence:
+    environment:
+      CATALOG_PATH: /app/catalog/catalog.test-fire.json
+    volumes:
+      - ${E2E_FIXTURES_DIR:?lo define tests/e2e/run.sh}/catalog.test-fire.json:/app/catalog/catalog.test-fire.json:ro

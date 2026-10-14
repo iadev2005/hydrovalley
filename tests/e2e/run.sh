@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 # CP-01-lite: levanta el plan B con Docker Compose, ejecuta smoke.test.mjs
 # contra nginx y lo baja todo, también los volúmenes, pase lo que pase.
+# Fases del flujo por defecto, en este orden:
+#   1. smoke.test.mjs (humo, CP-02/03 y demás).
+#   2. cp01-concurrent-drops.test.mjs: CP-01 (100 gotas simultáneas, RF-08), en
+#      su propia invocación de `node --test` y con jugadores de
+#      POST /api/admin/bot-accounts, para no gastar el límite de registro.
+#   3. tls, request-id y los casos de fallos (CP-05 a CP-08 y CP-12).
+#   4. cp04-firefighter.test.mjs: CP-04 con incendios reales, siempre al final:
+#      baja el stack y lo levanta de nuevo, con base de datos vacía, sumando
+#      tests/e2e/compose.cp04.yml (monta tests/e2e/fixtures/catalog.test-fire.json,
+#      con ignition_chance_ppm alto, y fija CATALOG_PATH), y corre solo ese
+#      archivo. La imagen y catalog/catalog.json no se tocan.
 #
 #   tests/e2e/run.sh
 #
@@ -13,6 +24,7 @@
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
 # request-id.test.mjs sigue un identificador de petición en los registros.
+#   E2E_SKIP_CP04=1     no correr la fase de CP-04 (la del catálogo de prueba)
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
 # «bots») con el administrador efímero.
 # nginx sirve HTTPS: run.sh genera un certificado efímero (openssl) y lo monta
@@ -29,87 +41,20 @@ export COMPOSE_FILE="${repo_root}/deploy/compose.yml:${repo_root}/tests/e2e/comp
 export COMPOSE_ENV_FILES="${repo_root}/deploy/.env.example"
 export HV_HTTP_PORT="${HV_HTTP_PORT:-8080}"
 export HV_BASE_URL="https://localhost:${HV_HTTP_PORT}"
+# compose.cp04.yml monta de aquí el catálogo de prueba (solo la fase de CP-04).
+export E2E_FIXTURES_DIR="${repo_root}/tests/e2e/fixtures"
 
-# Certificado TLS efímero para nginx (RNF-12): se genera en cada ejecución, se
-# monta en nginx y las pruebas confían en él con NODE_EXTRA_CA_CERTS (los
-# bots, con HV_CA_CERT; ver compose.tls.yml): nunca se omite la verificación.
-# Directorio y clave legibles por cualquiera porque nginx corre con el usuario
-# 101; es una clave desechable que se borra al terminar.
-E2E_TLS_DIR="$(mktemp -d)"
-export E2E_TLS_DIR
-chmod 755 "${E2E_TLS_DIR}"
-openssl ecparam -genkey -name prime256v1 -noout -out "${E2E_TLS_DIR}/tls.key"
-openssl req -new -x509 -key "${E2E_TLS_DIR}/tls.key" -out "${E2E_TLS_DIR}/tls.crt" \
-  -days 2 -subj "/CN=hydrovalley-e2e" \
-  -addext "subjectAltName=DNS:localhost,DNS:nginx,IP:127.0.0.1" \
-  -addext "extendedKeyUsage=serverAuth"
-chmod 644 "${E2E_TLS_DIR}/tls.key" "${E2E_TLS_DIR}/tls.crt"
-export NODE_EXTRA_CA_CERTS="${E2E_TLS_DIR}/tls.crt"
-
-# Clave Ed25519 efímera para la prueba: se genera en cada ejecución y nunca
-# se guarda (RNF-13). Si ya viene definida en el entorno, se respeta.
-if [[ -z "${TOKEN_PRIVATE_KEY:-}" ]]; then
-  TOKEN_PRIVATE_KEY="$(openssl genpkey -algorithm ed25519 | base64 | tr -d '\n')"
-  export TOKEN_PRIVATE_KEY
-fi
-# La pública sale de la privada, para el hub (base64 del PEM, una línea). La
-# privada puede venir como PEM o como el base64 del PEM.
-if [[ -z "${TOKEN_PUBLIC_KEY:-}" ]]; then
-  if [[ "${TOKEN_PRIVATE_KEY}" == *"-----BEGIN"* ]]; then
-    private_pem="${TOKEN_PRIVATE_KEY//\\n/$'\n'}"
-  else
-    private_pem="$(printf '%s' "${TOKEN_PRIVATE_KEY}" | base64 --decode)"
-  fi
-  TOKEN_PUBLIC_KEY="$(printf '%s\n' "${private_pem}" | openssl pkey -pubout | base64 | tr -d '\n')"
-  if [[ -z "${TOKEN_PUBLIC_KEY}" ]]; then
-    echo "run.sh: no se pudo derivar TOKEN_PUBLIC_KEY de TOKEN_PRIVATE_KEY" >&2
-    exit 1
-  fi
-  export TOKEN_PUBLIC_KEY
-fi
-
-# Los parámetros de Argon2id (m=19456, t=2, p=1) deben ser los de la API:
-# src/api/src/passwords.ts.
-# Cuenta de administrador para la prueba (RF-31): contraseña efímera y su hash
-# Argon2id, calculado con la imagen de la API (como en deploy/README.md). Ni la
-# contraseña ni el hash se guardan en disco. Si ya vienen definidos en el
-# entorno, se respetan (en ese caso E2E_ADMIN_PASSWORD también debe venir).
-if [[ -z "${ADMIN_PASSWORD_HASH:-}" ]]; then
-  export ADMIN_USERNAME="e2e-admin"
-  E2E_ADMIN_PASSWORD="$(openssl rand -hex 16)"
-  export E2E_ADMIN_PASSWORD
-  if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
-    # La imagen de la API tiene que existir antes de calcular el hash.
-    docker compose build api
-  fi
-  api_image="${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}"
-  ADMIN_PASSWORD_HASH="$(printf '%s' "${E2E_ADMIN_PASSWORD}" | docker run --rm -i "${api_image}" node --input-type=module -e '
-import { hash } from "@node-rs/argon2";
-let pw = ""; for await (const c of process.stdin) pw += c;
-console.log(await hash(pw, { algorithm: 2, memoryCost: 19456, timeCost: 2, parallelism: 1 }));')"
-  if [[ "${ADMIN_PASSWORD_HASH}" != '$argon2id$'* ]]; then
-    echo "run.sh: no se pudo calcular el hash Argon2id del administrador" >&2
-    exit 1
-  fi
-  export ADMIN_PASSWORD_HASH
-fi
-
-cleanup() {
-  local status=$?
-  if [[ "${E2E_KEEP:-0}" == "1" ]]; then
-    echo "E2E_KEEP=1: el stack sigue en marcha (docker compose -p ${COMPOSE_PROJECT_NAME} down -v)."
-    exit "${status}"
-  fi
-  if [[ ${status} -ne 0 ]]; then
-    echo "--- estado y registros de los servicios ---"
-    docker compose ps -a || true
-    docker compose logs --no-color --tail=80 || true
-  fi
-  docker compose down -v --remove-orphans || true
-  rm -rf "${E2E_TLS_DIR}"
-  exit "${status}"
-}
-trap cleanup EXIT
+# Certificado TLS, claves y administrador efímeros, y limpieza: comunes con
+# tests/load/run.sh (ver tests/lib/stack.sh).
+source "${repo_root}/tests/lib/stack.sh"
+STACK_TOOL="run.sh"
+STACK_SKIP_BUILD="${E2E_SKIP_BUILD:-0}"
+STACK_KEEP="${E2E_KEEP:-0}"
+STACK_KEEP_NAME="E2E_KEEP"
+stack_init_tls
+stack_init_keys
+stack_init_admin "e2e-admin"
+trap stack_cleanup EXIT
 
 up_args=(up -d --quiet-pull)
 if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
@@ -122,13 +67,10 @@ rnf10_start=$SECONDS
 docker compose "${up_args[@]}"
 rnf10_up=$((SECONDS - rnf10_start))
 rnf10_healthy=""
-while (( SECONDS - rnf10_start < 300 )); do
-  if [[ "$(curl -fsS --cacert "${NODE_EXTRA_CA_CERTS}" --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]; then
-    rnf10_healthy=$((SECONDS - rnf10_start))
-    break
-  fi
-  sleep 1
-done
+rnf10_wait="$(stack_wait_all_up 300)"
+if [[ -n "${rnf10_wait}" ]]; then
+  rnf10_healthy=$((rnf10_up + rnf10_wait))
+fi
 echo "MEDICION RNF-10: compose_up_s=${rnf10_up} all_up_s=${rnf10_healthy:-n/d} build=$([[ "${E2E_SKIP_BUILD:-0}" == "1" ]] && echo no || echo si) limite_s=300"
 # Los bots viven bajo el perfil «bots» y `up` no los construye: smoke.test.mjs
 # los lanza con `compose run`, así que su imagen tiene que existir.
@@ -136,7 +78,19 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   docker compose --profile bots build bots
 fi
 
+# Si le pasas argumentos, ejecuta solo los archivos indicados y termina.
+if [[ $# -gt 0 ]]; then
+  node --test --test-reporter=spec "$@"
+  exit 0
+fi
+
+# Flujo por defecto (sin argumentos): corre toda la suite.
 node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
+
+# CP-01 (RF-08): aparte del humo, porque `node --test` corre los archivos a la
+# vez y juntos gastarían el cupo de registros públicos; sus jugadores salen de
+# POST /api/admin/bot-accounts.
+node --test --test-reporter=spec "${repo_root}/tests/e2e/cp01-concurrent-drops.test.mjs"
 
 # RNF-12: TLS en nginx (redirección de HTTP, versiones, healthcheck).
 node --test --test-reporter=spec "${repo_root}/tests/e2e/tls.test.mjs"
@@ -156,4 +110,26 @@ if [[ "${E2E_SKIP_FAULTS:-0}" != "1" ]]; then
   # final (node ordena los archivos por nombre, así que no basta con listarlo).
   node --test --test-reporter=spec --test-concurrency=1 \
     "${repo_root}/tests/e2e/faults-startup.test.mjs"
+fi
+
+# CP-04 (RF-29, RF-30): incendios reales. Va al final porque cambia el catálogo
+# y necesita un valle nuevo (una sola casilla plantada, sin restos de otras
+# pruebas): baja el stack con sus volúmenes y lo levanta de nuevo sumando
+# tests/e2e/compose.cp04.yml, que monta el catálogo de prueba de solo lectura y
+# fija CATALOG_PATH en la persistencia. Ni la imagen ni deploy/compose.yml ni
+# catalog/catalog.json cambian. Para repetirla a mano: levanta el stack con ese
+# archivo en COMPOSE_FILE y corre el archivo de la prueba (ver su cabecera).
+if [[ "${E2E_SKIP_CP04:-0}" != "1" ]]; then
+  docker compose down -v --remove-orphans
+  # Exportado: stack_cleanup y los `docker compose` de la prueba (bots) ven la
+  # misma configuración que el stack levantado.
+  export COMPOSE_FILE="${COMPOSE_FILE}:${repo_root}/tests/e2e/compose.cp04.yml"
+  docker compose up -d --quiet-pull
+  cp04_up="$(stack_wait_all_up 300)"
+  if [[ -z "${cp04_up}" ]]; then
+    echo "run.sh: el stack del catálogo de prueba no quedó listo en 300 s" >&2
+    exit 1
+  fi
+  echo "MEDICION CP-04 (preparación): catalogo=catalog.test-fire.json all_up_s=${cp04_up}"
+  node --test --test-reporter=spec "${repo_root}/tests/e2e/cp04-firefighter.test.mjs"
 fi

@@ -42,9 +42,10 @@ commands:
                 was never put out or the bonus looks repeated
 
 environment: HV_BASE_URL, HV_ADMIN_USERNAME, HV_ADMIN_PASSWORD, BOTS_COUNT,
-BOTS_DURATION, BOTS_SEED, BOTS_RESET, BOTS_REPORT_PATH,
-BOTS_FIREFIGHTER_SEED_PLANTS, BOTS_FIREFIGHTER_BONUS, LOG_LEVEL
-(see src/bots/README.md)`
+BOTS_DURATION, BOTS_SEED, BOTS_RESET, BOTS_REPORT_PATH, BOTS_LOAD_RANKING,
+BOTS_LOAD_RANKING_INTERVAL, BOTS_LOAD_BASELINE_REPORT,
+BOTS_FIREFIGHTER_SEED_PLANTS, BOTS_FIREFIGHTER_BONUS,
+LOG_LEVEL (see src/bots/README.md)`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -225,8 +226,28 @@ func runLoad() (passed bool, err error) {
 	if !cfg.SeedSet {
 		seed = rand.Uint64()
 	}
-	log.Info("load test starting", "bots", len(sessions), "duration", cfg.Duration, "seed", seed, "reset", cfg.Reset)
-	rep, err := load.Run(ctx, load.Config{Duration: cfg.Duration, Reset: cfg.Reset, Seed: seed}, adminSession, sessions, log)
+	log.Info("load test starting", "bots", len(sessions), "duration", cfg.Duration, "seed", seed, "reset", cfg.Reset, "ranking", cfg.LoadRanking)
+	loadCfg := load.Config{
+		Duration: cfg.Duration,
+		Reset:    cfg.Reset,
+		Seed:     seed,
+	}
+	if cfg.LoadRanking {
+		loadCfg.RankingClient = api
+		loadCfg.RankingToken = adminToken
+		loadCfg.RankingInterval = cfg.LoadRankingInterval
+		if cfg.LoadBaselineReport != "" {
+			data, err := os.ReadFile(cfg.LoadBaselineReport)
+			if err != nil {
+				return false, fmt.Errorf("reading the RNF-03 baseline report: %w", err)
+			}
+			if loadCfg.BaselineP95, err = load.BaselineP95FromReport(data); err != nil {
+				return false, err
+			}
+			log.Info("RNF-03 baseline read", "path", cfg.LoadBaselineReport, "p95", loadCfg.BaselineP95)
+		}
+	}
+	rep, err := load.Run(ctx, loadCfg, adminSession, sessions, log)
 	if err != nil {
 		return false, err
 	}

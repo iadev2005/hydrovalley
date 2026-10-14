@@ -232,3 +232,218 @@ func TestReportJSONFieldNames(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildReportWithRanking(t *testing.T) {
+	m := measurement()
+	m.BaselineP95 = ms(50)
+	m.Ranking = &RankingMeasurement{
+		Sent:      60,
+		Success:   60,
+		Errors:    0,
+		Latencies: []time.Duration{ms(15), ms(20), ms(25), ms(50)},
+	}
+	r := BuildReport(m)
+	if r.Ranking == nil {
+		t.Fatal("expected non-nil Ranking in Report")
+	}
+	if r.Ranking.QueriesSent != 60 || r.Ranking.QueriesOK != 60 || r.Ranking.Errors != 0 {
+		t.Errorf("unexpected ranking counts: %+v", r.Ranking)
+	}
+	if r.Ranking.LatencyMS.P50 <= 0 || r.Ranking.LatencyMS.P95 <= 0 {
+		t.Errorf("unexpected ranking latency: %+v", r.Ranking.LatencyMS)
+	}
+	if !r.Ranking.RNF03OK || !r.Passed() {
+		t.Errorf("healthy run with ranking must satisfy RNF03 and pass: %+v", r)
+	}
+
+	// Test JSON serialization includes ranking
+	data, err := MarshalReport(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"ranking"`) || !strings.Contains(string(data), `"rnf03_ok"`) {
+		t.Errorf("report JSON lacks ranking: %s", data)
+	}
+
+	// Test FormatSummary with ranking
+	out := FormatSummary(r)
+	if !strings.Contains(out, "Ranking en bucle: 60 consultas (60 exitosas, 0 errores)") {
+		t.Errorf("summary lacks ranking line:\n%s", out)
+	}
+	if !strings.Contains(out, "RNF-03") || !strings.Contains(out, "cumple") {
+		t.Errorf("summary lacks RNF-03 verdict:\n%s", out)
+	}
+}
+
+// withRanking arma una medición con ranking cuyas acciones tienen la latencia
+// p95 indicada y la línea base indicada (0 = sin línea base).
+func withRanking(p95, baseline time.Duration) Measurement {
+	m := measurement()
+	lat := make([]time.Duration, 100)
+	for i := range lat {
+		lat[i] = p95 / 2
+	}
+	for i := 94; i < 100; i++ { // por rango más cercano, el p95 de 100 muestras es la 95.ª (índice 94)
+		lat[i] = p95
+	}
+	m.Latencies, m.Sent, m.Window = lat, 100, time.Second // 100 gotas/s: RNF-01 cumple
+	m.Results = map[string]int{"applied": 100}
+	m.Ranking = &RankingMeasurement{Sent: 30, Success: 30, Latencies: []time.Duration{ms(5)}}
+	m.BaselineP95 = baseline
+	return m
+}
+
+func TestRNF03ComparesTheP95WithTheBaselineAndTheLimit(t *testing.T) {
+	cases := []struct {
+		name          string
+		p95, baseline time.Duration
+		want          bool
+	}{
+		{"igual a la línea base", ms(100), ms(100), true},
+		{"dentro del margen", ms(120), ms(100), true},
+		{"justo en el margen", ms(60), ms(50), true},
+		{"fuera del margen aunque sea rápido", ms(61), ms(50), false},
+		{"dentro del margen pero sobre 200 ms", ms(210), ms(190), false},
+		{"justo en 200 ms", ms(200), ms(190), true},
+		{"mejor que la línea base", ms(80), ms(100), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := BuildReport(withRanking(c.p95, c.baseline))
+			if r.Ranking == nil || !r.Ranking.RNF03Evaluated {
+				t.Fatalf("RNF-03 debe poder evaluarse con línea base: %+v", r.Ranking)
+			}
+			// Con p95 justo en 200 ms RNF-03 (<=) cumple, pero RNF-02 (< 200 ms para
+			// el 95 %) no: por eso solo se exige Passed cuando hay holgura.
+			if (!c.want && r.Passed()) || (c.want && c.p95 < RNF02MaxLatency && !r.Passed()) {
+				t.Errorf("Passed = %v con RNF-03 = %v: %+v", r.Passed(), c.want, r)
+			}
+			if r.Ranking.RNF03OK != c.want {
+				t.Errorf("RNF03OK = %v, want %v (p95 %v, base %v, report p95 %v)", r.Ranking.RNF03OK, c.want, c.p95, c.baseline, r.LatencyMS.P95)
+			}
+			if r.Ranking.BaselineP95MS != toMS(c.baseline) {
+				t.Errorf("BaselineP95MS = %v, want %v", r.Ranking.BaselineP95MS, toMS(c.baseline))
+			}
+		})
+	}
+}
+
+func TestRNF03IsNotEvaluableWithoutABaseline(t *testing.T) {
+	r := BuildReport(withRanking(ms(20), 0))
+	if r.Ranking.RNF03Evaluated || r.Ranking.RNF03OK {
+		t.Errorf("sin línea base RNF-03 ni se evalúa ni se da por cumplido: %+v", r.Ranking)
+	}
+	if r.Passed() {
+		t.Error("una ejecución con ranking sin línea base no puede darse por cumplida")
+	}
+	if !r.RNF01OK || !r.RNF02OK || !r.InvariantOK {
+		t.Fatalf("la medición debe cumplir todo lo demás para que esta prueba tenga sentido: %+v", r)
+	}
+	out := FormatSummary(r)
+	if !strings.Contains(out, "RNF-03") || !strings.Contains(out, "sin línea base") {
+		t.Errorf("el resumen debe explicar que falta la línea base:\n%s", out)
+	}
+}
+
+func TestSummaryShowsTheRNF03Comparison(t *testing.T) {
+	out := FormatSummary(BuildReport(withRanking(ms(110), ms(100))))
+	for _, want := range []string{"RNF-03", "línea base", "100,0 ms", "110,0 ms", "20 %"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("el resumen no contiene %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestBaselineP95FromReport(t *testing.T) {
+	base := BuildReport(withRanking(ms(100), 0))
+	base.Ranking = nil
+	data, err := MarshalReport(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := BaselineP95FromReport(data)
+	if err != nil || got != ms(100) {
+		t.Fatalf("BaselineP95FromReport = %v, %v; want 100ms", got, err)
+	}
+
+	for name, in := range map[string]string{
+		"no es JSON":           "nada",
+		"sin latencia":         `{"latency_ms":{"p95":0}}`,
+		"con ranking en bucle": `{"latency_ms":{"p95":50},"ranking":{"queries_sent":3}}`,
+	} {
+		if _, err := BaselineP95FromReport([]byte(in)); err == nil {
+			t.Errorf("%s: se esperaba un error", name)
+		}
+	}
+}
+
+// Un RNF-03 que se «cumple» con consultas de ranking fallidas o casi
+// inexistentes mediría un ranking que nunca respondió: no es evaluable.
+func TestRNF03IsNotEvaluableWhenTheRankingQueriesFailedOrWereTooFew(t *testing.T) {
+	cases := []struct {
+		name string
+		rm   RankingMeasurement
+	}{
+		{"ninguna consulta", RankingMeasurement{}},
+		{"todas fallaron", RankingMeasurement{Sent: 30, Errors: 30}},
+		{"muy pocas exitosas", RankingMeasurement{Sent: 3, Success: 3, Latencies: []time.Duration{ms(5), ms(5), ms(5)}}},
+		{"suficientes pero con un error", RankingMeasurement{Sent: 31, Success: 30, Errors: 1, Latencies: []time.Duration{ms(5)}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := withRanking(ms(100), ms(100))
+			rm := c.rm
+			m.Ranking = &rm
+			r := BuildReport(m)
+			if r.Ranking.RNF03Evaluated || r.Ranking.RNF03OK {
+				t.Errorf("RNF-03 no debe evaluarse ni cumplirse: %+v", r.Ranking)
+			}
+			if r.Passed() {
+				t.Error("una ejecución con ranking no evaluable no puede darse por cumplida")
+			}
+			out := FormatSummary(r)
+			if !strings.Contains(out, "RNF-03: NO se pudo evaluar") || strings.Contains(out, "RNF-03 (p95") {
+				t.Errorf("el resumen debe decir que RNF-03 no es evaluable:\n%s", out)
+			}
+			if !strings.Contains(out, "consultas de ranking") {
+				t.Errorf("el resumen debe citar las consultas de ranking como motivo:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestRNF03NeedsExactlyTheMinimumOfSuccessfulRankingQueries(t *testing.T) {
+	for _, c := range []struct {
+		success int
+		want    bool
+	}{{RNF03MinRankingQueries - 1, false}, {RNF03MinRankingQueries, true}} {
+		m := withRanking(ms(100), ms(100))
+		m.Ranking = &RankingMeasurement{Sent: c.success, Success: c.success, Latencies: []time.Duration{ms(5)}}
+		if got := BuildReport(m).Ranking.RNF03Evaluated; got != c.want {
+			t.Errorf("%d consultas exitosas: Evaluated = %v, want %v", c.success, got, c.want)
+		}
+	}
+}
+
+// Todas las claves del informe van en snake_case; BaselineP95FromReport y el
+// resumen del workflow las leen por nombre.
+func TestRankingStatsJSONKeysAreSnakeCase(t *testing.T) {
+	data, err := MarshalReport(BuildReport(withRanking(ms(100), ms(100))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Ranking map[string]json.RawMessage `json:"ranking"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"queries_sent", "queries_ok", "errors", "latency_ms", "rnf03_ok", "rnf03_evaluated", "baseline_p95_ms"} {
+		if _, ok := doc.Ranking[key]; !ok {
+			t.Errorf("falta la clave %q en ranking: %s", key, data)
+		}
+	}
+	if len(doc.Ranking) != 7 {
+		t.Errorf("ranking tiene claves inesperadas: %s", data)
+	}
+}
