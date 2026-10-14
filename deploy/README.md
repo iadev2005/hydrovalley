@@ -139,6 +139,9 @@ ADMIN_PASSWORD_HASH=
 # BOTS_SEED=
 # BOTS_RESET=
 # BOTS_REPORT_PATH=
+# BOTS_LOAD_RANKING=
+# BOTS_LOAD_RANKING_INTERVAL=
+# BOTS_LOAD_BASELINE_REPORT=
 ```
 
 `tests/e2e/run.sh` no lee estas claves de `.env.example`: genera un par efímero en cada ejecución.
@@ -154,9 +157,20 @@ docker compose -f deploy/compose.yml --profile bots run --rm bots cheater       
 docker compose -f deploy/compose.yml --profile bots run --rm bots firefighter   # CP-04: 3 bomberos, 120 s
 ```
 
-Las variables (`HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD`, `BOTS_COUNT`, `BOTS_DURATION`, `BOTS_SEED`, `BOTS_RESET`, `BOTS_REPORT_PATH`) salen de `deploy/.env` o del entorno del comando; vacías, cada escenario usa su valor por defecto (ver `src/bots/README.md`). Sin las del administrador el binario se detiene con un mensaje que las nombra. Salida: 0 si el escenario cumple, 1 si no. `load-test`, `cheater` y `firefighter` imprimen `Resultado: CUMPLE` o `Resultado: NO CUMPLE`.
+Las variables (`HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD`, `BOTS_COUNT`, `BOTS_DURATION`, `BOTS_SEED`, `BOTS_RESET`, `BOTS_REPORT_PATH`, y solo para `load-test`: `BOTS_LOAD_RANKING`, `BOTS_LOAD_RANKING_INTERVAL` y `BOTS_LOAD_BASELINE_REPORT`) salen de `deploy/.env` o del entorno del comando; vacías, cada escenario usa su valor por defecto (ver `src/bots/README.md`). Sin las del administrador el binario se detiene con un mensaje que las nombra. Salida: 0 si el escenario cumple, 1 si no. `load-test`, `cheater` y `firefighter` imprimen `Resultado: CUMPLE` o `Resultado: NO CUMPLE`.
 
 El informe JSON (`BOTS_REPORT_PATH`) se escribe dentro del contenedor, que no tiene carpeta compartida (regla 3) y se borra con `--rm`: para conservarlo, quitar `--rm` y copiarlo con `docker cp`, o dejarse con el resumen por la salida estándar.
+
+### Prueba de carga (CP-11 y RNF-03)
+
+`tests/load/run.sh` levanta el stack por HTTPS con un certificado efímero y claves y administrador efímeros (las mismas piezas que `tests/e2e/run.sh`, en `tests/lib/stack.sh`) y corre `load-test` dos veces: sin ranking (línea base) y con `BOTS_LOAD_RANKING=true`, que consulta `GET /api/ranking` cada `BOTS_LOAD_RANKING_INTERVAL` (2 s por defecto). Los informes quedan en `reports/` (ignorada por git). RNF-03 compara el p95 de las acciones con ranking contra el de la línea base (`BOTS_LOAD_BASELINE_REPORT`): debe ser <= 200 ms y <= línea base + 20 %; ese 20 % es un umbral del equipo, no del documento inicial. Variables, detalle y cifras en `src/bots/README.md`.
+
+```
+tests/load/run.sh                              # 30 bots, 60 s, las dos variantes
+LOAD_DURATION=20s LOAD_BOTS=10 HV_HTTP_PORT=18091 tests/load/run.sh   # versión corta
+```
+
+En GitHub se lanza a mano desde *Actions › load-test › Run workflow* (`workflow_dispatch`); el resumen del job trae las cifras y la máquina del *runner*, y los JSON salen como artefacto `load-test-reports`.
 
 ## Proxy (nginx)
 
@@ -227,6 +241,13 @@ tests/e2e/run.sh
 ```
 
 Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, con un certificado TLS efímero que genera con `openssl` y monta en nginx (`tests/e2e/compose.tls.yml`; las pruebas confían en él con `NODE_EXTRA_CA_CERTS` y los bots con `HV_CA_CERT`, nunca sin verificar), por HTTPS y WSS, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`. `request-id.test.mjs` sigue un identificador de petición en los registros de nginx, la API, la persistencia y el simulador. `tls.test.mjs` comprueba además la redirección de HTTP a HTTPS (308), TLS 1.3, el rechazo de TLS 1.1 por el servidor (con `openssl s_client`), la ausencia de HSTS, el healthcheck de nginx y, con una instancia suelta de la imagen sin certificado montado, el certificado autogenerado y su SAN (incluido `TLS_EXTRA_SANS`).
+
+### CP-01 y CP-04
+
+Dentro del flujo por defecto, `run.sh` corre en este orden: el humo; **CP-01** (`tests/e2e/cp01-concurrent-drops.test.mjs`, en su propia invocación de `node --test`); TLS y `request-id`; los casos de fallos; y, al final, **CP-04**.
+
+- **CP-01 (RF-08, 100 gotas simultáneas).** En modo demo, 8 jugadores sueltan 100 gotas en total sobre 100 casillas distintas, cada uno de una sola ráfaga (12 o 13 gotas, por debajo del límite de 15 por segundo de cada jugador), todos a la vez. Comprueba que las 100 terminan `applied` (ninguna `rate_limited`), que la humedad aportada y las gotas aceptadas del hub suben exactamente 100 (se vuelve a leer tras una espera de asentamiento, con estados posteriores a las gotas) y que el depósito de nadie cambia. Imprime `MEDICION CP-01: …` y apaga el modo demo al terminar. Los jugadores salen de `POST /api/admin/bot-accounts` con el administrador efímero, porque el registro público (5 cuentas por IP cada 10 minutos) ya lo gasta casi entero el humo, y por eso va aparte (`node --test` corre los archivos a la vez).
+- **CP-04 (RF-29, RF-30, incendios reales).** Es una fase aparte, al final: baja el stack con sus volúmenes y lo levanta de nuevo con `CATALOG_PATH=/app/catalog/catalog.test-fire.json` (`fire.ignition_chance_ppm` alto), de modo que el valle es nuevo y solo hay una planta. `catalog/catalog.json` no se toca: la persistencia lee el catálogo de un volumen de solo lectura y el simulador lo pide al arrancar. Un jugador siembra la casilla (10, 10), arde, `bots firefighter` (3 bots, 20 s) la apaga una vez, y exactamente un bot recibe el bono. `E2E_SKIP_CP04=1` omite la fase.
 
 ### Casos de fallos (CP-05, CP-06, CP-07, CP-08 y CP-12)
 
