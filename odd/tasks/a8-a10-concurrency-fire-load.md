@@ -17,6 +17,7 @@ La rama estaba 50 commits por detrás de `dev` (sin TLS), rompía el smoke por e
 
 - [x] T0 · Integrar la rama sobre `dev` (conflictos en `run.sh` y `config_test.go`, resueltos conservando las dos partes).
 - [x] T1 · Correcciones de la revisión. Evidencia: RED en Go (compilación y comportamiento); bots `go test -race`, vet, gofmt y staticcheck; actionlint; e2e 42/42 en 303 s (CP-04 al final en un stack limpio con el catálogo de prueba); `tests/load/run.sh` por HTTPS en 137 s. Mediciones locales (Mac, plan B): CP-01 8 jugadores, 100 enviadas y 100 aplicadas, Δ humedad = Δ gotas aceptadas = 100, agua sin cambios; CP-04 un incendio apagado, un bono; RNF-01 119,4 gotas/s; RNF-02 p95 98,2 ms; RNF-03 p95 97,7 ms con ranking frente a 98,2 ms sin él. Decisión pendiente del equipo: margen de RNF-03 del 20 %.
+- [x] T2 · Avisos de la revisión: el catálogo vuelve a ir dentro de la imagen de persistencia (sin montar `catalog/` en `deploy/compose.yml`, regla 3) y el de prueba se monta solo en la fase CP-04 (`tests/e2e/compose.cp04.yml`); RNF-03 «no evaluable» sin al menos 10 consultas correctas y cero errores; línea base por ejecución; intervalo del ranking con una sola fuente; claves JSON en snake_case; contraseña por entorno; espera compartida en `tests/lib/stack.sh`. Evidencia: RED en Go; bots `go test -race`, vet, gofmt y staticcheck; actionlint; e2e completa en verde (CP-01 100/100, CP-04 un incendio apagado y un bono).
 
 ## Modo de trabajo
 
