@@ -90,6 +90,7 @@ group Circuit Breaker: semiabierto y cerrado
   opt boot_id distinto del último visto (una sola vez por arranque)
     Hub -> Hub : quitar de confirmed las entradas\ncon tick > restored_tick (se perdieron)\ny restar las gotas aceptadas en esos ticks
   end
+  Hub -> Hub : guardar boot_id y restored_tick: salen en\nGET /stats (interno) y en GET /api/system,\ny los muestra el panel del sistema (sistema.html)
   note right of Hub
     El estado semiabierto es la
     forma estándar del patrón.

@@ -47,10 +47,17 @@ entity "catalog_entries" as catalog_entries {
   * updated_at : TIMESTAMPTZ
 }
 
+entity "schema_migrations" as schema_migrations {
+  * version : TEXT <<PK>>
+  --
+  * applied_at : TIMESTAMPTZ
+}
+
 snapshots ||--o{ snapshot_players : una fila por jugador\npresente en el mundo
 accounts ||--o{ snapshot_players : player_id
 
 catalog_entries -[hidden]down- accounts
+schema_migrations -[hidden]right- catalog_entries
 
 note right of snapshots
   <b>Capa 5</b>: una fila cada 50 ticks (tick % 50 == 0).
@@ -102,6 +109,14 @@ note left of catalog_entries
   columna JSONB evita migrar el esquema al añadir una cifra.
   Persistencia carga el archivo de catalog/ al arrancar
   y lo guarda aquí para consultarlo.
+end note
+
+note bottom of schema_migrations
+  Control de migraciones: Persistencia aplica al arrancar,
+  en orden y bajo un candado, los archivos de migrations/
+  que falten y anota aquí su versión.
+  snapshot_players tiene además el índice
+  (player_id, tick) para consultar por jugador.
 end note
 
 note left of accounts

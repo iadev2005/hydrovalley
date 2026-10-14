@@ -100,7 +100,7 @@ Browser -> Proxy : POST /api/auth/login
 Proxy -> Api : reenvía /api
 Api -> Persistence : AccountService.GetAccount(…)
 Persistence --> Api : UNAVAILABLE o plazo agotado
-Api --> Browser : 503 {"error": "El acceso no está disponible en este momento.\nInténtalo de nuevo en unos minutos."}
+Api --> Browser : 503 {"error": "El servicio de cuentas no está disponible\nen este momento. Inténtalo de nuevo en unos minutos."}
 note right of Browser
   Aviso claro, nunca un error interno (RNF-06).
   El registro se comporta igual.

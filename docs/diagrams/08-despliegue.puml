@@ -5,14 +5,14 @@ skinparam nodesep 50
 skinparam ranksep 70
 
 node "Navegador del jugador" as Browser <<device>> {
-  artifact "Frontend\n(React + Phaser)" as FrontendRuntime
+  artifact "Frontend\n(React + Phaser)\njuego y panel del sistema" as FrontendRuntime
 }
 
 node "Nodo 4 · TypeScript\nPC del laboratorio (10.68.17.x)" as N4 <<device>> {
   node "Windows 10 Pro\nDocker Desktop + WSL 2" as N4Env <<execution environment>> {
     node "proxy" as ProxyC <<container>> {
-      artifact "nginx" as Nginx
-      artifact "frontend\n(archivos estáticos)" as FrontendStatic
+      artifact "nginx\nTLS: certificado autofirmado\ngenerado al arrancar o montado" as Nginx
+      artifact "frontend (Vite, archivos estáticos:\nindex.html y sistema.html)" as FrontendStatic
     }
     node "api" as ApiC <<container>> {
       artifact "API (TypeScript)\nREST + Swagger" as Api
@@ -26,7 +26,7 @@ node "Nodo 3 · Go\nPC del laboratorio (10.68.17.x)" as N3 <<device>> {
       artifact "Hub en tiempo real (Go)" as Hub
     }
     node "chat" as ChatC <<container>> {
-      artifact "Chat (Go)\nnivel 2" as Chat
+      artifact "Chat (Go)\nnivel 2: aún sin código\nni servicio en compose.yml" as Chat
     }
     node "bots\n(a demanda)" as BotsC <<container>> {
       artifact "Bots (Go)" as Bots
@@ -63,10 +63,11 @@ ProxyC --> ApiC : /api\nHTTP (red de Docker)
 ProxyC --> HubC : /play\nWebSocket :8081
 ProxyC --> ChatC : /chat\nWebSocket :8082
 HubC --> ChatC : gRPC :50051\nChatService (red de Docker)
-BotsC --> ProxyC : HTTPS / WSS :8080
+BotsC --> ProxyC : HTTPS / WSS :8080\n(perfil bots de compose)
 HubC --> WorldC : gRPC :50051\nStep cada 100 ms
-ApiC --> WorldC : gRPC :50051\nGetRanking
-ApiC --> PersistenceC : gRPC :50051\nAccount, Catalog, Report
+ApiC --> WorldC : gRPC :50051\nGetRanking, Health.Check
+ApiC --> PersistenceC : gRPC :50051\nAccount, Report, Health.Check\n(Catalog: pendiente, A11)
+ApiC --> HubC : HTTP :8081\nGET /stats (HUB_STATS_ADDR,\nsolo red interna)
 WorldC --> PersistenceC : gRPC :50051\nSaveSnapshot, LoadSnapshot,\nGetCatalog
 PersistenceC --> DbC : PostgreSQL :5433\n(host 5433 → contenedor 5432)
 
@@ -88,12 +89,17 @@ note as NLab
   pero el hash Argon2id sí (API ↔ Persistencia); riesgo aceptado en una
   red cerrada. Las direcciones de los demás servicios se configuran por
   nodo, no se fijan en el código.
-  <b>Imágenes</b>: las construye el pipeline de GitHub para linux/amd64
-  (etiqueta dev o versión de main) y cada nodo descarga la suya del
-  registro (ghcr.io responde desde el laboratorio).
+  <b>TLS</b>: nginx termina HTTPS/WSS en el 8080; el HTTP plano en ese
+  puerto se redirige con 308. Un puerto local 127.0.0.1:8079 (sin TLS,
+  inalcanzable desde fuera) atiende el healthcheck del contenedor.
+  <b>Imágenes</b>: el job publish del pipeline (en dev y en las etiquetas
+  vX.Y de main) las construye para linux/amd64 y las publica en ghcr.io
+  (hydrovalley-api, -hub, -world, -persistence, -proxy y -bots); cada
+  nodo descarga la suya (ghcr.io responde desde el laboratorio).
   <b>Bots</b> (Go): se lanzan a demanda en el nodo 3
-  (docker compose run bots load-test) y entran por el 8080 del
-  nodo 4. world-go no se despliega: se usa en local para la
+  (docker compose --profile bots run bots load-test) y entran por el
+  8080 del nodo 4; con los datos del administrador crean sus cuentas
+  (POST /api/admin/bot-accounts). world-go no se despliega: se usa en local para la
   comparativa Go vs. Rust (ahí puede escuchar en el 50052). El
   frontend no es un servicio: son archivos estáticos que sirve el
   contenedor de nginx.
@@ -113,22 +119,20 @@ node "PC del laboratorio (p. ej. LABBD-01, 10.68.17.1)" as Pc <<device>> {
     node "nginx\n:8080" as NginxB <<container>>
     node "api\n:3000" as ApiB <<container>>
     node "hub\n:8081" as HubB <<container>>
-    node "chat\n:8082 · :50051" as ChatB <<container>>
     node "world\n:50051" as WorldB <<container>>
     node "persistence\n:50051" as PersistenceB <<container>>
     node "postgres\n:5432" as PostgresB <<container>>
-    node "bots" as BotsB <<container>>
+    node "bots\n(perfil bots, a demanda)" as BotsB <<container>>
   }
 }
 
 BrowserB --> NginxB : HTTPS / WSS\nlocalhost:8080 (único puerto publicado)
-BotsB --> NginxB : WebSocket /play
+BotsB --> NginxB : HTTPS / WSS\nnginx:8080 (red de Compose)
 NginxB --> ApiB : /api
 NginxB --> HubB : /play
-NginxB --> ChatB : /chat
 HubB --> WorldB : gRPC Step
-HubB --> ChatB : gRPC
 ApiB --> WorldB : gRPC
+ApiB --> HubB : HTTP :8081 /stats
 ApiB --> PersistenceB : gRPC
 WorldB --> PersistenceB : gRPC
 PersistenceB --> PostgresB : PostgreSQL
@@ -137,7 +141,10 @@ note bottom of Env
   Se usa mientras no exista la regla del cortafuegos. Solo el 8080 se
   publica en el host; los servicios se hablan por la red de Compose con
   el nombre del servicio de deploy/compose.yml (p. ej. world:50051), sin
-  cruzar máquinas. chat y bots aún no están en deploy/compose.yml.
+  cruzar máquinas. El chat (nivel 2) aún no existe y no está en compose.yml:
+  nginx responde 503 en /chat. Los bots sí están, bajo el perfil «bots»
+  (no arrancan con up). Con HTTPS en el 8080, nginx genera un certificado
+  autofirmado al arrancar si no se monta uno.
   Como el cortafuegos bloquea las conexiones entrantes, el navegador y los
   bots también corren en esta máquina. Es el plan B, no el destino (RES-07);
   el día de la defensa, el mismo archivo levanta el sistema en una laptop.
