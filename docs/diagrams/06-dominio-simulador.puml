@@ -6,6 +6,8 @@ class Valle {
   width: u32 = 32
   height: u32 = 32
   tick: u64
+  epoch: u32
+  catalog_version: String
   rng_state
   humidity_contributed: u64
   demo_mode: bool
@@ -37,18 +39,17 @@ class Jugador {
   leaves_earned: u64
   leaves_spent: u64
   purchases_by_kind: map<TipoInstalacion, u32>
+  upgrades: Mejora[0..2]
   water_reduced: u64
   water_reused: u64
   water_recycled: u64
   last_action_tick: u64
-  recent_action_ids
+  recent_actions: (action_id, tick)[]
 }
 
 class Instalacion {
   owner_id: Uuid
   kind: TipoInstalacion
-  x: u32
-  y: u32
 }
 
 enum TipoInstalacion {
@@ -57,20 +58,20 @@ enum TipoInstalacion {
   TreatmentPlant
 }
 
-class Mejora {
-  kind
+enum Mejora {
+  BiggerDrop
+  BiggerTank
 }
 
 class Comando {
   action_id: Uuid
   player_id: Uuid
-  kind
-  x: u32
-  y: u32
+  kind: Drop | PlaceInstallation | BuyUpgrade |\n  SetDemoMode | ResetValley
+  x, y: u32 (en Drop y PlaceInstallation)
 }
 
 class Incendio {
-  drops_received: u8
+  drops_received: u32
   burning_ticks: u32
 }
 
@@ -86,10 +87,10 @@ Valle "1" *-- "1024" Casilla : 32 × 32
 Valle "1" *-- "*" Jugador
 Casilla --> "1" Etapa
 Casilla "1" *-- "0..1" Incendio : está ardiendo
-Jugador "1" *-- "*" Instalacion : compra y coloca
+Jugador "1" ..> "*" Instalacion : es dueño (owner_id)
 Instalacion --> "1" TipoInstalacion
-Instalacion "0..1" --> "1" Casilla : colocada en\n(como mucho una por casilla)
-Jugador "1" *-- "0..2" Mejora
+Casilla "1" *-- "0..1" Instalacion : colocada en ella\n(como mucho una por casilla)
+Jugador "1" --> "0..2" Mejora
 Comando "*" --> "1" Jugador : emitido por
 Comando "*" ..> "0..1" Casilla : apunta a
 Valle "1" *-- "*" Obra
@@ -118,7 +119,7 @@ end note
 
 note right of Comando
   Llega en WorldService.Step. No se guarda:
-  solo su action_id queda en recent_action_ids.
+  solo su action_id queda en recent_actions.
 end note
 
 @enduml

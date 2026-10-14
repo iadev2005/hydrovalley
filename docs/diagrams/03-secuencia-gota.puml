@@ -10,7 +10,7 @@ participant "Hub (Go)\nmarcador del tick" as Ticker
 participant "Simulador\n(Rust)" as World
 
 Ana -> Browser : clic sobre la casilla (14, 9)
-Browser -> Proxy : WS /play\n{"type": "drop", "x": 14, "y": 9, "action_id": "…"}
+Browser -> Proxy : WSS /play (TLS en nginx)\n{"type": "drop", "x": 14, "y": 9, "action_id": "…"}
 Proxy -> Goroutine : reenvía el mensaje
 
 group Filtro del hub (Gatekeeper, Rate Limiting)
@@ -62,8 +62,8 @@ note over Ticker, World
 end note
 
 loop una vez por segundo (Publisher-Subscriber)
-  Ticker -> Goroutine : estado del valle + estado de Ana
-  Goroutine -> Proxy : WS /play
+  Ticker -> Goroutine : estado del valle + estado de Ana,\n con humidity_contributed (humedad aportada por las\n gotas, del último estado del mundo) y accepted_drops\n (gotas que el hub cuenta como applied; CP-11)
+  Goroutine -> Proxy : WSS /play\n{"type": "state", …, "humidity_contributed": "…",\n"accepted_drops": "…"} (u64 como texto)
   Proxy -> Browser : estado
   Browser -> Ana : anima la barra del depósito\nhasta el siguiente mensaje
 end
