@@ -145,7 +145,7 @@ Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o m�
 
 ### Resumen
 
-Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8 en curso (rama `A8-·-CP-01-de-verdad-100-gotas-simultáneas`); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 en curso (Claude).
+Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8 en curso (rama `A8-·-CP-01-de-verdad-100-gotas-simultáneas`); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55).
 
 | ID | Tarea | Nivel | Tamaño | Depende de | Perfil |
 | --- | --- | --- | --- | --- | --- |
@@ -299,6 +299,7 @@ Cada uno es un PR pequeño:
 - **CP-08:** en `tests/e2e/faults-startup.test.mjs` el comentario dice que el acceso se pide una vez, pero se reintenta cada 3 s (puede tocar el límite de 10 por minuto). Corregir comentario o espera; ajustar la ventana de `RestartCount`.
 - **RNF-10:** `run.sh` mide el arranque pero no lo exige (< 5 min). Medirlo desde cero (sin caché) y exigirlo.
 - **Frontend:** al reconectar, mostrar las acciones reenviadas como «resultado desconocido» hasta su resultado final; el botón **Actualizar** del ranking debe respetar `Retry-After` tras un 429.
+- **`/api/catalog` (aviso de la revisión de A11):** con la persistencia caída y la copia vencida, cada refresco espera hasta unos 3 s antes de servir la copia vieja (`src/api/src/catalog-cache.ts`). Mejor servir la copia al instante y refrescar en segundo plano, o recordar el fallo unos segundos.
 - **README raíz:** dice React + Phaser; aclarar el estado hasta que A2/A3 estén.
 - **Reglas del valle:** `odd/tasks/valley-rules.md` (T5) quedó a medias por falta de comprobación en navegador; hacerla tras A2.
 
