@@ -269,4 +269,3 @@ func (a *API) get(ctx context.Context, path, token string, out any) (http.Header
 	}
 	return resp.Header, latency, nil
 }
-

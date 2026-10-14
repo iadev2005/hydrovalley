@@ -301,4 +301,3 @@ func TestRunWithRankingClient(t *testing.T) {
 		t.Errorf("expected RNF03OK to be true: %+v", rep.Ranking)
 	}
 }
-

@@ -273,4 +273,3 @@ func TestBuildReportWithRanking(t *testing.T) {
 		t.Errorf("summary lacks RNF-03 verdict:\n%s", out)
 	}
 }
-

@@ -390,4 +390,3 @@ func runRankingLoop(ctx context.Context, cfg Config, log *slog.Logger) *RankingM
 		}
 	}
 }
-

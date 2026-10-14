@@ -203,4 +203,3 @@ func TestGetRankingUnauthorized(t *testing.T) {
 		t.Fatalf("want 401 HTTPError, got %v", err)
 	}
 }
-

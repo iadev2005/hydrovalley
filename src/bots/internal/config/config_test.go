@@ -155,7 +155,7 @@ func TestLoadRankingVariables(t *testing.T) {
 		t.Fatalf("defaults: %+v %v", c, err)
 	}
 	c, err = Load(env(map[string]string{
-		"HV_BASE_URL":               "http://x",
+		"HV_BASE_URL":                "http://x",
 		"BOTS_LOAD_RANKING":          "true",
 		"BOTS_LOAD_RANKING_INTERVAL": "500ms",
 	}))
@@ -163,8 +163,8 @@ func TestLoadRankingVariables(t *testing.T) {
 		t.Fatalf("parsed: %+v %v", c, err)
 	}
 	for name, v := range map[string]string{
-		"BOTS_LOAD_RANKING":          "maybe",
-		"BOTS_LOAD_RANKING_INTERVAL": "invalid",
+		"BOTS_LOAD_RANKING":               "maybe",
+		"BOTS_LOAD_RANKING_INTERVAL":      "invalid",
 		"BOTS_LOAD_RANKING_INTERVAL_ZERO": "0s",
 	} {
 		varName := name
