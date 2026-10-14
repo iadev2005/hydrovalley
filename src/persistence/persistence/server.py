@@ -24,6 +24,7 @@ from persistence.ports import (
     SnapshotRepository,
 )
 from persistence.report_servicer import ReportServicer
+from persistence.request_id import RequestIdInterceptor
 from persistence.servicer import PersistenceServicer
 
 log = logging.getLogger(__name__)
@@ -51,7 +52,10 @@ def create_server(
     de instantáneas (los adaptadores de PostgreSQL y de memoria implementan
     los dos puertos).
     """
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=max_workers),
+        interceptors=[RequestIdInterceptor()],
+    )
     pb_grpc.add_PersistenceServiceServicer_to_server(PersistenceServicer(repository), server)
     account_pb_grpc.add_AccountServiceServicer_to_server(AccountServicer(accounts), server)
     catalog_pb_grpc.add_CatalogServiceServicer_to_server(CatalogServicer(catalog), server)

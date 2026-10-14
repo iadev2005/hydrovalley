@@ -6,6 +6,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import { type AdminDeps, adminRoutes } from "./admin-routes.js";
 import { type AuthDeps, authRoutes } from "./auth-routes.js";
 import { type ReadDeps, readRoutes } from "./read-routes.js";
+import { registerRequestId, requestIdOptions } from "./request-id.js";
 import { type SystemDeps, systemRoutes } from "./system-routes.js";
 
 const healthSchema = {
@@ -42,8 +43,10 @@ export async function buildApp(
   // Sin coerción de tipos: un número no se acepta como nombre de usuario.
   const app = Fastify({
     ajv: { customOptions: { coerceTypes: false } },
+    ...requestIdOptions,
     ...options,
   });
+  registerRequestId(app);
 
   await app.register(swagger, {
     openapi: {

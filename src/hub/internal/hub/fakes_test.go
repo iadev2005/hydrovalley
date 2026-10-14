@@ -13,6 +13,7 @@ import (
 	playv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/play/v1"
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -53,6 +54,8 @@ type fakeWorld struct {
 	// motivo de rechazo por action_id; por defecto OUT_OF_BOUNDS.
 	reasons  map[string]worldv1.RejectReason
 	requests []*worldv1.StepRequest
+	// requestIDs es el metadato x-request-id de cada Step (vacío si no lo trae).
+	requestIDs []string
 	// hook se llama dentro de Step, sin el candado del mundo.
 	hook     func(ctx context.Context, req *worldv1.StepRequest)
 	mangle   func(resp *worldv1.StepResponse)
@@ -72,6 +75,12 @@ func (w *fakeWorld) Step(ctx context.Context, req *worldv1.StepRequest) (*worldv
 	w.inFlight++
 	w.maxInFly = max(w.maxInFly, w.inFlight)
 	w.requests = append(w.requests, req)
+	md, _ := metadata.FromOutgoingContext(ctx)
+	id := ""
+	if v := md.Get("x-request-id"); len(v) > 0 {
+		id = v[0]
+	}
+	w.requestIDs = append(w.requestIDs, id)
 	hook := w.hook
 	w.mu.Unlock()
 	defer func() {
@@ -141,13 +150,17 @@ type harness struct {
 
 func newHarness(t *testing.T, tweak ...func(*Config)) *harness {
 	t.Helper()
+	return newHarnessLogged(t, slog.New(slog.NewTextHandler(io.Discard, nil)), tweak...)
+}
+
+func newHarnessLogged(t *testing.T, logger *slog.Logger, tweak ...func(*Config)) *harness {
+	t.Helper()
 	cfg := DefaultConfig()
 	for _, f := range tweak {
 		f(&cfg)
 	}
 	world := newFakeWorld()
 	clock := newFakeClock()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &harness{t: t, hub: New(world, clock, cfg, logger), world: world, clock: clock}
 }
 

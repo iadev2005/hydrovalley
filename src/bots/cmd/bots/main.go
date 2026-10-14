@@ -105,6 +105,7 @@ func runNeighbors() error {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	cfg.WarnIfInsecure(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -181,6 +182,7 @@ func runLoad() (passed bool, err error) {
 	}
 	cfg = cfg.WithLoadDefaults()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	cfg.WarnIfInsecure(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -265,6 +267,7 @@ func provision(ctx context.Context, count int) (provisioned, error) {
 		count = cfg.Count
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	cfg.WarnIfInsecure(log)
 	tlsCfg, err := cfg.TLSConfig()
 	if err != nil {
 		return provisioned{}, err

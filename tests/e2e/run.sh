@@ -12,6 +12,7 @@
 #                       pausan servicios del stack; tardan unos minutos)
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
+# request-id.test.mjs sigue un identificador de petición en los registros.
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
 # «bots») con el administrador efímero.
 # nginx sirve HTTPS: run.sh genera un certificado efímero (openssl) y lo monta
@@ -139,6 +140,10 @@ node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
 
 # RNF-12: TLS en nginx (redirección de HTTP, versiones, healthcheck).
 node --test --test-reporter=spec "${repo_root}/tests/e2e/tls.test.mjs"
+
+# RNF-07: el identificador de petición se sigue en los registros de nginx, la
+# API, la persistencia y el simulador.
+node --test --test-reporter=spec "${repo_root}/tests/e2e/request-id.test.mjs"
 
 # CP-05 a CP-08 y CP-12: fallos de servicios (faults*.test.mjs; CP-08, el más
 # disruptivo, va al final). Corren después de la prueba de

@@ -10,6 +10,7 @@ Servicio en Rust que es el escritor único del estado del mundo (regla 1 de `CLA
 | `src/codec.rs` | Traducción entre los mensajes del contrato y el dominio (incluida la validación del catálogo), y serialización de `WorldSnapshot` |
 | `src/store.rs` | Puerto `PersistenceStore` y su adaptador gRPC contra `PersistenceService` y `CatalogService` (plazo y reintentos) |
 | `src/simulator.rs` | Servicio de aplicación: carga al arrancar, `Step` con el mundo bloqueado e instantáneas en segundo plano |
+| `src/request_id.rs` | Identificador de petición (RNF-07): lee y valida el metadato `x-request-id` y genera el de las llamadas salientes |
 | `src/grpc.rs` | Implementación de `WorldService`: solo traduce |
 | `src/server.rs` | Montaje del servidor, salud y tarea de carga |
 | `src/config.rs` | Variables de entorno |
@@ -118,6 +119,12 @@ El simulador arranca aunque la persistencia no esté (regla 5 de portabilidad): 
   - Orden: `leaves_earned` de mayor a menor; el documento inicial no define los empates, así que se desempata por `player_id` ascendente (resultado determinista).
   - Posición («competition ranking»): los empatados comparten posición y la siguiente salta (1, 2, 2, 4). Se calcula sobre el ranking completo, así que `limit` nunca la cambia.
   - `limit` = 0 devuelve todos; en cualquier caso, como mucho 1.000 entradas (`MAX_RANKING_ENTRIES`) para acotar la respuesta. Los jugadores sin hojas también aparecen.
+
+## Identificador de petición (RNF-07)
+
+- **Entrante.** `Step` (el hub envía `x-request-id: tick-<n>`) y `GetRanking` (la API reenvía el id de la petición HTTP) leen el metadato `x-request-id`; un valor ausente o no seguro (más de 64 caracteres o fuera de `[A-Za-z0-9-]`) se registra como `-`. El id es el campo `request_id` del *span* de la llamada, así que sus líneas salen como `step{request_id=tick-7}: …`. `Step` registra solo a nivel `debug` (el paso y cada comando con su `action_id` y su resultado); con `LOG_LEVEL=info` no escribe nada por gota. `GetRanking` registra una línea a nivel `info`.
+- **Saliente.** Cada llamada a la persistencia (`GetCatalog`, `LoadSnapshot`, `SaveSnapshot`) genera un id `world-<uuid>` (el mismo en sus reintentos) y lo envía como `x-request-id`; el simulador lo registra a nivel `debug` (a `warn` si la llamada falla del todo) y el de persistencia lo escribe en su línea de la llamada.
+- Cómo seguirlo: `deploy/README.md`, «Identificador de petición».
 
 ## Pendiente
 

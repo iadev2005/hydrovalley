@@ -8,16 +8,14 @@ import threading
 
 from persistence.adapters.postgres import PostgresSnapshotRepository
 from persistence.config import ConfigError, Settings
+from persistence.request_id import configure_logging
 from persistence.server import create_server, set_serving
 
 log = logging.getLogger("persistence")
 
 
 def main() -> int:
-    logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(os.environ.get("LOG_LEVEL", "INFO").upper())
     try:
         settings = Settings.from_env(os.environ)
     except ConfigError as error:

@@ -4,7 +4,6 @@
 // 100, 200 y 400 ms (más un poco de azar) dentro de un presupuesto total de
 // 3 s; Register nunca se reintenta.
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { createGrpcTransport } from "@connectrpc/connect-node";
 import {
   type AccountDirectory,
   type AccountRole,
@@ -14,6 +13,7 @@ import {
 } from "./account-directory.js";
 import { AccountService, Role } from "./gen/hydrovalley/persistence/v1/account_pb.js";
 import { createGrpcCaller, type GrpcCallOptions, TRANSIENT_CODES } from "./grpc-retry.js";
+import { createGrpcTransportFor } from "./request-id.js";
 
 export type GrpcAccountDirectoryOptions = GrpcCallOptions;
 
@@ -25,7 +25,7 @@ export function createGrpcAccountDirectory(options: GrpcAccountDirectoryOptions)
   const { idempotent, timeoutMs } = createGrpcCaller(options);
   const client = createClient(
     AccountService,
-    createGrpcTransport({ baseUrl: `http://${options.address}` }),
+    createGrpcTransportFor(options.address),
   );
 
   /** Traduce los errores de gRPC que la API distingue; el resto se propaga. */

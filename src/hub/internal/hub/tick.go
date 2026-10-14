@@ -10,6 +10,7 @@ import (
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/breaker"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
+	"google.golang.org/grpc/metadata"
 )
 
 var errInvalidResponse = errors.New("invalid Step response")
@@ -34,6 +35,7 @@ func (h *Hub) Tick(ctx context.Context) {
 	n := min(len(h.queue), h.cfg.BatchSize)
 	batch := slices.Clone(h.queue[:n])
 	h.queue = slices.Delete(h.queue, 0, n)
+	stepID := stepRequestID(h.tick)
 	h.mu.Unlock()
 
 	cmds := make([]*worldv1.Command, len(batch))
@@ -41,6 +43,8 @@ func (h *Hub) Tick(ctx context.Context) {
 		cmds[i] = q.cmd
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, h.cfg.StepTimeout)
+	// RNF-07: el mismo id en el hub y en el simulador para este Step.
+	stepCtx = metadata.AppendToOutgoingContext(stepCtx, requestIDKey, stepID)
 	stepStart := h.clock.Now()
 	resp, err := h.world.Step(stepCtx, &worldv1.StepRequest{Commands: cmds})
 	cancel()
@@ -54,8 +58,11 @@ func (h *Hub) Tick(ctx context.Context) {
 	defer h.mu.Unlock()
 	if err != nil {
 		h.stepFailures.Add(1)
-		h.stepFailedLocked(batch, err)
+		h.stepFailedLocked(batch, stepID, err)
 	} else {
+		if h.debug {
+			h.log.Debug("Step", "request_id", stepID, "tick", resp.GetTick(), "commands", len(cmds), "duration", stepEnd.Sub(stepStart))
+		}
 		h.stepSucceededLocked(batch, resp)
 	}
 	h.sweepIdlePlayersLocked()
@@ -104,14 +111,14 @@ func (h *Hub) expireLocked() {
 
 // stepFailedLocked devuelve el lote al frente de la cola (sigue en pending)
 // y pausa el valle desde el primer fallo.
-func (h *Hub) stepFailedLocked(batch []queued, err error) {
+func (h *Hub) stepFailedLocked(batch []queued, stepID string, err error) {
 	for i := range batch {
 		batch[i].inFailedStep = true
 	}
 	h.queue = append(batch, h.queue...)
 	h.paused = true
 	opened := h.breaker.Failure(h.clock.Now())
-	h.log.Warn("Step failed", "err", err, "requeued", len(batch), "breaker", h.breaker.State().String())
+	h.log.Warn("Step failed", "request_id", stepID, "err", err, "requeued", len(batch), "breaker", h.breaker.State().String())
 	if opened {
 		h.log.Error("circuit breaker open: Step is no longer called until a probe succeeds",
 			"probe_interval", h.cfg.ProbeInterval)
@@ -229,6 +236,7 @@ func (h *Hub) confirmLocked(playerID, actionID string, tick uint64) {
 // finishLocked envía un resultado final a todas las conexiones del jugador
 // y quita la acción de pending.
 func (h *Hub) finishLocked(playerID, actionID, status string, reason worldv1.RejectReason) {
+	h.logResult(playerID, actionID, status, reason)
 	p, ok := h.players[playerID]
 	if !ok {
 		return

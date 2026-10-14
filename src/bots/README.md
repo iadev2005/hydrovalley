@@ -22,7 +22,7 @@ Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos),
 | --- | --- | --- | --- |
 | `HV_BASE_URL` | Sí | — | Dirección del proxy, p. ej. `https://nginx:8080` (plan B) o `https://10.68.17.x:8080` (plan A). `https` usa `wss` para `/play` |
 | `HV_CA_CERT` | No | — | Ruta de un certificado PEM en que confiar (además de los del sistema), p. ej. el autofirmado del laboratorio. Preferible a `HV_TLS_INSECURE`. Excluyente con ella |
-| `HV_TLS_INSECURE` | No | `false` | `true` omite la verificación del certificado del proxy, para el autofirmado del laboratorio. No usar fuera de pruebas |
+| `HV_TLS_INSECURE` | No | `false` | `true` omite la verificación del certificado del proxy, para el autofirmado del laboratorio. No usar fuera de pruebas. Con `true`, cada escenario registra un WARN al arrancar |
 | `HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD` | Sí, para aprovisionar | — | Cuenta de administrador; solo sirve para crear las cuentas de bots. La contraseña nunca se registra |
 | `BOTS_COUNT` | No | `3` (`30` en `load`) | Número de bots. `cheater` usa siempre uno |
 | `BOTS_DURATION` | No | `0` (`60s` en `load`, `10s` en `cheater`, `120s` en `firefighter`) | Duración (`30s`, `5m`); en `neighbors`, `0` = hasta que se detenga. En `load` es el tiempo de envío; en `cheater`, el de la inundación. En esos tres, `0` cae al valor por defecto |

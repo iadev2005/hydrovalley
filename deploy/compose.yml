@@ -139,9 +139,12 @@ services:
     environment:
       # Solo por nginx, dentro de la red de Compose (puerto interno 8080,
       # HTTPS). nginx usa un certificado autofirmado generado al arrancar, que
-      # el bot no puede conocer: por defecto omite la verificación (el tráfico
-      # no sale de la red de Compose). Mejor: HV_TLS_INSECURE=false y HV_CA_CERT
-      # con la ruta de un certificado en que confiar, montado en el contenedor.
+      # el bot no puede conocer, así que aquí la verificación del certificado
+      # está DESACTIVADA por defecto (HV_TLS_INSECURE=true) y el bot lo avisa
+      # al arrancar. Solo es aceptable dentro de la red de Compose del plan B,
+      # donde el tráfico no sale de la máquina. En el laboratorio (plan A) hay
+      # que verificar: HV_TLS_INSECURE=false y HV_CA_CERT con la ruta, dentro
+      # del contenedor, del certificado en que confiar (montado con un volumen).
       HV_BASE_URL: https://nginx:8080
       HV_TLS_INSECURE: ${HV_TLS_INSECURE:-true}
       HV_CA_CERT: ${HV_CA_CERT:-}

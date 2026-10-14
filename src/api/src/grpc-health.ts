@@ -10,7 +10,7 @@ import {
   FileDescriptorProtoSchema,
 } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { createGrpcTransport } from "@connectrpc/connect-node";
+import { createGrpcTransportFor } from "./request-id.js";
 
 /** Valores de `HealthCheckResponse.ServingStatus`. */
 export const ServingStatus = {
@@ -122,7 +122,7 @@ export function createGrpcHealthProbe(options: GrpcHealthOptions): () => Promise
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const client = createClient(
     Health,
-    createGrpcTransport({ baseUrl: `http://${options.address}` }),
+    createGrpcTransportFor(options.address),
   );
 
   return async () => {
