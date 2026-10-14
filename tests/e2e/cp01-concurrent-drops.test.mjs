@@ -1,216 +1,140 @@
-//comando para correr la prueba
-// linux sudo E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh
-// otros  E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh
-
-
-// CP-01: Acciones simultáneas de un mismo jugador (RF-08).
-// Modo demo; un jugador envía 100 gotas sin esperar resultados individuales.
-// Invariantes:
-//   1. Depósito intacto (la gota es gratis en modo demo).
-//   2. La humedad aportada sube exactamente las gotas aceptadas.
+// CP-01: 100 acciones simultáneas de varios jugadores (RF-08).
+//
+// En modo demo (la gota es gratis), 8 jugadores sueltan 100 gotas en total
+// sobre 100 casillas distintas. Cada jugador manda su parte (12 o 13) de una
+// sola ráfaga, sin esperar resultados, y todos a la vez: es la concurrencia
+// máxima que admite el límite de 15 gotas por segundo y por jugador (RF-09)
+// sin que el limitador intervenga. Invariantes:
+//   1. Las 100 acciones terminan en `applied` (ninguna `rate_limited`).
+//   2. Δ humedad aportada == Δ gotas aceptadas del hub == 100, y se mantiene
+//      tras una espera (si se contara de más, aparecería).
+//   3. El depósito de cada jugador sigue lleno (la gota es gratis).
+//
+// Los jugadores salen de POST /api/admin/bot-accounts (no del registro
+// público, limitado a 5 por 10 minutos). run.sh lo ejecuta en su propia
+// invocación de `node --test` después del humo.
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { promisify } from "node:util";
-import { PlaySession } from "./play-session.mjs";
+import {
+  loginAdmin,
+  openReadySession,
+  provisionPlayers,
+  sleep,
+  waitForHealthyStack,
+} from "./support.mjs";
 
-const run = promisify(execFile);
-const BASE_URL = (process.env.HV_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-const WS_BASE = BASE_URL.replace(/^http/, "ws");
-const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_S ?? 180) * 1000;
-const PASSWORD = "e2e-password-1";
+const PLAYERS = 8;
+const TOTAL_DROPS = 100;
+// El hub difunde el estado una vez por segundo: la espera de asentamiento
+// cubre al menos dos difusiones.
+const SETTLE_MS = 2500;
+const RESULT_TIMEOUT_MS = 30_000;
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function eventually(what, timeoutMs, fn, intervalMs = 1000) {
-    const deadline = Date.now() + timeoutMs;
-    let lastError;
-    while (Date.now() < deadline) {
-        try {
-            const value = await fn();
-            if (value !== undefined && value !== false) return value;
-        } catch (err) {
-            lastError = err;
-        }
-        await sleep(intervalMs);
-    }
-    throw new Error(`timed out waiting for ${what}${lastError ? `: ${lastError.message}` : ""}`);
-}
-
-async function persistenceHealthy() {
-    const { stdout } = await run("docker", ["compose", "ps", "--format", "{{.Health}}", "persistence"]);
-    return stdout.trim() === "healthy";
-}
-
-async function waitForHealthyStack() {
-    await eventually("GET /api/health through nginx", READY_TIMEOUT_MS, async () => {
-        const res = await fetch(`${BASE_URL}/api/health`);
-        return res.ok && (await res.json()).status === "ok";
-    });
-}
-
-async function registerPlayer() {
-    await eventually("persistence healthy", 120_000, persistenceHealthy);
-    const username = `e2e-${randomUUID().slice(0, 8)}`;
-    const res = await fetch(`${BASE_URL}/api/auth/register`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username, password: PASSWORD }),
-    });
-    assert.equal(res.status, 201, `register ${username}: ${res.status}`);
-    const body = await res.json();
-    assert.equal(typeof body.token, "string");
-    return { ...body, username };
-}
-
-function openReadySession(token, { map }) {
-    return eventually("a running valley on /play", READY_TIMEOUT_MS, async () => {
-        const candidate = new PlaySession(`${WS_BASE}/play?token=${token}&map=${map}`);
-        try {
-            await candidate.opened;
-            await candidate.first("a state frame without pause", (f) => f.type === "state" && !f.paused, 3000);
-            return candidate;
-        } catch (err) {
-            candidate.close();
-            throw err;
-        }
-    }, 2000);
-}
+const counter = (frame, field) => BigInt(frame[field] ?? "0");
 
 describe("concurrent drops (CP-01 / RF-08)", () => {
-    const adminUsername = process.env.ADMIN_USERNAME;
-    const adminPassword = process.env.E2E_ADMIN_PASSWORD;
+  before(async () => {
+    await waitForHealthyStack();
+  });
 
-    before(async () => {
-        assert.ok(
-            adminUsername && adminPassword,
-            "falta ADMIN_USERNAME o E2E_ADMIN_PASSWORD: tests/e2e/run.sh las genera",
-        );
-        await waitForHealthyStack();
-    });
+  it("aplica 100 gotas simultáneas de 8 jugadores en modo demo sin perder ni contar de más", { timeout: 90_000 }, async () => {
+    const adminToken = await loginAdmin();
+    const admin = await openReadySession(adminToken, { map: false });
+    const sessions = [];
+    try {
+      admin.send({ type: "set_demo_mode", action_id: randomUUID(), enabled: true });
+      await admin.first("demo mode enabled", (f) => f.type === "state" && f.demo_mode === true, 15_000);
 
-    it("applies concurrent drops from 2 bots in demo mode matching humidity exactly", { timeout: 45_000 }, async () => {
-        // 1. Iniciar admin y encender modo demo
-        const adminRes = await fetch(`${BASE_URL}/api/auth/login`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ username: adminUsername, password: adminPassword }),
-        });
-        assert.equal(adminRes.status, 200, `admin login: ${adminRes.status}`);
-        const { token: adminToken } = await adminRes.json();
-        const adminSession = await openReadySession(adminToken, { map: false });
+      const accounts = await provisionPlayers(adminToken, PLAYERS);
+      for (const account of accounts) {
+        sessions.push(await openReadySession(account.token, { map: false }));
+      }
 
-        let session1;
-        let session2;
+      // Línea base: dos estados en modo demo con 1,5 s de por medio, para ver
+      // que nada más está soltando gotas. Los jugadores entran al mundo con su
+      // primer comando, así que su depósito se compara con la capacidad.
+      const demoState = (f) => f.type === "state" && f.demo_mode === true;
+      const earlier = await admin.waitFor("a demo-mode state", demoState, 10_000);
+      await sleep(1500);
+      const baseline = await admin.waitFor("a second demo-mode state", demoState, 10_000);
+      const humidity0 = counter(baseline, "humidity_contributed");
+      const accepted0 = counter(baseline, "accepted_drops");
+      assert.equal(accepted0, counter(earlier, "accepted_drops"), "hay otras gotas en curso: la línea base no es estable");
 
-        try {
-            const adminActionId = randomUUID();
-            adminSession.send({ type: "set_demo_mode", action_id: adminActionId, enabled: true });
-            await adminSession.first("demo mode enabled", (f) => f.type === "state" && f.demo_mode === true, 10_000);
+      // 100 gotas repartidas en 8 jugadores: 4 mandan 13 y 4 mandan 12.
+      const plan = sessions.map((_, i) => (i < TOTAL_DROPS % PLAYERS ? Math.ceil(TOTAL_DROPS / PLAYERS) : Math.floor(TOTAL_DROPS / PLAYERS)));
+      assert.equal(plan.reduce((a, b) => a + b, 0), TOTAL_DROPS);
+      let tile = 0;
+      const actions = plan.map((n) =>
+        Array.from({ length: n }, () => {
+          const t = tile++;
+          return { id: randomUUID(), x: t % 32, y: Math.floor(t / 32) };
+        }),
+      );
 
-            // 2. Conectar dos bots simultáneos
-            const [bot1, bot2] = await Promise.all([registerPlayer(), registerPlayer()]);
-            session1 = await openReadySession(bot1.token, { map: false });
-            session2 = await openReadySession(bot2.token, { map: false });
+      const startedAt = Date.now();
+      // Todos a la vez y de una ráfaga: sin esperas entre envíos.
+      await Promise.all(
+        sessions.map(async (session, i) => {
+          for (const a of actions[i]) session.send({ type: "drop", action_id: a.id, x: a.x, y: a.y });
+        }),
+      );
+      const sendMs = Date.now() - startedAt;
 
-            // Línea base inicial (humedad aportada antes de las acciones)
-            const state0 = await session1.first("initial state", (f) => f.type === "state", 10_000);
-            const humidity0 = BigInt(state0.humidity_contributed ?? "0");
+      const results = await Promise.all(
+        sessions.map(async (session, i) => {
+          const tally = { applied: 0, other: [] };
+          for (const a of actions[i]) {
+            const r = await session.first(`result of ${a.id}`, (f) => f.type === "result" && f.action_id === a.id, RESULT_TIMEOUT_MS);
+            if (r.status === "applied") tally.applied++;
+            else tally.other.push(r.status);
+          }
+          return tally;
+        }),
+      );
+      const applied = results.reduce((sum, r) => sum + r.applied, 0);
+      const others = results.flatMap((r) => r.other);
 
-            // 3. Preparar 50 gotas por bot (100 gotas en total) sobre distintas casillas
-            const DROPS_PER_BOT = 50;
-            const TOTAL_DROPS = DROPS_PER_BOT * 2;
-            const actions1 = Array.from({ length: DROPS_PER_BOT }, () => randomUUID());
-            const actions2 = Array.from({ length: DROPS_PER_BOT }, () => randomUUID());
+      // Estado posterior a las gotas: solo cuentan los mensajes que llegan
+      // después de este punto, no los que ya estaban en el búfer.
+      const fromIndex = admin.frames.length;
+      const target = BigInt(TOTAL_DROPS);
+      await admin.waitFor(
+        "counters to reach the target",
+        (f) => f.type === "state" && counter(f, "accepted_drops") - accepted0 >= target && counter(f, "humidity_contributed") - humidity0 >= target,
+        20_000,
+        { fromIndex },
+      );
+      // Asentamiento: si se contara de más, el exceso aparecería en el estado siguiente.
+      const settledFrom = admin.frames.length;
+      await sleep(SETTLE_MS);
+      const final = admin.frames.slice(settledFrom).filter((f) => f.type === "state").at(-1);
+      assert.ok(final, "no llegó ningún estado tras la espera de asentamiento");
 
-            async function sendDrops(session, actions, offsetX, offsetY) {
-                for (let i = 0; i < actions.length; i++) {
-                    const actionId = actions[i];
-                    session.send({
-                        type: "drop",
-                        action_id: actionId,
-                        x: (offsetX + i) % 32,
-                        y: (offsetY + Math.floor(i / 32)) % 32,
-                    });
-                    await sleep(5);
-                }
-            }
+      const humidityDelta = counter(final, "humidity_contributed") - humidity0;
+      const acceptedDelta = counter(final, "accepted_drops") - accepted0;
 
-            // Ambos bots disparan simultáneamente
-            await Promise.all([
-                sendDrops(session1, actions1, 0, 0),
-                sendDrops(session2, actions2, 16, 16),
-            ]);
+      const finalPlayers = await Promise.all(
+        sessions.map((s) => s.waitFor("a final state with the player", (f) => f.type === "state" && f.player, 5000, { fromIndex: settledFrom })),
+      );
+      const waterChanged = finalPlayers.filter((f) => f.player.water !== f.player.tank_capacity).length;
 
-            // 4. Recolectar resultados por separado para cada bot
-            async function collectResults(session, actions) {
-                let accepted = 0;
-                let rateLimited = 0;
-                for (const actionId of actions) {
-                    const result = await session.first(
-                        `result of ${actionId}`,
-                        (f) => f.type === "result" && f.action_id === actionId,
-                        15_000,
-                    );
-                    if (result.status === "applied") accepted++;
-                    if (result.status === "rate_limited") rateLimited++;
-                }
-                return { accepted, rateLimited };
-            }
+      console.log(
+        `MEDICION CP-01: jugadores=${PLAYERS} enviadas=${TOTAL_DROPS} aplicadas=${applied} otros_resultados=${others.length} delta_humedad=${humidityDelta} delta_gotas_aceptadas=${acceptedDelta} jugadores_con_agua_cambiada=${waterChanged} envio_ms=${sendMs}`,
+      );
 
-            const [res1, res2] = await Promise.all([
-                collectResults(session1, actions1),
-                collectResults(session2, actions2),
-            ]);
-
-            const totalAccepted = res1.accepted + res2.accepted;
-            const totalRateLimited = res1.rateLimited + res2.rateLimited;
-
-            // 5. Esperar el estado del mundo que refleje las gotas aceptadas totales
-            const finalState = await session1.waitFor(
-                "final state reflecting drops",
-                (f) =>
-                    f.type === "state" &&
-                    BigInt(f.humidity_contributed ?? "0") >= humidity0 + BigInt(totalAccepted),
-                15_000,
-            );
-            const humidityFinal = BigInt(finalState.humidity_contributed ?? "0");
-            const humidityDelta = humidityFinal - humidity0;
-
-            // Comprobar estado de jugador en ambos bots (depósito intacto)
-            const finalState1 = await session1.waitFor(
-                "final state with bot1",
-                (f) => f.type === "state" && f.player !== undefined,
-                10_000,
-            );
-            const finalState2 = await session2.waitFor(
-                "final state with bot2",
-                (f) => f.type === "state" && f.player !== undefined,
-                10_000,
-            );
-
-            // 6. Invariantes requeridos por CP-01
-            assert.equal(totalAccepted + totalRateLimited, TOTAL_DROPS, "todas las 100 gotas obtuvieron resultado");
-            assert.equal(humidityDelta, BigInt(totalAccepted), "la humedad aportada subió exactamente las gotas aceptadas");
-            assert.equal(finalState1.player.water, finalState1.player.tank_capacity, "en modo demo el depósito de bot 1 no cambia");
-            assert.equal(finalState2.player.water, finalState2.player.tank_capacity, "en modo demo el depósito de bot 2 no cambia");
-
-            // 7. Registro de medición requerido con desglose por bot
-            console.log(
-                `MEDICION CP-01: enviadas=${TOTAL_DROPS} aceptadas=${totalAccepted} (bot1=${res1.accepted} bot2=${res2.accepted}) rate_limited=${totalRateLimited} (bot1=${res1.rateLimited} bot2=${res2.rateLimited}) delta_humedad=${humidityDelta} water_delta=0`,
-            );
-
-            session1.close();
-            session2.close();
-        } finally {
-            session1?.close();
-            session2?.close();
-            // Apagar modo demo y cerrar admin
-            const resetAction = randomUUID();
-            adminSession.send({ type: "set_demo_mode", action_id: resetAction, enabled: false });
-            await adminSession.first("demo mode disabled", (f) => f.type === "state" && !f.demo_mode, 10_000).catch(() => { });
-            adminSession.close();
-        }
-    });
+      assert.deepEqual(others, [], "ninguna gota debe terminar en otro resultado que applied (ni rate_limited)");
+      assert.equal(applied, TOTAL_DROPS, "las 100 gotas terminan applied");
+      assert.equal(humidityDelta, BigInt(TOTAL_DROPS), "Δ humedad aportada == 100");
+      assert.equal(acceptedDelta, BigInt(TOTAL_DROPS), "Δ gotas aceptadas == 100");
+      assert.equal(waterChanged, 0, "en modo demo el depósito no cambia");
+    } finally {
+      for (const s of sessions) s.close();
+      // Pase lo que pase, el modo demo se apaga para no contaminar otros casos.
+      admin.send({ type: "set_demo_mode", action_id: randomUUID(), enabled: false });
+      await admin.waitFor("demo mode disabled", (f) => f.type === "state" && f.demo_mode === false, 10_000).catch(() => {});
+      admin.close();
+    }
+  });
 });

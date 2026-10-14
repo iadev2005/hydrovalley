@@ -1,5 +1,3 @@
-
-
 // Pruebas unitarias de PlaySession con un WebSocket falso: no necesitan el
 // stack. Se ejecutan con `node --test tests/e2e/play-session.test.mjs`.
 import { describe, it } from "node:test";
@@ -20,7 +18,7 @@ class FakeWebSocket extends EventTarget {
   send(data) {
     this.sent.push(data);
   }
-  close() { }
+  close() {}
 }
 
 function newSession() {
