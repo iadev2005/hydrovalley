@@ -238,15 +238,15 @@ func TestBuildReportWithRanking(t *testing.T) {
 	m.BaselineP95 = ms(50)
 	m.Ranking = &RankingMeasurement{
 		Sent:      60,
-		Success:   58,
-		Errors:    2,
+		Success:   60,
+		Errors:    0,
 		Latencies: []time.Duration{ms(15), ms(20), ms(25), ms(50)},
 	}
 	r := BuildReport(m)
 	if r.Ranking == nil {
 		t.Fatal("expected non-nil Ranking in Report")
 	}
-	if r.Ranking.QueriesSent != 60 || r.Ranking.QueriesOK != 58 || r.Ranking.Errors != 2 {
+	if r.Ranking.QueriesSent != 60 || r.Ranking.QueriesOK != 60 || r.Ranking.Errors != 0 {
 		t.Errorf("unexpected ranking counts: %+v", r.Ranking)
 	}
 	if r.Ranking.LatencyMS.P50 <= 0 || r.Ranking.LatencyMS.P95 <= 0 {
@@ -267,7 +267,7 @@ func TestBuildReportWithRanking(t *testing.T) {
 
 	// Test FormatSummary with ranking
 	out := FormatSummary(r)
-	if !strings.Contains(out, "Ranking en bucle: 60 consultas (58 exitosas, 2 errores)") {
+	if !strings.Contains(out, "Ranking en bucle: 60 consultas (60 exitosas, 0 errores)") {
 		t.Errorf("summary lacks ranking line:\n%s", out)
 	}
 	if !strings.Contains(out, "RNF-03") || !strings.Contains(out, "cumple") {
@@ -373,6 +373,54 @@ func TestBaselineP95FromReport(t *testing.T) {
 	} {
 		if _, err := BaselineP95FromReport([]byte(in)); err == nil {
 			t.Errorf("%s: se esperaba un error", name)
+		}
+	}
+}
+
+// Un RNF-03 que se «cumple» con consultas de ranking fallidas o casi
+// inexistentes mediría un ranking que nunca respondió: no es evaluable.
+func TestRNF03IsNotEvaluableWhenTheRankingQueriesFailedOrWereTooFew(t *testing.T) {
+	cases := []struct {
+		name string
+		rm   RankingMeasurement
+	}{
+		{"ninguna consulta", RankingMeasurement{}},
+		{"todas fallaron", RankingMeasurement{Sent: 30, Errors: 30}},
+		{"muy pocas exitosas", RankingMeasurement{Sent: 3, Success: 3, Latencies: []time.Duration{ms(5), ms(5), ms(5)}}},
+		{"suficientes pero con un error", RankingMeasurement{Sent: 31, Success: 30, Errors: 1, Latencies: []time.Duration{ms(5)}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := withRanking(ms(100), ms(100))
+			rm := c.rm
+			m.Ranking = &rm
+			r := BuildReport(m)
+			if r.Ranking.RNF03Evaluated || r.Ranking.RNF03OK {
+				t.Errorf("RNF-03 no debe evaluarse ni cumplirse: %+v", r.Ranking)
+			}
+			if r.Passed() {
+				t.Error("una ejecución con ranking no evaluable no puede darse por cumplida")
+			}
+			out := FormatSummary(r)
+			if !strings.Contains(out, "RNF-03: NO se pudo evaluar") || strings.Contains(out, "RNF-03 (p95") {
+				t.Errorf("el resumen debe decir que RNF-03 no es evaluable:\n%s", out)
+			}
+			if !strings.Contains(out, "consultas de ranking") {
+				t.Errorf("el resumen debe citar las consultas de ranking como motivo:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestRNF03NeedsExactlyTheMinimumOfSuccessfulRankingQueries(t *testing.T) {
+	for _, c := range []struct {
+		success int
+		want    bool
+	}{{RNF03MinRankingQueries - 1, false}, {RNF03MinRankingQueries, true}} {
+		m := withRanking(ms(100), ms(100))
+		m.Ranking = &RankingMeasurement{Sent: c.success, Success: c.success, Latencies: []time.Duration{ms(5)}}
+		if got := BuildReport(m).Ranking.RNF03Evaluated; got != c.want {
+			t.Errorf("%d consultas exitosas: Evaluated = %v, want %v", c.success, got, c.want)
 		}
 	}
 }

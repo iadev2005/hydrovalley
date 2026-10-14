@@ -28,6 +28,13 @@ const (
 	// confirmar), pensado para absorber el ruido entre dos ejecuciones sin
 	// dejar pasar un deterioro claro. RNF-03 exige además p95 <= RNF02MaxLatency.
 	RNF03Margin = 0.20
+	// RNF03MinRankingQueries es el mínimo de consultas de ranking exitosas
+	// para que RNF-03 se pueda evaluar. Con 2 s de intervalo y 60 s de carga
+	// salen unas 30; con menos de 10 el ranking apenas ejerció presión, y con
+	// cualquier error (salvo la consulta que la propia prueba cancela al
+	// cerrar la ventana, que no se cuenta) lo medido no es el ranking en
+	// funcionamiento. Un valor elegido por el equipo, como RNF03Margin.
+	RNF03MinRankingQueries = 10
 )
 
 // Counters son los contadores del modo demo que el hub difunde en `state`.
@@ -200,14 +207,21 @@ func BuildReport(m Measurement) Report {
 			Errors:      m.Ranking.Errors,
 			LatencyMS:   rlatMS,
 		}
-		if m.BaselineP95 > 0 {
+		switch {
+		case m.Ranking.Success < RNF03MinRankingQueries || m.Ranking.Errors > 0:
+			// Sin consultas suficientes y sin errores, lo medido no es el
+			// ranking en funcionamiento: no se evalúa ni se da por cumplido.
+			r.Notes = append(r.Notes, fmt.Sprintf(
+				"RNF-03 no se pudo evaluar: se exigen al menos %d consultas de ranking exitosas y ninguna con error (hubo %d exitosas y %d con error).",
+				RNF03MinRankingQueries, m.Ranking.Success, m.Ranking.Errors))
+		case m.BaselineP95 > 0:
 			// RNF-03: con el ranking en bucle, el p95 de las acciones no pasa
 			// de los 200 ms ni se aleja de la línea base más que el margen.
 			p95 := Percentile(lat, 0.95)
 			r.Ranking.BaselineP95MS = toMS(m.BaselineP95)
 			r.Ranking.RNF03Evaluated = true
 			r.Ranking.RNF03OK = p95 <= RNF02MaxLatency && float64(p95) <= float64(m.BaselineP95)*(1+RNF03Margin)
-		} else {
+		default:
 			r.Notes = append(r.Notes, "RNF-03 no se pudo evaluar: falta la línea base (p95 de la misma carga sin ranking).")
 		}
 	}
@@ -311,6 +325,8 @@ func FormatSummary(r Report) string {
 			fmt.Fprintf(&b, "RNF-03 (p95 de las acciones con ranking <= %.0f ms y <= línea base + %.0f %%): %s (p95 %s ms con ranking · %s ms línea base)\n",
 				float64(RNF02MaxLatency.Milliseconds()), RNF03Margin*100, verdict(r.Ranking.RNF03OK),
 				decimal(r.LatencyMS.P95), decimal(r.Ranking.BaselineP95MS))
+		} else if r.Ranking.QueriesOK < RNF03MinRankingQueries || r.Ranking.Errors > 0 {
+			fmt.Fprintf(&b, "RNF-03: NO se pudo evaluar, las consultas de ranking no bastan (se exigen al menos %d exitosas y ninguna con error)\n", RNF03MinRankingQueries)
 		} else {
 			b.WriteString("RNF-03: NO se pudo evaluar, sin línea base (ejecuta antes la misma carga sin ranking y pásala con BOTS_LOAD_BASELINE_REPORT)\n")
 		}

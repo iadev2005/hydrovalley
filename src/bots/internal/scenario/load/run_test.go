@@ -286,7 +286,8 @@ func TestRunWithRankingClient(t *testing.T) {
 	fakeRC := &fakeRankingClient{}
 	cfg.RankingClient = fakeRC
 	cfg.RankingToken = "test-token"
-	cfg.RankingInterval = 20 * time.Millisecond
+	// Con 10 ms salen unas 30 consultas en 300 ms: de sobra para el mínimo de RNF-03.
+	cfg.RankingInterval = 10 * time.Millisecond
 	cfg.BaselineP95 = 50 * time.Millisecond
 
 	rep, err := run(t, srv, cfg, 2)
