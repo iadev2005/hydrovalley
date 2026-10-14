@@ -66,7 +66,7 @@ HubC --> ChatC : gRPC :50051\nChatService (red de Docker)
 BotsC --> ProxyC : HTTPS / WSS :8080\n(perfil bots de compose)
 HubC --> WorldC : gRPC :50051\nStep cada 100 ms
 ApiC --> WorldC : gRPC :50051\nGetRanking, Health.Check
-ApiC --> PersistenceC : gRPC :50051\nAccount, Report, Health.Check\n(Catalog: pendiente, A11)
+ApiC --> PersistenceC : gRPC :50051\nAccount, Catalog, Report, Health.Check
 ApiC --> HubC : HTTP :8081\nGET /stats (HUB_STATS_ADDR,\nsolo red interna)
 WorldC --> PersistenceC : gRPC :50051\nSaveSnapshot, LoadSnapshot,\nGetCatalog
 PersistenceC --> DbC : PostgreSQL :5433\n(host 5433 → contenedor 5432)

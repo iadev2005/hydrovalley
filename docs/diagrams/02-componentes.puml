@@ -16,7 +16,7 @@ component "Proxy de entrada\n(nginx)" as Proxy
 component "API" as Api <<TypeScript>>
 component "Hub en tiempo real" as Hub <<Go>>
 component "Chat" as Chat <<Go>>
-() "HTTP /api\nPOST /api/auth/register, /api/auth/login\nGET /api/ranking, /api/report, /api/system\nPOST /api/admin/bot-accounts\n(GET /api/catalog: pendiente, A11)" as I_Api
+() "HTTP /api\nPOST /api/auth/register, /api/auth/login\nGET /api/ranking, /api/report, /api/system, /api/catalog\nPOST /api/admin/bot-accounts" as I_Api
 () "WebSocket /play" as I_Play
 () "WebSocket /chat\n(nivel 2: hoy nginx responde 503)" as I_Chat
 () "HTTP interno\nGET /stats\n(nginx no lo reenvía)" as I_Stats
@@ -70,7 +70,7 @@ Api -down-( I_HealthPersistence : Check
 World -down-( I_Persistence : SaveSnapshot (cada 50 ticks)\nLoadSnapshot (al arrancar)
 World -down-( I_Catalog : GetCatalog (al arrancar\ny al reiniciar el valle)
 Api -down-( I_Account : Register, GetAccount,\nGetUsernames
-Api .down.( I_Catalog : GetCatalog\n(pendiente, A11)
+Api -down-( I_Catalog : GetCatalog
 Api -down-( I_Report : GetReport
 
 Persistence -down-> Db : SQL\n(único con credenciales)
