@@ -56,6 +56,11 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Archivo del catálogo (catalog/catalog.json por defecto; se puede
+      # cambiar montando otro y apuntando CATALOG_PATH a él).
+      CATALOG_PATH: ${CATALOG_PATH:-/app/catalog/catalog.json}
+    volumes:
+      - ../catalog:/app/catalog:ro
 
   world:
     <<: *service
@@ -158,6 +163,10 @@ services:
       BOTS_SEED: ${BOTS_SEED:-}
       BOTS_RESET: ${BOTS_RESET:-}
       BOTS_REPORT_PATH: ${BOTS_REPORT_PATH:-}
+      BOTS_LOAD_RANKING: ${BOTS_LOAD_RANKING:-}
+      BOTS_LOAD_RANKING_INTERVAL: ${BOTS_LOAD_RANKING_INTERVAL:-}
+      BOTS_FIREFIGHTER_SEED_PLANTS: ${BOTS_FIREFIGHTER_SEED_PLANTS:-}
+      BOTS_FIREFIGHTER_BONUS: ${BOTS_FIREFIGHTER_BONUS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
 networks:

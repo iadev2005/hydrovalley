@@ -266,3 +266,39 @@ func TestRunFailsWhenTheAdminNeverConnects(t *testing.T) {
 		t.Fatal("want an error when the admin session cannot connect")
 	}
 }
+
+type fakeRankingClient struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *fakeRankingClient) GetRanking(_ context.Context, _ string, _ int) (client.RankingResponse, time.Duration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return client.RankingResponse{Tick: "10"}, 5 * time.Millisecond, nil
+}
+
+func TestRunWithRankingClient(t *testing.T) {
+	_, srv := newValley(t)
+	cfg := fastConfig()
+	fakeRC := &fakeRankingClient{}
+	cfg.RankingClient = fakeRC
+	cfg.RankingToken = "test-token"
+	cfg.RankingInterval = 20 * time.Millisecond
+
+	rep, err := run(t, srv, cfg, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Ranking == nil {
+		t.Fatal("expected rep.Ranking to be non-nil")
+	}
+	if rep.Ranking.QueriesSent == 0 || rep.Ranking.QueriesOK == 0 {
+		t.Errorf("expected ranking queries to be executed: %+v", rep.Ranking)
+	}
+	if !rep.Ranking.RNF03OK {
+		t.Errorf("expected RNF03OK to be true: %+v", rep.Ranking)
+	}
+}
+

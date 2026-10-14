@@ -13,6 +13,8 @@
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
 # request-id.test.mjs sigue un identificador de petición en los registros.
+#   CATALOG_PATH        ruta del catálogo dentro del contenedor persistence
+#                       (/app/catalog/catalog.json por defecto)
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
 # «bots») con el administrador efímero.
 # nginx sirve HTTPS: run.sh genera un certificado efímero (openssl) y lo monta
@@ -45,6 +47,9 @@ openssl req -new -x509 -key "${E2E_TLS_DIR}/tls.key" -out "${E2E_TLS_DIR}/tls.cr
   -addext "extendedKeyUsage=serverAuth"
 chmod 644 "${E2E_TLS_DIR}/tls.key" "${E2E_TLS_DIR}/tls.crt"
 export NODE_EXTRA_CA_CERTS="${E2E_TLS_DIR}/tls.crt"
+if [[ -n "${CATALOG_PATH:-}" ]]; then
+  export CATALOG_PATH
+fi
 
 # Clave Ed25519 efímera para la prueba: se genera en cada ejecución y nunca
 # se guarda (RNF-13). Si ya viene definida en el entorno, se respeta.
@@ -136,7 +141,16 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   docker compose --profile bots build bots
 fi
 
-node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
+# Si le pasas argumentos, ejecuta solo los archivos indicados y termina.
+if [[ $# -gt 0 ]]; then
+  node --test --test-reporter=spec "$@"
+  exit 0
+fi
+
+# Flujo por defecto (sin argumentos): corre toda la suite.
+node --test --test-reporter=spec \
+  "${repo_root}/tests/e2e/smoke.test.mjs" \
+  "${repo_root}/tests/e2e/cp01-concurrent-drops.test.mjs"
 
 # RNF-12: TLS en nginx (redirección de HTTP, versiones, healthcheck).
 node --test --test-reporter=spec "${repo_root}/tests/e2e/tls.test.mjs"

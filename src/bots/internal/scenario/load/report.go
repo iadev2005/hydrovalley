@@ -27,6 +27,14 @@ type Counters struct {
 	Accepted uint64
 }
 
+// RankingMeasurement reúne lo medido de las consultas periódicas de ranking.
+type RankingMeasurement struct {
+	Sent      int
+	Success   int
+	Errors    int
+	Latencies []time.Duration
+}
+
 // Measurement es lo medido, sin interpretar: la entrada de BuildReport.
 type Measurement struct {
 	Bots int
@@ -41,6 +49,8 @@ type Measurement struct {
 	// Latencies son las de las acciones con resultado del hub.
 	Latencies       []time.Duration
 	Baseline, Final Counters
+	// Ranking contiene las consultas de GET /api/ranking si se ejecutó con ranking.
+	Ranking *RankingMeasurement
 }
 
 // LatencyMS resume la latencia, en milisegundos.
@@ -48,6 +58,15 @@ type LatencyMS struct {
 	P50 float64 `json:"p50"`
 	P95 float64 `json:"p95"`
 	Max float64 `json:"max"`
+}
+
+// RankingStats resume las métricas de las consultas de ranking en el informe.
+type RankingStats struct {
+	QueriesSent int       `json:"queries_sent"`
+	QueriesOK   int       `json:"queries_ok"`
+	Errors      int       `json:"errors"`
+	LatencyMS   LatencyMS `json:"latency_ms"`
+	RNF03OK     bool      `json:"rnf03_ok"`
 }
 
 // Report es el informe de la prueba, tal como se escribe en JSON.
@@ -69,16 +88,23 @@ type Report struct {
 	LatencyWithinLimit float64 `json:"latency_within_limit_ratio"`
 	// HumidityContributed y AcceptedDrops son las diferencias entre el final
 	// y el inicio de la prueba.
-	HumidityContributed uint64   `json:"humidity_contributed"`
-	AcceptedDrops       uint64   `json:"accepted_drops"`
-	InvariantOK         bool     `json:"invariant_ok"`
-	RNF01OK             bool     `json:"rnf01_ok"`
-	RNF02OK             bool     `json:"rnf02_ok"`
-	Notes               []string `json:"notes,omitempty"`
+	HumidityContributed uint64        `json:"humidity_contributed"`
+	AcceptedDrops       uint64        `json:"accepted_drops"`
+	InvariantOK         bool          `json:"invariant_ok"`
+	RNF01OK             bool          `json:"rnf01_ok"`
+	RNF02OK             bool          `json:"rnf02_ok"`
+	Ranking             *RankingStats `json:"ranking,omitempty"`
+	Notes               []string      `json:"notes,omitempty"`
 }
 
-// Passed dice si se cumplen las tres comprobaciones de CP-11.
-func (r Report) Passed() bool { return r.InvariantOK && r.RNF01OK && r.RNF02OK }
+// Passed dice si se cumplen las tres comprobaciones de CP-11 (y RNF-03 si hubo ranking).
+func (r Report) Passed() bool {
+	base := r.InvariantOK && r.RNF01OK && r.RNF02OK
+	if r.Ranking != nil {
+		return base && r.Ranking.RNF03OK
+	}
+	return base
+}
 
 // Percentile devuelve el percentil p (0 a 1) por el método del rango más
 // cercano; sorted debe venir ordenado. Una muestra vacía da 0.
@@ -148,6 +174,21 @@ func BuildReport(m Measurement) Report {
 	}
 	if m.SendErrors > 0 {
 		r.Notes = append(r.Notes, fmt.Sprintf("%d turnos sin conexión para enviar.", m.SendErrors))
+	}
+	if m.Ranking != nil {
+		rlat := append([]time.Duration(nil), m.Ranking.Latencies...)
+		sort.Slice(rlat, func(i, j int) bool { return rlat[i] < rlat[j] })
+		rlatMS := LatencyMS{P50: toMS(Percentile(rlat, 0.50)), P95: toMS(Percentile(rlat, 0.95))}
+		if len(rlat) > 0 {
+			rlatMS.Max = toMS(rlat[len(rlat)-1])
+		}
+		r.Ranking = &RankingStats{
+			QueriesSent: m.Ranking.Sent,
+			QueriesOK:   m.Ranking.Success,
+			Errors:      m.Ranking.Errors,
+			LatencyMS:   rlatMS,
+			RNF03OK:     r.RNF02OK, // RNF-03: el ranking no debe hacer que las acciones pasen de los 200 ms de RNF-02
+		}
 	}
 	return r
 }
@@ -220,6 +261,14 @@ func FormatSummary(r Report) string {
 	fmt.Fprintf(&b, "RNF-01 (al menos %.0f gotas aceptadas por segundo): %s\n", RNF01MinDropsPerSecond, verdict(r.RNF01OK))
 	fmt.Fprintf(&b, "RNF-02 (el %d %% de las acciones en menos de %d ms): %s (%s %%)\n",
 		RNF02Percent, RNF02MaxLatency.Milliseconds(), verdict(r.RNF02OK), decimal(r.LatencyWithinLimit*100))
+	if r.Ranking != nil {
+		fmt.Fprintf(&b, "Ranking en bucle: %s consultas (%s exitosas, %s errores)\n",
+			thousands(r.Ranking.QueriesSent), thousands(r.Ranking.QueriesOK), thousands(r.Ranking.Errors))
+		fmt.Fprintf(&b, "Latencia del ranking: mediana %s ms · p95 %s ms · máxima %s ms\n",
+			decimal(r.Ranking.LatencyMS.P50), decimal(r.Ranking.LatencyMS.P95), decimal(r.Ranking.LatencyMS.Max))
+		fmt.Fprintf(&b, "RNF-03 (el ranking no degrada las acciones más allá de RNF-02): %s\n",
+			verdict(r.Ranking.RNF03OK))
+	}
 	for _, n := range r.Notes {
 		fmt.Fprintf(&b, "Nota: %s\n", n)
 	}

@@ -151,3 +151,56 @@ func TestProvisionRejectsShortResponse(t *testing.T) {
 		t.Fatal("expected error for a response with fewer accounts than requested")
 	}
 }
+
+func TestGetRankingSuccess(t *testing.T) {
+	api, _ := newTestAPI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("want GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/ranking" || r.URL.RawQuery != "limit=10" {
+			t.Errorf("unexpected URL: %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Errorf("missing or invalid authorization header")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"tick": "42",
+			"entries": [
+				{"rank": 1, "player_id": "p1", "username": "alice", "leaves_earned": "100"},
+				{"rank": 2, "player_id": "p2", "username": "bob", "leaves_earned": "50"}
+			]
+		}`))
+	}))
+
+	res, lat, err := api.GetRanking(context.Background(), "test-token", 10)
+	if err != nil {
+		t.Fatalf("GetRanking error: %v", err)
+	}
+	if lat <= 0 {
+		t.Errorf("want positive latency, got %v", lat)
+	}
+	if res.Tick != "42" || len(res.Entries) != 2 {
+		t.Fatalf("unexpected response: %+v", res)
+	}
+	if res.Entries[0].Username != "alice" || res.Entries[0].LeavesEarned != "100" {
+		t.Errorf("unexpected entry 0: %+v", res.Entries[0])
+	}
+}
+
+func TestGetRankingUnauthorized(t *testing.T) {
+	api, _ := newTestAPI(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"Hace falta un token válido: Authorization: Bearer <token>"}`))
+	}))
+
+	_, _, err := api.GetRanking(context.Background(), "invalid-token", 10)
+	if err == nil {
+		t.Fatal("expected error for unauthorized request")
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) || he.Status != http.StatusUnauthorized {
+		t.Fatalf("want 401 HTTPError, got %v", err)
+	}
+}
+

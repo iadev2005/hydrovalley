@@ -149,6 +149,35 @@ func TestLoadTLSRejectsBadValuesNamingTheVariable(t *testing.T) {
 	}
 }
 
+func TestLoadRankingVariables(t *testing.T) {
+	c, err := Load(env(map[string]string{"HV_BASE_URL": "http://x"}))
+	if err != nil || c.LoadRanking || c.LoadRankingInterval != 1*time.Second {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	c, err = Load(env(map[string]string{
+		"HV_BASE_URL":               "http://x",
+		"BOTS_LOAD_RANKING":          "true",
+		"BOTS_LOAD_RANKING_INTERVAL": "500ms",
+	}))
+	if err != nil || !c.LoadRanking || c.LoadRankingInterval != 500*time.Millisecond {
+		t.Fatalf("parsed: %+v %v", c, err)
+	}
+	for name, v := range map[string]string{
+		"BOTS_LOAD_RANKING":          "maybe",
+		"BOTS_LOAD_RANKING_INTERVAL": "invalid",
+		"BOTS_LOAD_RANKING_INTERVAL_ZERO": "0s",
+	} {
+		varName := name
+		if name == "BOTS_LOAD_RANKING_INTERVAL_ZERO" {
+			varName = "BOTS_LOAD_RANKING_INTERVAL"
+		}
+		_, err := Load(env(map[string]string{"HV_BASE_URL": "http://x", varName: v}))
+		if err == nil || !strings.Contains(err.Error(), varName) {
+			t.Errorf("%s: want error naming %s, got %v", name, varName, err)
+		}
+	}
+}
+
 func TestTLSConfigIsNilByDefault(t *testing.T) {
 	got, err := Config{}.TLSConfig()
 	if err != nil || got != nil {

@@ -47,6 +47,10 @@ type Config struct {
 	// 0 = el valor del catálogo de arranque (5).
 	SeedPlants bool
 	FireBonus  uint64
+	// LoadRanking (BOTS_LOAD_RANKING) activa la consulta en bucle de
+	// GET /api/ranking durante la prueba de carga para medir RNF-03.
+	LoadRanking         bool
+	LoadRankingInterval time.Duration
 	// LogLevel es el nivel de slog.
 	LogLevel slog.Level
 }
@@ -136,6 +140,21 @@ func Load(getenv func(string) string) (Config, error) {
 			return c, fmt.Errorf("BOTS_SEED must be an unsigned integer, got %q", v)
 		}
 		c.Seed, c.SeedSet = n, true
+	}
+	c.LoadRankingInterval = 1 * time.Second
+	if v := getenv("BOTS_LOAD_RANKING"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("BOTS_LOAD_RANKING must be true or false, got %q", v)
+		}
+		c.LoadRanking = b
+	}
+	if v := getenv("BOTS_LOAD_RANKING_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return c, fmt.Errorf("BOTS_LOAD_RANKING_INTERVAL must be a positive duration such as 1s or 500ms, got %q", v)
+		}
+		c.LoadRankingInterval = d
 	}
 	if v := getenv("LOG_LEVEL"); v != "" {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {

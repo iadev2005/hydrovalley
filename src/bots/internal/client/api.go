@@ -52,6 +52,20 @@ type Account struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
+// RankingEntry es una fila del ranking devuelta por GET /api/ranking.
+type RankingEntry struct {
+	Rank         uint32 `json:"rank"`
+	PlayerID     string `json:"player_id"`
+	Username     string `json:"username"`
+	LeavesEarned string `json:"leaves_earned"`
+}
+
+// RankingResponse es la respuesta de GET /api/ranking.
+type RankingResponse struct {
+	Tick    string         `json:"tick"`
+	Entries []RankingEntry `json:"entries"`
+}
+
 // API es el cliente REST de la API del juego.
 type API struct {
 	base *url.URL
@@ -198,3 +212,61 @@ func (a *API) post(ctx context.Context, path, token string, body, out any) (http
 	}
 	return resp.Header, nil
 }
+
+// GetRanking consulta GET /api/ranking?limit=N con el token de sesión y
+// devuelve la respuesta, la latencia de la petición HTTP y el posible error.
+func (a *API) GetRanking(ctx context.Context, token string, limit int) (RankingResponse, time.Duration, error) {
+	path := "/api/ranking"
+	if limit > 0 {
+		path = fmt.Sprintf("/api/ranking?limit=%d", limit)
+	}
+	var out RankingResponse
+	_, latency, err := a.get(ctx, path, token, &out)
+	if err != nil {
+		return RankingResponse{}, latency, fmt.Errorf("get ranking: %w", err)
+	}
+	return out, latency, nil
+}
+
+func (a *API) get(ctx context.Context, path, token string, out any) (http.Header, time.Duration, error) {
+	u, err := url.Parse(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	reqURL := a.base.ResolveReference(u).String()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	start := time.Now()
+	resp, err := a.HTTP.Do(req)
+	latency := time.Since(start)
+	if err != nil {
+		return nil, latency, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return resp.Header, latency, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		msg := http.StatusText(resp.StatusCode)
+		if json.Unmarshal(data, &e) == nil && e.Error != "" {
+			msg = e.Error
+		}
+		return resp.Header, latency, &HTTPError{Status: resp.StatusCode, Message: msg}
+	}
+	if out != nil {
+		if err := json.Unmarshal(data, out); err != nil {
+			return resp.Header, latency, fmt.Errorf("decode response: %w", err)
+		}
+	}
+	return resp.Header, latency, nil
+}
+
