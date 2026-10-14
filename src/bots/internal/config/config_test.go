@@ -151,15 +151,16 @@ func TestLoadTLSRejectsBadValuesNamingTheVariable(t *testing.T) {
 
 func TestLoadRankingVariables(t *testing.T) {
 	c, err := Load(env(map[string]string{"HV_BASE_URL": "http://x"}))
-	if err != nil || c.LoadRanking || c.LoadRankingInterval != 1*time.Second {
+	if err != nil || c.LoadRanking || c.LoadRankingInterval != 2*time.Second || c.LoadBaselineReport != "" {
 		t.Fatalf("defaults: %+v %v", c, err)
 	}
 	c, err = Load(env(map[string]string{
 		"HV_BASE_URL":                "http://x",
 		"BOTS_LOAD_RANKING":          "true",
 		"BOTS_LOAD_RANKING_INTERVAL": "500ms",
+		"BOTS_LOAD_BASELINE_REPORT":  " /reports/load-baseline.json ",
 	}))
-	if err != nil || !c.LoadRanking || c.LoadRankingInterval != 500*time.Millisecond {
+	if err != nil || !c.LoadRanking || c.LoadRankingInterval != 500*time.Millisecond || c.LoadBaselineReport != "/reports/load-baseline.json" {
 		t.Fatalf("parsed: %+v %v", c, err)
 	}
 	for name, v := range map[string]string{

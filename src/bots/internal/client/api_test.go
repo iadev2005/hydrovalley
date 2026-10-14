@@ -203,3 +203,52 @@ func TestGetRankingUnauthorized(t *testing.T) {
 		t.Fatalf("want 401 HTTPError, got %v", err)
 	}
 }
+
+func TestGetRankingHTTPErrorsKeepStatusAndMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		msg    string
+	}{
+		{"error del servidor con mensaje", http.StatusInternalServerError, `{"error":"boom"}`, "boom"},
+		{"límite de consultas", http.StatusTooManyRequests, `{"error":"slow down"}`, "slow down"},
+		{"sin cuerpo JSON", http.StatusBadGateway, `<html>`, http.StatusText(http.StatusBadGateway)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, _ := newTestAPI(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			_, lat, err := api.GetRanking(context.Background(), "tok", 10)
+			var he *HTTPError
+			if !errors.As(err, &he) || he.Status != tc.status || he.Message != tc.msg {
+				t.Fatalf("want HTTPError{%d, %q}, got %v", tc.status, tc.msg, err)
+			}
+			if lat <= 0 {
+				t.Errorf("la latencia de una respuesta con error también se mide, got %v", lat)
+			}
+		})
+	}
+}
+
+func TestGetRankingRejectsABodyThatIsNotJSON(t *testing.T) {
+	api, _ := newTestAPI(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("no es json"))
+	}))
+	if _, _, err := api.GetRanking(context.Background(), "tok", 0); err == nil {
+		t.Fatal("expected a decode error")
+	}
+}
+
+func TestGetRankingReportsAContextCancellationAsTheContextError(t *testing.T) {
+	release := make(chan struct{})
+	api, _ := newTestAPI(t, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { <-release }))
+	t.Cleanup(func() { close(release) })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, _, err := api.GetRanking(ctx, "tok", 0)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want context.DeadlineExceeded, got %v", err)
+	}
+}

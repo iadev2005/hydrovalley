@@ -2,6 +2,7 @@ package load
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -19,6 +20,14 @@ const (
 	// envío.
 	RNF02MaxLatency = 200 * time.Millisecond
 	RNF02Percent    = 95
+	// RNF03Margin es cuánto puede subir el p95 de las acciones con el ranking
+	// en bucle respecto a la misma carga sin ranking (la línea base). El
+	// documento inicial solo pide que el ranking no haga pasar a las acciones
+	// de los 200 ms de RNF-02, sin cifrar «cuánto» empeorar es aceptable: el
+	// 20 % es un umbral elegido por el equipo (decisión pendiente de
+	// confirmar), pensado para absorber el ruido entre dos ejecuciones sin
+	// dejar pasar un deterioro claro. RNF-03 exige además p95 <= RNF02MaxLatency.
+	RNF03Margin = 0.20
 )
 
 // Counters son los contadores del modo demo que el hub difunde en `state`.
@@ -50,7 +59,8 @@ type Measurement struct {
 	Latencies       []time.Duration
 	Baseline, Final Counters
 	// Ranking contiene las consultas de GET /api/ranking si se ejecutó con ranking.
-	Ranking *RankingMeasurement
+	Ranking     *RankingMeasurement
+	BaselineP95 time.Duration
 }
 
 // LatencyMS resume la latencia, en milisegundos.
@@ -62,11 +72,13 @@ type LatencyMS struct {
 
 // RankingStats resume las métricas de las consultas de ranking en el informe.
 type RankingStats struct {
-	QueriesSent int       `json:"queries_sent"`
-	QueriesOK   int       `json:"queries_ok"`
-	Errors      int       `json:"errors"`
-	LatencyMS   LatencyMS `json:"latency_ms"`
-	RNF03OK     bool      `json:"rnf03_ok"`
+	QueriesSent    int       `json:"queries_sent"`
+	QueriesOK      int       `json:"queries_ok"`
+	Errors         int       `json:"errors"`
+	LatencyMS      LatencyMS `json:"latency_ms"`
+	RNF03OK        bool      `json:"rnf03_ok"`
+	RNF03Evaluated bool
+	BaselineP95MS  float64
 }
 
 // Report es el informe de la prueba, tal como se escribe en JSON.
@@ -187,10 +199,39 @@ func BuildReport(m Measurement) Report {
 			QueriesOK:   m.Ranking.Success,
 			Errors:      m.Ranking.Errors,
 			LatencyMS:   rlatMS,
-			RNF03OK:     r.RNF02OK, // RNF-03: el ranking no debe hacer que las acciones pasen de los 200 ms de RNF-02
+		}
+		if m.BaselineP95 > 0 {
+			// RNF-03: con el ranking en bucle, el p95 de las acciones no pasa
+			// de los 200 ms ni se aleja de la línea base más que el margen.
+			p95 := Percentile(lat, 0.95)
+			r.Ranking.BaselineP95MS = toMS(m.BaselineP95)
+			r.Ranking.RNF03Evaluated = true
+			r.Ranking.RNF03OK = p95 <= RNF02MaxLatency && float64(p95) <= float64(m.BaselineP95)*(1+RNF03Margin)
+		} else {
+			r.Notes = append(r.Notes, "RNF-03 no se pudo evaluar: falta la línea base (p95 de la misma carga sin ranking).")
 		}
 	}
 	return r
+}
+
+// BaselineP95FromReport lee el p95 de las acciones de un informe de una
+// ejecución sin ranking (la línea base de RNF-03). Rechaza un informe con
+// ranking, porque no sería una línea base, y uno sin latencias.
+func BaselineP95FromReport(data []byte) (time.Duration, error) {
+	var r struct {
+		LatencyMS LatencyMS     `json:"latency_ms"`
+		Ranking   *RankingStats `json:"ranking"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return 0, fmt.Errorf("baseline report: %w", err)
+	}
+	if r.Ranking != nil {
+		return 0, errors.New("baseline report: it was run with the ranking loop, so it is not a baseline")
+	}
+	if r.LatencyMS.P95 <= 0 {
+		return 0, errors.New("baseline report: it has no p95 latency")
+	}
+	return time.Duration(r.LatencyMS.P95 * float64(time.Millisecond)), nil
 }
 
 // MarshalReport codifica el informe en JSON con sangría.
@@ -266,8 +307,13 @@ func FormatSummary(r Report) string {
 			thousands(r.Ranking.QueriesSent), thousands(r.Ranking.QueriesOK), thousands(r.Ranking.Errors))
 		fmt.Fprintf(&b, "Latencia del ranking: mediana %s ms · p95 %s ms · máxima %s ms\n",
 			decimal(r.Ranking.LatencyMS.P50), decimal(r.Ranking.LatencyMS.P95), decimal(r.Ranking.LatencyMS.Max))
-		fmt.Fprintf(&b, "RNF-03 (el ranking no degrada las acciones más allá de RNF-02): %s\n",
-			verdict(r.Ranking.RNF03OK))
+		if r.Ranking.RNF03Evaluated {
+			fmt.Fprintf(&b, "RNF-03 (p95 de las acciones con ranking <= %.0f ms y <= línea base + %.0f %%): %s (p95 %s ms con ranking · %s ms línea base)\n",
+				float64(RNF02MaxLatency.Milliseconds()), RNF03Margin*100, verdict(r.Ranking.RNF03OK),
+				decimal(r.LatencyMS.P95), decimal(r.Ranking.BaselineP95MS))
+		} else {
+			b.WriteString("RNF-03: NO se pudo evaluar, sin línea base (ejecuta antes la misma carga sin ranking y pásala con BOTS_LOAD_BASELINE_REPORT)\n")
+		}
 	}
 	for _, n := range r.Notes {
 		fmt.Fprintf(&b, "Nota: %s\n", n)

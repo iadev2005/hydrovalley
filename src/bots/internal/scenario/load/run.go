@@ -41,6 +41,7 @@ type Config struct {
 	RankingClient   RankingClient
 	RankingToken    string
 	RankingInterval time.Duration
+	BaselineP95     time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -171,11 +172,12 @@ func Run(ctx context.Context, cfg Config, admin Session, bots []Session, log *sl
 	log.Info("sending finished, results drained", "window", window.Round(time.Millisecond))
 
 	m := Measurement{
-		Bots:     len(bots),
-		Window:   window,
-		Results:  map[string]int{},
-		Baseline: baseline,
-		Ranking:  rankingMeasurement,
+		Bots:        len(bots),
+		Window:      window,
+		Results:     map[string]int{},
+		Baseline:    baseline,
+		Ranking:     rankingMeasurement,
+		BaselineP95: cfg.BaselineP95,
 	}
 	for _, r := range results {
 		m.Sent += r.sent
@@ -369,15 +371,20 @@ func runRankingLoop(ctx context.Context, cfg Config, log *slog.Logger) *RankingM
 	defer ticker.Stop()
 
 	query := func() {
-		rm.Sent++
 		_, lat, err := cfg.RankingClient.GetRanking(ctx, cfg.RankingToken, 100)
+		if err != nil && ctx.Err() != nil {
+			// La ventana de envío terminó con la consulta en vuelo: la
+			// cancelamos nosotros, no es un fallo del ranking ni cuenta.
+			return
+		}
+		rm.Sent++
 		if err != nil {
 			rm.Errors++
 			log.Debug("ranking query error", "err", err)
-		} else {
-			rm.Success++
-			rm.Latencies = append(rm.Latencies, lat)
+			return
 		}
+		rm.Success++
+		rm.Latencies = append(rm.Latencies, lat)
 	}
 
 	query()

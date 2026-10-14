@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -286,6 +287,7 @@ func TestRunWithRankingClient(t *testing.T) {
 	cfg.RankingClient = fakeRC
 	cfg.RankingToken = "test-token"
 	cfg.RankingInterval = 20 * time.Millisecond
+	cfg.BaselineP95 = 50 * time.Millisecond
 
 	rep, err := run(t, srv, cfg, 2)
 	if err != nil {
@@ -299,5 +301,61 @@ func TestRunWithRankingClient(t *testing.T) {
 	}
 	if !rep.Ranking.RNF03OK {
 		t.Errorf("expected RNF03OK to be true: %+v", rep.Ranking)
+	}
+}
+
+// blockingRankingClient responde bien las dos primeras consultas y deja la
+// tercera esperando hasta que se cancele el contexto, como una petición en
+// vuelo cuando termina la ventana de envío.
+type blockingRankingClient struct {
+	mu    sync.Mutex
+	calls int
+	// started avisa de que la consulta en vuelo ya espera.
+	started chan struct{}
+}
+
+func (b *blockingRankingClient) GetRanking(ctx context.Context, _ string, _ int) (client.RankingResponse, time.Duration, error) {
+	b.mu.Lock()
+	b.calls++
+	n := b.calls
+	b.mu.Unlock()
+	if n <= 2 {
+		return client.RankingResponse{}, 5 * time.Millisecond, nil
+	}
+	close(b.started)
+	<-ctx.Done()
+	return client.RankingResponse{}, 0, fmt.Errorf("get ranking: %w", ctx.Err())
+}
+
+func TestRankingLoopDoesNotCountTheQueryCancelledByTheEndOfTheWindowAsAnError(t *testing.T) {
+	bc := &blockingRankingClient{started: make(chan struct{})}
+	cfg := Config{RankingClient: bc, RankingToken: "t", RankingInterval: 5 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *RankingMeasurement)
+	go func() { done <- runRankingLoop(ctx, cfg, slog.New(slog.DiscardHandler)) }()
+	<-bc.started
+	cancel()
+	rm := <-done
+	if rm.Errors != 0 {
+		t.Errorf("la consulta cancelada por el fin de la ventana no es un error: %+v", rm)
+	}
+	if rm.Sent != 2 || rm.Success != 2 || len(rm.Latencies) != 2 {
+		t.Errorf("solo cuentan las consultas completadas (2): %+v", rm)
+	}
+}
+
+type failingRankingClient struct{}
+
+func (failingRankingClient) GetRanking(context.Context, string, int) (client.RankingResponse, time.Duration, error) {
+	return client.RankingResponse{}, time.Millisecond, &client.HTTPError{Status: http.StatusTooManyRequests, Message: "slow down"}
+}
+
+func TestRankingLoopCountsRealFailuresAsErrors(t *testing.T) {
+	cfg := Config{RankingClient: failingRankingClient{}, RankingToken: "t", RankingInterval: 5 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	rm := runRankingLoop(ctx, cfg, slog.New(slog.DiscardHandler))
+	if rm.Errors == 0 || rm.Success != 0 || rm.Errors != rm.Sent {
+		t.Errorf("los fallos reales (429) cuentan como errores: %+v", rm)
 	}
 }
