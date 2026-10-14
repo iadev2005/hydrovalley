@@ -45,4 +45,4 @@ Cerrar tres tareas del nivel 1 de `docs/tareas-equipo.md`: A5 (TLS en nginx, RNF
 
 ## Progreso
 
-- T1 en `feature/a5-tls` (ruta delegada).
+- T1 en `feature/a5-tls` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada con avisos que se corrigen al empezar la T2: redirección 301 → 308 (la 301 puede convertir un POST en GET), la e2e no ejercita el certificado autogenerado, la comprobación de TLS 1.1 no demuestra nada si Node ya lo rechaza, los bots omiten la verificación por defecto en Compose y una frase de `deploy/README.md`.
