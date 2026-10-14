@@ -81,6 +81,12 @@ jobs:
           }
           verdict() { case "$1" in true) echo "Cumple" ;; false) echo "NO cumple" ;; *) echo "n/d" ;; esac; }
 
+          # RNF-03: «No evaluable» si faltó la línea base o las consultas de
+          # ranking no bastaron (claves ranking.rnf03_evaluated y rnf03_ok).
+          rnf03() {
+            if [[ "$(field "$1" '.ranking.rnf03_evaluated')" == "false" ]]; then echo "No evaluable"; else verdict "$(field "$1" '.ranking.rnf03_ok')"; fi
+          }
+
           base="reports/load-baseline.json"
           rank="reports/load-ranking.json"
 
@@ -99,7 +105,7 @@ jobs:
             echo "| Invariante de humedad | $(verdict "$(field "$base" '.invariant_ok')") | $(verdict "$(field "$rank" '.invariant_ok')") |"
             echo "| RNF-01 (>= 100 gotas/s) | $(verdict "$(field "$base" '.rnf01_ok')") | $(verdict "$(field "$rank" '.rnf01_ok')") |"
             echo "| RNF-02 (p95 < 200 ms) | $(verdict "$(field "$base" '.rnf02_ok')") | $(verdict "$(field "$rank" '.rnf02_ok')") |"
-            echo "| RNF-03 (p95 con ranking <= 200 ms y <= línea base + 20 %) | — | $(verdict "$(field "$rank" '.ranking.rnf03_ok')") |"
+            echo "| RNF-03 (p95 con ranking <= 200 ms y <= línea base + 20 %) | — | $(rnf03 "$rank") |"
             echo "| Consultas de ranking (errores) | — | $(field "$rank" '.ranking.queries_sent') ($(field "$rank" '.ranking.errors')) |"
           } >> "$GITHUB_STEP_SUMMARY"
 

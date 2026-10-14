@@ -84,8 +84,8 @@ type RankingStats struct {
 	Errors         int       `json:"errors"`
 	LatencyMS      LatencyMS `json:"latency_ms"`
 	RNF03OK        bool      `json:"rnf03_ok"`
-	RNF03Evaluated bool
-	BaselineP95MS  float64
+	RNF03Evaluated bool      `json:"rnf03_evaluated"`
+	BaselineP95MS  float64   `json:"baseline_p95_ms"`
 }
 
 // Report es el informe de la prueba, tal como se escribe en JSON.

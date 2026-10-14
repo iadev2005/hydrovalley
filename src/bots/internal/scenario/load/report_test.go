@@ -424,3 +424,26 @@ func TestRNF03NeedsExactlyTheMinimumOfSuccessfulRankingQueries(t *testing.T) {
 		}
 	}
 }
+
+// Todas las claves del informe van en snake_case; BaselineP95FromReport y el
+// resumen del workflow las leen por nombre.
+func TestRankingStatsJSONKeysAreSnakeCase(t *testing.T) {
+	data, err := MarshalReport(BuildReport(withRanking(ms(100), ms(100))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Ranking map[string]json.RawMessage `json:"ranking"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"queries_sent", "queries_ok", "errors", "latency_ms", "rnf03_ok", "rnf03_evaluated", "baseline_p95_ms"} {
+		if _, ok := doc.Ranking[key]; !ok {
+			t.Errorf("falta la clave %q en ranking: %s", key, data)
+		}
+	}
+	if len(doc.Ranking) != 7 {
+		t.Errorf("ranking tiene claves inesperadas: %s", data)
+	}
+}
