@@ -29,7 +29,7 @@ Cerrar tres tareas del nivel 1 de `docs/tareas-equipo.md`: A5 (TLS en nginx, RNF
 
 ## Tareas
 
-- [ ] T1 · A5 TLS en nginx, e2e y bots por HTTPS.
+- [x] T1 · A5 TLS en nginx, e2e y bots por HTTPS. Evidencia: RED de compilación en bots; `go test -race` (bots) ok; frontend lint, typecheck y 195 pruebas tras el cambio del proxy de Vite; e2e por HTTPS y WSS: 15 + 6 (TLS) + 9 + 2 en verde. Certificado ECDSA P-256 autofirmado generado al arrancar (o montado de solo lectura), nunca en la imagen; HTTP en el 8080 redirige a HTTPS conservando ruta y consulta; TLS 1.2 y 1.3; salud por un puerto local sin TLS. La e2e verifica el certificado con `NODE_EXTRA_CA_CERTS` y los bots con `HV_CA_CERT`. Pendiente del usuario: copiar a `deploy/.env.example` el bloque de variables TLS de `deploy/README.md`.
 - [ ] T2 · A6 identificador de petición de punta a punta.
 - [ ] T3 · A7 diagramas al día.
 
