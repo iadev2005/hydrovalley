@@ -103,9 +103,12 @@ stack_wait_all_up() {
 }
 
 # Limpieza: con fallo muestra el estado y los registros; baja el stack con sus
-# volúmenes y borra el certificado, salvo que STACK_KEEP=1.
+# volúmenes y borra el certificado, salvo que STACK_KEEP=1. Sale con el código
+# del script (el de `$?` al entrar), o con el del argumento si se lo pasa
+# quien envuelve esta función en su propio trap.
+#   stack_cleanup [código de salida]
 stack_cleanup() {
-  local status=$?
+  local status=${1:-$?}
   if [[ "${STACK_KEEP:-0}" == "1" ]]; then
     echo "${STACK_KEEP_NAME:-STACK_KEEP}=1: el stack sigue en marcha (docker compose -p ${COMPOSE_PROJECT_NAME} down -v)."
     exit "${status}"

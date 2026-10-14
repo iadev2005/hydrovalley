@@ -68,10 +68,7 @@ run_name="$(basename "${run_dir}")"
 load_cleanup() {
   local status=$?
   rm -rf "${run_dir}" || true
-  # stack_cleanup lee $? para decidir si muestra los registros y con qué
-  # código sale: se lo devolvemos intacto.
-  (exit "${status}")
-  stack_cleanup
+  stack_cleanup "${status}"
 }
 trap load_cleanup EXIT
 
@@ -114,6 +111,18 @@ bots_load() {
     bots load-test
 }
 
+# Los bots escriben el informe en el directorio de esta ejecución (un archivo
+# nuevo: borrar y recrear un archivo del host dentro de la carpeta compartida
+# con Docker Desktop falla a veces) y aquí se copia a REPORTS_DIR, borrando
+# antes el de una ejecución anterior. Si la variante no produjo informe, tampoco
+# queda uno viejo.
+publish_report() {
+  rm -f "${REPORTS_DIR}/$1"
+  if [[ -f "${run_dir}/$1" ]]; then
+    cp "${run_dir}/$1" "${REPORTS_DIR}/$1"
+  fi
+}
+
 run_passed=true
 
 # 1. Variante Línea Base (CP-11 sin ranking)
@@ -123,15 +132,11 @@ if [[ "${LOAD_VARIANT}" == "both" || "${LOAD_VARIANT}" == "baseline" ]]; then
   echo " 1. PRUEBA DE CARGA: LÍNEA BASE CP-11 (sin ranking)"
   echo "    Bots: ${LOAD_BOTS} · Duración: ${LOAD_DURATION}"
   echo "========================================================================"
-  # Nada de informes de ejecuciones anteriores: ni como salida ni como línea base.
-  rm -f "${REPORTS_DIR}/load-baseline.json"
   if ! bots_load "${run_name}/load-baseline.json"; then
     echo "AVISO: la prueba de carga base no superó los umbrales exigidos" >&2
     run_passed=false
   fi
-  if [[ -f "${run_dir}/load-baseline.json" ]]; then
-    cp "${run_dir}/load-baseline.json" "${REPORTS_DIR}/load-baseline.json"
-  fi
+  publish_report load-baseline.json
 fi
 
 # 2. Variante Con Ranking (RNF-03)
@@ -160,11 +165,11 @@ if [[ "${LOAD_VARIANT}" == "both" || "${LOAD_VARIANT}" == "ranking" ]]; then
   else
     echo "AVISO: no hay línea base de esta ejecución: RNF-03 no se podrá evaluar" >&2
   fi
-  rm -f "${REPORTS_DIR}/load-ranking.json"
-  if ! bots_load load-ranking.json "${ranking_env[@]}"; then
+  if ! bots_load "${run_name}/load-ranking.json" "${ranking_env[@]}"; then
     echo "AVISO: la prueba de carga con ranking no superó los umbrales exigidos" >&2
     run_passed=false
   fi
+  publish_report load-ranking.json
 fi
 
 echo ""
