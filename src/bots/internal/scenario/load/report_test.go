@@ -232,3 +232,45 @@ func TestReportJSONFieldNames(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildReportWithRanking(t *testing.T) {
+	m := measurement()
+	m.Ranking = &RankingMeasurement{
+		Sent:      60,
+		Success:   58,
+		Errors:    2,
+		Latencies: []time.Duration{ms(15), ms(20), ms(25), ms(50)},
+	}
+	r := BuildReport(m)
+	if r.Ranking == nil {
+		t.Fatal("expected non-nil Ranking in Report")
+	}
+	if r.Ranking.QueriesSent != 60 || r.Ranking.QueriesOK != 58 || r.Ranking.Errors != 2 {
+		t.Errorf("unexpected ranking counts: %+v", r.Ranking)
+	}
+	if r.Ranking.LatencyMS.P50 <= 0 || r.Ranking.LatencyMS.P95 <= 0 {
+		t.Errorf("unexpected ranking latency: %+v", r.Ranking.LatencyMS)
+	}
+	if !r.Ranking.RNF03OK || !r.Passed() {
+		t.Errorf("healthy run with ranking must satisfy RNF03 and pass: %+v", r)
+	}
+
+	// Test JSON serialization includes ranking
+	data, err := MarshalReport(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"ranking"`) || !strings.Contains(string(data), `"rnf03_ok"`) {
+		t.Errorf("report JSON lacks ranking: %s", data)
+	}
+
+	// Test FormatSummary with ranking
+	out := FormatSummary(r)
+	if !strings.Contains(out, "Ranking en bucle: 60 consultas (58 exitosas, 2 errores)") {
+		t.Errorf("summary lacks ranking line:\n%s", out)
+	}
+	if !strings.Contains(out, "RNF-03") || !strings.Contains(out, "cumple") {
+		t.Errorf("summary lacks RNF-03 verdict:\n%s", out)
+	}
+}
+

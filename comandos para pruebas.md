@@ -29,3 +29,7 @@ sudo E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh
 
 # Toda la suite completa (incluye faults; tarda varios minutos)
 sudo HV_HTTP_PORT=8085 tests/e2e/run.sh
+
+# Prueba de carga (CP-11) y RNF-03 (ranking bajo carga en bucle)
+sudo HV_HTTP_PORT=8085 tests/load/run.sh
+

@@ -1,0 +1,34 @@
+{
+  "bots": 30,
+  "duration_s": 60.001169112,
+  "sent": 7200,
+  "results": {
+    "applied": 7200
+  },
+  "unresolved": 0,
+  "send_errors": 0,
+  "bots_applied": 7200,
+  "drops_per_second": 119.99766182155987,
+  "latency_ms": {
+    "p50": 52.476919,
+    "p95": 97.296653,
+    "max": 115.373931
+  },
+  "latency_within_limit_ratio": 1,
+  "humidity_contributed": 7200,
+  "accepted_drops": 7200,
+  "invariant_ok": true,
+  "rnf01_ok": true,
+  "rnf02_ok": true,
+  "ranking": {
+    "queries_sent": 60,
+    "queries_ok": 59,
+    "errors": 1,
+    "latency_ms": {
+      "p50": 12.22313,
+      "p95": 320.053276,
+      "max": 2020.275842
+    },
+    "rnf03_ok": true
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "bots": 30,
+  "duration_s": 60.000050626,
+  "sent": 7183,
+  "results": {
+    "applied": 7183
+  },
+  "unresolved": 0,
+  "send_errors": 0,
+  "bots_applied": 7183,
+  "drops_per_second": 119.71656565381913,
+  "latency_ms": {
+    "p50": 51.827045,
+    "p95": 97.19431,
+    "max": 110.050795
+  },
+  "latency_within_limit_ratio": 1,
+  "humidity_contributed": 7183,
+  "accepted_drops": 7183,
+  "invariant_ok": true,
+  "rnf01_ok": true,
+  "rnf02_ok": true
+}

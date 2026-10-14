@@ -1,0 +1,124 @@
+# Workflow manual de prueba de carga (CP-11) y medición de RNF-03 (ranking bajo carga).
+# Solo se ejecuta a demanda mediante workflow_dispatch, nunca en cada pull request ni push.
+name: load-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Duración de cada ejecución (CP-11: 60s)'
+        required: false
+        default: '60s'
+      bots:
+        description: 'Cantidad de bots (CP-11: 30)'
+        required: false
+        default: '30'
+      variant:
+        description: 'Variante a ejecutar'
+        type: choice
+        options:
+          - both
+          - baseline
+          - ranking
+        default: 'both'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  load-test:
+    name: load-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      POSTGRES_USER: hydrovalley
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: hydrovalley
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Construir las imágenes
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        env:
+          TOKEN_PRIVATE_KEY: bake-only-placeholder
+          TOKEN_PUBLIC_KEY: bake-only-placeholder
+        with:
+          source: .
+          files: deploy/compose.yml
+          targets: default,bots
+          load: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=e2e
+            *.cache-to=type=gha,scope=e2e,mode=max
+
+      - name: Ejecutar pruebas de carga (tests/load/run.sh)
+        env:
+          LOAD_SKIP_BUILD: "1"
+          LOAD_DURATION: ${{ github.event.inputs.duration || '60s' }}
+          LOAD_BOTS: ${{ github.event.inputs.bots || '30' }}
+          LOAD_VARIANT: ${{ github.event.inputs.variant || 'both' }}
+        run: tests/load/run.sh
+
+      - name: Resumen en el job summary
+        if: always()
+        run: |
+          echo "## Resultados de la prueba de carga (CP-11 y RNF-03)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Métrica | Línea base (CP-11) | Con ranking (RNF-03) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          
+          read_json_field() {
+            local file="$1"
+            local query="$2"
+            if [[ -f "$file" ]]; then
+              node -e "const fs = require('fs'); const d = JSON.parse(fs.readFileSync('$file', 'utf8')); try { console.log(eval('$query') ?? 'n/d'); } catch { console.log('n/d'); }"
+            else
+              echo "n/d"
+            fi
+          }
+          
+          base_file="reports/load-baseline.json"
+          rank_file="reports/load-ranking.json"
+          
+          base_rate=$(read_json_field "$base_file" "d.drops_per_second?.toFixed(1)")
+          rank_rate=$(read_json_field "$rank_file" "d.drops_per_second?.toFixed(1)")
+          echo "| Gotas por segundo | ${base_rate} | ${rank_rate} |" >> "$GITHUB_STEP_SUMMARY"
+
+          base_p50=$(read_json_field "$base_file" "d.latency_ms?.p50?.toFixed(1)")
+          rank_p50=$(read_json_field "$rank_file" "d.latency_ms?.p50?.toFixed(1)")
+          echo "| Latencia p50 (ms) | ${base_p50} | ${rank_p50} |" >> "$GITHUB_STEP_SUMMARY"
+
+          base_p95=$(read_json_field "$base_file" "d.latency_ms?.p95?.toFixed(1)")
+          rank_p95=$(read_json_field "$rank_file" "d.latency_ms?.p95?.toFixed(1)")
+          echo "| Latencia p95 (ms) | ${base_p95} | ${rank_p95} |" >> "$GITHUB_STEP_SUMMARY"
+
+          base_inv=$(read_json_field "$base_file" "d.invariant_ok ? 'Coincide' : 'NO coincide'")
+          rank_inv=$(read_json_field "$rank_file" "d.invariant_ok ? 'Coincide' : 'NO coincide'")
+          echo "| Invariante de humedad | ${base_inv} | ${rank_inv} |" >> "$GITHUB_STEP_SUMMARY"
+
+          base_rnf01=$(read_json_field "$base_file" "d.rnf01_ok ? 'Cumple' : 'NO cumple'")
+          rank_rnf01=$(read_json_field "$rank_file" "d.rnf01_ok ? 'Cumple' : 'NO cumple'")
+          echo "| RNF-01 (>= 100 gotas/s) | ${base_rnf01} | ${rank_rnf01} |" >> "$GITHUB_STEP_SUMMARY"
+
+          base_rnf02=$(read_json_field "$base_file" "d.rnf02_ok ? 'Cumple' : 'NO cumple'")
+          rank_rnf02=$(read_json_field "$rank_file" "d.rnf02_ok ? 'Cumple' : 'NO cumple'")
+          echo "| RNF-02 (p95 < 200 ms) | ${base_rnf02} | ${rank_rnf02} |" >> "$GITHUB_STEP_SUMMARY"
+
+          rank_rnf03=$(read_json_field "$rank_file" "d.ranking?.rnf03_ok ? 'Cumple' : 'NO cumple'")
+          echo "| RNF-03 (ranking no sube latencia) | — | ${rank_rnf03} |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar informes como artefactos
+        if: always()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: load-test-reports
+          path: reports/*.json
+          if-no-files-found: ignore
