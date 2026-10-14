@@ -1,7 +1,13 @@
 package config
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -111,5 +117,80 @@ func TestLoadFirefighterVariables(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), name) {
 			t.Errorf("%s: want error naming the variable, got %v", name, err)
 		}
+	}
+}
+
+func TestLoadTLSVariables(t *testing.T) {
+	base := map[string]string{"HV_BASE_URL": "https://nginx:8080"}
+	c, err := Load(env(base))
+	if err != nil || c.TLSInsecure || c.CACertPath != "" {
+		t.Fatalf("defaults: %+v, %v", c, err)
+	}
+	c, err = Load(env(map[string]string{"HV_BASE_URL": "https://h", "HV_TLS_INSECURE": "true"}))
+	if err != nil || !c.TLSInsecure {
+		t.Fatalf("HV_TLS_INSECURE=true: %+v, %v", c, err)
+	}
+	c, err = Load(env(map[string]string{"HV_BASE_URL": "https://h", "HV_CA_CERT": " /certs/ca.crt "}))
+	if err != nil || c.CACertPath != "/certs/ca.crt" {
+		t.Fatalf("HV_CA_CERT: %+v, %v", c, err)
+	}
+}
+
+func TestLoadTLSRejectsBadValuesNamingTheVariable(t *testing.T) {
+	cases := map[string]map[string]string{
+		"HV_TLS_INSECURE": {"HV_BASE_URL": "https://h", "HV_TLS_INSECURE": "maybe"},
+		"HV_CA_CERT":      {"HV_BASE_URL": "https://h", "HV_TLS_INSECURE": "true", "HV_CA_CERT": "/x.crt"},
+	}
+	for name, vars := range cases {
+		_, err := Load(env(vars))
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s: want an error naming the variable, got %v", name, err)
+		}
+	}
+}
+
+func TestTLSConfigIsNilByDefault(t *testing.T) {
+	got, err := Config{}.TLSConfig()
+	if err != nil || got != nil {
+		t.Fatalf("TLSConfig() = %v, %v; want nil, nil", got, err)
+	}
+}
+
+func TestTLSConfigInsecureSkipsVerification(t *testing.T) {
+	got, err := Config{TLSInsecure: true}.TLSConfig()
+	if err != nil || got == nil || !got.InsecureSkipVerify {
+		t.Fatalf("TLSConfig() = %+v, %v", got, err)
+	}
+}
+
+func TestTLSConfigTrustsTheGivenCertificate(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	path := filepath.Join(t.TempDir(), "ca.crt")
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Config{CACertPath: path}.TLSConfig()
+	if err != nil || got == nil || got.InsecureSkipVerify || got.RootCAs == nil {
+		t.Fatalf("TLSConfig() = %+v, %v", got, err)
+	}
+	if _, err := srv.Certificate().Verify(x509.VerifyOptions{Roots: got.RootCAs}); err != nil {
+		t.Fatalf("the given certificate is not trusted: %v", err)
+	}
+}
+
+func TestTLSConfigReportsUnreadableOrInvalidCertificate(t *testing.T) {
+	_, err := Config{CACertPath: filepath.Join(t.TempDir(), "missing.crt")}.TLSConfig()
+	if err == nil || !strings.Contains(err.Error(), "HV_CA_CERT") {
+		t.Fatalf("missing file: got %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.crt")
+	if werr := os.WriteFile(bad, []byte("not a pem"), 0o600); werr != nil {
+		t.Fatal(werr)
+	}
+	_, err = Config{CACertPath: bad}.TLSConfig()
+	if err == nil || !strings.Contains(err.Error(), "HV_CA_CERT") {
+		t.Fatalf("invalid PEM: got %v", err)
 	}
 }

@@ -3,9 +3,12 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +17,13 @@ import (
 // Config es la configuración común de todos los escenarios.
 type Config struct {
 	// BaseURL es la dirección del proxy, p. ej. http://nginx:8080.
-	BaseURL       string
+	BaseURL string
+	// TLSInsecure (HV_TLS_INSECURE) omite la verificación del certificado del
+	// proxy: solo para el certificado autofirmado del laboratorio.
+	TLSInsecure bool
+	// CACertPath (HV_CA_CERT) es un certificado PEM que se confía además de
+	// los del sistema; es la opción preferible a TLSInsecure.
+	CACertPath    string
 	AdminUsername string
 	AdminPassword string
 	// Count es el número de bots (por defecto 3, el rango de «vecinos»).
@@ -73,7 +82,7 @@ func Load(getenv func(string) string) (Config, error) {
 		LogLevel:      slog.LevelInfo,
 	}
 	if c.BaseURL == "" {
-		return c, errors.New("HV_BASE_URL is required (e.g. http://nginx:8080)")
+		return c, errors.New("HV_BASE_URL is required (e.g. https://nginx:8080)")
 	}
 	if v := getenv("BOTS_COUNT"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -88,6 +97,17 @@ func Load(getenv func(string) string) (Config, error) {
 			return c, fmt.Errorf("BOTS_RESET must be true or false, got %q", v)
 		}
 		c.Reset = b
+	}
+	if v := getenv("HV_TLS_INSECURE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("HV_TLS_INSECURE must be true or false, got %q", v)
+		}
+		c.TLSInsecure = b
+	}
+	c.CACertPath = strings.TrimSpace(getenv("HV_CA_CERT"))
+	if c.TLSInsecure && c.CACertPath != "" {
+		return c, errors.New("HV_TLS_INSECURE and HV_CA_CERT are mutually exclusive: use only one")
 	}
 	if v := getenv("BOTS_DURATION"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -135,4 +155,29 @@ func (c Config) RequireAdmin() error {
 		return errors.New("HV_ADMIN_PASSWORD is required to provision bot accounts")
 	}
 	return nil
+}
+
+// TLSConfig arma la configuración TLS de los clientes: nil si no se pidió
+// nada (se usan los certificados del sistema), una que omite la verificación
+// con HV_TLS_INSECURE, o una que confía en el certificado de HV_CA_CERT además
+// de los del sistema.
+func (c Config) TLSConfig() (*tls.Config, error) {
+	switch {
+	case c.TLSInsecure:
+		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil //nolint:gosec // opt-in para el certificado autofirmado del laboratorio
+	case c.CACertPath != "":
+		pemBytes, err := os.ReadFile(c.CACertPath)
+		if err != nil {
+			return nil, fmt.Errorf("HV_CA_CERT: cannot read %q: %w", c.CACertPath, err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pemBytes) {
+			return nil, fmt.Errorf("HV_CA_CERT: %q has no PEM certificate", c.CACertPath)
+		}
+		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+	}
+	return nil, nil
 }

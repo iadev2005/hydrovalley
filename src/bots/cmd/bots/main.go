@@ -4,7 +4,7 @@
 //
 // Uso:
 //
-//	HV_BASE_URL=http://nginx:8080 HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... bots neighbors
+//	HV_BASE_URL=https://nginx:8080 HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... bots neighbors
 //
 // Subcomandos: neighbors (vecinos), load o load-test (prueba de carga, CP-11), cheater
 // (tramposo, CP-03) y firefighter (bomberos, CP-04).
@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -108,10 +109,15 @@ func runNeighbors() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	tlsCfg, err := cfg.TLSConfig()
+	if err != nil {
+		return err
+	}
 	api, err := client.NewAPI(cfg.BaseURL)
 	if err != nil {
 		return err
 	}
+	api.UseTLS(tlsCfg)
 	adminToken, err := api.Login(ctx, cfg.AdminUsername, cfg.AdminPassword)
 	if err != nil {
 		return err
@@ -132,6 +138,7 @@ func runNeighbors() error {
 	for _, acc := range accounts {
 		s, err := client.NewSession(client.SessionConfig{
 			BaseURL: cfg.BaseURL,
+			TLS:     tlsCfg,
 			Token:   acc.Token,
 			Map:     true,
 			Logger:  log.With("player", acc.Username),
@@ -178,10 +185,15 @@ func runLoad() (passed bool, err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	tlsCfg, err := cfg.TLSConfig()
+	if err != nil {
+		return false, err
+	}
 	api, err := client.NewAPI(cfg.BaseURL)
 	if err != nil {
 		return false, err
 	}
+	api.UseTLS(tlsCfg)
 	adminToken, err := api.Login(ctx, cfg.AdminUsername, cfg.AdminPassword)
 	if err != nil {
 		return false, err
@@ -194,13 +206,13 @@ func runLoad() (passed bool, err error) {
 
 	// Sin mapa: la prueba solo necesita el tamaño del valle y los contadores,
 	// y así cada estado pesa unos pocos bytes.
-	adminSession, err := client.NewSession(client.SessionConfig{BaseURL: cfg.BaseURL, Token: adminToken, Logger: log.With("player", "admin")})
+	adminSession, err := client.NewSession(client.SessionConfig{BaseURL: cfg.BaseURL, TLS: tlsCfg, Token: adminToken, Logger: log.With("player", "admin")})
 	if err != nil {
 		return false, err
 	}
 	sessions := make([]load.Session, 0, len(accounts))
 	for _, acc := range accounts {
-		s, err := client.NewSession(client.SessionConfig{BaseURL: cfg.BaseURL, Token: acc.Token, Logger: log.With("player", acc.Username)})
+		s, err := client.NewSession(client.SessionConfig{BaseURL: cfg.BaseURL, TLS: tlsCfg, Token: acc.Token, Logger: log.With("player", acc.Username)})
 		if err != nil {
 			return false, err
 		}
@@ -235,6 +247,7 @@ func runLoad() (passed bool, err error) {
 // registro y las cuentas de bots ya creadas.
 type provisioned struct {
 	cfg      config.Config
+	tls      *tls.Config
 	log      *slog.Logger
 	accounts []client.Account
 }
@@ -252,10 +265,15 @@ func provision(ctx context.Context, count int) (provisioned, error) {
 		count = cfg.Count
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	tlsCfg, err := cfg.TLSConfig()
+	if err != nil {
+		return provisioned{}, err
+	}
 	api, err := client.NewAPI(cfg.BaseURL)
 	if err != nil {
 		return provisioned{}, err
 	}
+	api.UseTLS(tlsCfg)
 	adminToken, err := api.Login(ctx, cfg.AdminUsername, cfg.AdminPassword)
 	if err != nil {
 		return provisioned{}, err
@@ -265,7 +283,7 @@ func provision(ctx context.Context, count int) (provisioned, error) {
 		return provisioned{}, err
 	}
 	log.Info("bot accounts provisioned", "count", len(accounts))
-	return provisioned{cfg: cfg, log: log, accounts: accounts}, nil
+	return provisioned{cfg: cfg, tls: tlsCfg, log: log, accounts: accounts}, nil
 }
 
 // writeReport escribe el informe JSON si BOTS_REPORT_PATH está definida.
@@ -293,7 +311,7 @@ func runCheater() (passed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	s, err := client.NewSession(client.SessionConfig{BaseURL: p.cfg.BaseURL, Token: p.accounts[0].Token, Logger: p.log.With("player", p.accounts[0].Username)})
+	s, err := client.NewSession(client.SessionConfig{BaseURL: p.cfg.BaseURL, TLS: p.tls, Token: p.accounts[0].Token, Logger: p.log.With("player", p.accounts[0].Username)})
 	if err != nil {
 		return false, err
 	}
@@ -325,7 +343,7 @@ func runFirefighter() (passed bool, err error) {
 	for _, acc := range p.accounts {
 		// Con mapa: el bot necesita las etapas para distinguir un fuego
 		// apagado de uno consumido.
-		s, err := client.NewSession(client.SessionConfig{BaseURL: p.cfg.BaseURL, Token: acc.Token, Map: true, Logger: p.log.With("player", acc.Username)})
+		s, err := client.NewSession(client.SessionConfig{BaseURL: p.cfg.BaseURL, TLS: p.tls, Token: acc.Token, Map: true, Logger: p.log.With("player", acc.Username)})
 		if err != nil {
 			return false, err
 		}
