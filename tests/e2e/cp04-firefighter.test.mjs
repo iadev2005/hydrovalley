@@ -1,17 +1,21 @@
 // CP-04: Extinción de incendios por varios bomberos (RF-29, RF-30).
 //
-// Necesita un valle nuevo con el catálogo de prueba catalog/catalog.test-fire.json
-// (fire.ignition_chance_ppm alto; catalog/catalog.json no se toca). run.sh lo
-// ejecuta al final, en una fase aparte que baja el stack, lo levanta de nuevo
-// con CATALOG_PATH=/app/catalog/catalog.test-fire.json y corre solo este archivo:
+// Necesita un valle nuevo con el catálogo de prueba
+// tests/e2e/fixtures/catalog.test-fire.json (fire.ignition_chance_ppm alto;
+// la imagen y catalog/catalog.json no se tocan). tests/e2e/run.sh lo ejecuta
+// al final, en una fase aparte que baja el stack, lo levanta de nuevo sumando
+// tests/e2e/compose.cp04.yml (monta ese catálogo y fija CATALOG_PATH en la
+// persistencia) y corre solo este archivo:
 //   1. Un jugador siembra una planta con 4 gotas (100 de humedad).
 //   2. La casilla sube a pasto y su humedad se reinicia a 0.
 //   3. Con ignition_chance_ppm alto (500.000 ppm = 50% por tick), la casilla arde.
 //   4. Se corre `bots firefighter` (3 bomberos): detectan el fuego y lo apagan.
 //   5. Se comprueba que el fuego se apaga una vez, que un solo bot recibe el
 //      bono y que nada se pierde.
-// La fase se puede repetir a mano con:
-//   E2E_CP04=1 tests/e2e/run.sh   (o la fase completa de run.sh sin argumentos)
+// Se ejecuta con `tests/e2e/run.sh` sin argumentos (fase final) y se omite con
+// E2E_SKIP_CP04=1. No corre contra un stack cualquiera: con argumentos, run.sh
+// levanta el stack por defecto (catálogo de la imagen) y este caso fallaría;
+// necesita el valle nuevo y el catálogo de prueba que prepara esa fase.
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";

@@ -8,9 +8,10 @@
 #      POST /api/admin/bot-accounts, para no gastar el límite de registro.
 #   3. tls, request-id y los casos de fallos (CP-05 a CP-08 y CP-12).
 #   4. cp04-firefighter.test.mjs: CP-04 con incendios reales, siempre al final:
-#      baja el stack y lo levanta de nuevo, con base de datos vacía, usando
-#      CATALOG_PATH=/app/catalog/catalog.test-fire.json (ignition_chance_ppm
-#      alto), y corre solo ese archivo. catalog/catalog.json no se toca.
+#      baja el stack y lo levanta de nuevo, con base de datos vacía, sumando
+#      tests/e2e/compose.cp04.yml (monta tests/e2e/fixtures/catalog.test-fire.json,
+#      con ignition_chance_ppm alto, y fija CATALOG_PATH), y corre solo ese
+#      archivo. La imagen y catalog/catalog.json no se tocan.
 #
 #   tests/e2e/run.sh
 #
@@ -24,9 +25,6 @@
 #                       propio; sin ellas se genera uno efímero
 # request-id.test.mjs sigue un identificador de petición en los registros.
 #   E2E_SKIP_CP04=1     no correr la fase de CP-04 (la del catálogo de prueba)
-#   CATALOG_PATH        ruta del catálogo dentro del contenedor persistence
-#                       (/app/catalog/catalog.json por defecto); la fase de
-#                       CP-04 la fija a su catálogo de prueba
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
 # «bots») con el administrador efímero.
 # nginx sirve HTTPS: run.sh genera un certificado efímero (openssl) y lo monta
@@ -43,6 +41,8 @@ export COMPOSE_FILE="${repo_root}/deploy/compose.yml:${repo_root}/tests/e2e/comp
 export COMPOSE_ENV_FILES="${repo_root}/deploy/.env.example"
 export HV_HTTP_PORT="${HV_HTTP_PORT:-8080}"
 export HV_BASE_URL="https://localhost:${HV_HTTP_PORT}"
+# compose.cp04.yml monta de aquí el catálogo de prueba (solo la fase de CP-04).
+export E2E_FIXTURES_DIR="${repo_root}/tests/e2e/fixtures"
 
 # Certificado TLS, claves y administrador efímeros, y limpieza: comunes con
 # tests/load/run.sh (ver tests/lib/stack.sh).
@@ -52,9 +52,6 @@ STACK_SKIP_BUILD="${E2E_SKIP_BUILD:-0}"
 STACK_KEEP="${E2E_KEEP:-0}"
 STACK_KEEP_NAME="E2E_KEEP"
 stack_init_tls
-if [[ -n "${CATALOG_PATH:-}" ]]; then
-  export CATALOG_PATH
-fi
 stack_init_keys
 stack_init_admin "e2e-admin"
 trap stack_cleanup EXIT
@@ -131,12 +128,17 @@ fi
 
 # CP-04 (RF-29, RF-30): incendios reales. Va al final porque cambia el catálogo
 # y necesita un valle nuevo (una sola casilla plantada, sin restos de otras
-# pruebas): baja el stack con sus volúmenes y lo levanta de nuevo con el
-# catálogo de prueba. Ni la imagen ni catalog/catalog.json cambian: la
-# persistencia lee CATALOG_PATH de un volumen de solo lectura.
+# pruebas): baja el stack con sus volúmenes y lo levanta de nuevo sumando
+# tests/e2e/compose.cp04.yml, que monta el catálogo de prueba de solo lectura y
+# fija CATALOG_PATH en la persistencia. Ni la imagen ni deploy/compose.yml ni
+# catalog/catalog.json cambian. Para repetirla a mano: levanta el stack con ese
+# archivo en COMPOSE_FILE y corre el archivo de la prueba (ver su cabecera).
 if [[ "${E2E_SKIP_CP04:-0}" != "1" ]]; then
   docker compose down -v --remove-orphans
-  CATALOG_PATH=/app/catalog/catalog.test-fire.json docker compose up -d --quiet-pull
+  # Exportado: stack_cleanup y los `docker compose` de la prueba (bots) ven la
+  # misma configuración que el stack levantado.
+  export COMPOSE_FILE="${COMPOSE_FILE}:${repo_root}/tests/e2e/compose.cp04.yml"
+  docker compose up -d --quiet-pull
   cp04_up="$(wait_all_up 300)"
   if [[ -z "${cp04_up}" ]]; then
     echo "run.sh: el stack del catálogo de prueba no quedó listo en 300 s" >&2

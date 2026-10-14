@@ -267,7 +267,7 @@ Prioridad para la semana 5 (12–16 oct, se cierra el nivel 1): **A1 primero** (
 #### A9 · CP-04 contra un valle real con incendios
 
 - **Por qué:** el bombero existe, pero en las ejecuciones reales no apareció ningún incendio (`odd/tasks/bots.md`, T4). CP-04 solo está probado con un mundo simulado.
-- **Archivos:** `tests/e2e/cp04-firefighter.test.mjs`, `catalog/catalog.test-fire.json`, `deploy/compose.yml`, `tests/e2e/run.sh`.
+- **Archivos:** `tests/e2e/cp04-firefighter.test.mjs`, `tests/e2e/fixtures/catalog.test-fire.json`, `tests/e2e/compose.cp04.yml`, `tests/e2e/run.sh`.
 - **Qué hacer:** levantar el e2e con un catálogo de prueba con `fire.ignition_chance_ppm` alto (sin tocar `catalog/catalog.json`), sembrar plantas, esperar a que se sequen y ardan, y correr `bots firefighter`. Comprobar: el fuego se apaga una vez, hay un solo bono, y nada se pierde.
 - **Aceptación y resultado:** CUMPLE (`tests/e2e/cp04-firefighter.test.mjs` en verde; `run.sh` lo corre al final, con un stack nuevo y el catálogo de prueba). Valores de **una ejecución** del autor del caso (14 oct 2026, `[DATO: máquina de esa ejecución]`), no una cifra fija: con `ignition_chance_ppm = 500.000` en `catalog.test-fire.json`, la casilla sembrada en (10, 10) ardió en el tick 933 (el tick de ignición varía de una ejecución a otra: depende del azar y del momento en que arranca el valle). 3 bots en 20 s vieron 1 incendio y lo apagaron en 1 ronda (3 gotas enviadas, 3 aplicadas, 75 de humedad aportada); el bono (5 hojas en esa ejecución) lo recibió un único bot, 0 consumidos y 0 sin apagar. El caso exige un incendio visto y apagado y exactamente un bot con el bono; no exige el tick ni la cantidad de gotas.
 

@@ -56,11 +56,6 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # Archivo del catálogo (catalog/catalog.json por defecto; se puede
-      # cambiar montando otro y apuntando CATALOG_PATH a él).
-      CATALOG_PATH: ${CATALOG_PATH:-/app/catalog/catalog.json}
-    volumes:
-      - ../catalog:/app/catalog:ro
 
   world:
     <<: *service
