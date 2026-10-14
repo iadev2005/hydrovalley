@@ -12,6 +12,8 @@
 #                       pausan servicios del stack; tardan unos minutos)
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
+#   CATALOG_PATH        ruta del catálogo dentro del contenedor persistence
+#                       (/app/catalog/catalog.json por defecto)
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
 # «bots») con el administrador efímero.
 # Requiere Docker con Compose v2 y Node 22 o superior.
@@ -25,6 +27,9 @@ export COMPOSE_FILE="${repo_root}/deploy/compose.yml"
 export COMPOSE_ENV_FILES="${repo_root}/deploy/.env.example"
 export HV_HTTP_PORT="${HV_HTTP_PORT:-8080}"
 export HV_BASE_URL="http://localhost:${HV_HTTP_PORT}"
+if [[ -n "${CATALOG_PATH:-}" ]]; then
+  export CATALOG_PATH
+fi
 
 # Clave Ed25519 efímera para la prueba: se genera en cada ejecución y nunca
 # se guarda (RNF-13). Si ya viene definida en el entorno, se respeta.

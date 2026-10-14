@@ -12,6 +12,9 @@ sudo E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh tests/e2e/smoke.test.m
 # Solo CP-01 — 100 gotas simultáneas, 2 bots
 sudo E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh tests/e2e/cp01-concurrent-drops.test.mjs
 
+# Solo CP-04 — bomberos contra incendios reales (catálogo con alta ignición)
+sudo CATALOG_PATH=/app/catalog/catalog.test-fire.json E2E_SKIP_FAULTS=1 HV_HTTP_PORT=8085 tests/e2e/run.sh tests/e2e/cp04-firefighter.test.mjs
+
 # Solo fallos de servicios (CP-05, CP-06, CP-07, CP-12)
 sudo HV_HTTP_PORT=8085 tests/e2e/run.sh tests/e2e/faults.test.mjs
 
