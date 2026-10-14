@@ -28,6 +28,19 @@ export const READ_LIMIT_PER_IP: RateLimit = { limit: 60, windowMs: 60_000 };
  */
 export const SYSTEM_LIMIT_PER_IP: RateLimit = { limit: 120, windowMs: 60_000 };
 
+/**
+ * Catálogo (`GET /api/catalog`): peticiones por IP. El cliente lo pide una vez
+ * al abrir la página (y quizá al reconectar) y el navegador lo guarda según
+ * `Cache-Control`; 60 por minuto deja margen para varias pestañas detrás de la
+ * misma IP sin dejar que alguien fuerce consultas sin límite.
+ */
+export const CATALOG_LIMIT_PER_IP: RateLimit = { limit: 60, windowMs: 60_000 };
+/**
+ * Vigencia de la copia del catálogo en la API y de `Cache-Control: max-age`
+ * (30 s): solo cambia al reiniciar el valle con otro catálogo.
+ */
+export const CATALOG_CACHE_TTL_SECONDS = 30;
+
 /** Aprovisionamiento de cuentas de bots: peticiones por administrador (por `player_id`). */
 export const ADMIN_LIMIT_PER_ADMIN: RateLimit = { limit: 10, windowMs: 60_000 };
 /** Máximo de cuentas por petición de aprovisionamiento. */

@@ -17,13 +17,16 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | `src/auth-routes.ts` | `POST /api/auth/register` y `POST /api/auth/login`, con sus esquemas OpenAPI y la traducción de errores |
 | `src/admin-routes.ts` | `POST /api/admin/bot-accounts`: token de administrador, límite por administrador, aprovisionamiento de cuentas de bots |
 | `src/read-routes.ts` | `GET /api/ranking` y `GET /api/report`: token, límite por IP, esquemas OpenAPI y traducción de errores |
+| `src/catalog-routes.ts` | `GET /api/catalog`: sin token, límite por IP, esquema OpenAPI, `ETag`/`304` y `Cache-Control` |
+| `src/catalog-cache.ts` | Copia en memoria del catálogo (30 s), una sola consulta para las peticiones simultáneas y copia vencida si la persistencia cae |
 | `src/account-directory.ts` | Puerto `AccountDirectory` y sus errores; las rutas dependen de él, no de gRPC |
-| `src/ranking-source.ts`, `src/report-source.ts`, `src/source-errors.ts` | Puertos `RankingSource` y `ReportSource` y sus errores de dominio (`SourceUnavailableError`, `SourceNotFoundError`, `SourceInvalidRequestError`) |
+| `src/catalog-source.ts`, `src/ranking-source.ts`, `src/report-source.ts`, `src/source-errors.ts` | Puertos `CatalogSource`, `RankingSource` y `ReportSource` y sus errores de dominio (`SourceUnavailableError`, `SourceNotFoundError`, `SourceInvalidRequestError`) |
 | `src/request-id.ts` | Identificador de petición (RNF-07): validación, `genReqId` de Fastify, cabecera de respuesta y el interceptor que lo envía como metadato gRPC `x-request-id` |
 | `src/grpc-retry.ts` | Plazo, reintentos y presupuesto compartidos por todos los adaptadores gRPC |
 | `src/grpc-account-directory.ts` | Adaptador gRPC de `AccountService` |
 | `src/grpc-ranking-source.ts` | Adaptador gRPC de `WorldService.GetRanking` (`WORLD_ADDR`) |
 | `src/grpc-report-source.ts` | Adaptador gRPC de `ReportService.GetReport` (`PERSISTENCE_ADDR`) |
+| `src/grpc-catalog-source.ts` | Adaptador gRPC de `CatalogService.GetCatalog` (`PERSISTENCE_ADDR`) |
 | `src/system-routes.ts` | `GET /api/system`: límite por IP, esquema OpenAPI y respuesta del panel del sistema |
 | `src/system-status.ts` | Agregador del panel: consultas en paralelo, copia de 1 s y una sola agregación en curso |
 | `src/hub-stats.ts` | Cliente de `GET /stats` del hub (`HUB_STATS_ADDR`): valida la forma y copia solo los campos conocidos |
@@ -74,6 +77,7 @@ base64 < token-private.pem | tr -d '\n'
 | `POST /api/auth/login` | `200 {"token", "expires_at"}` (ISO 8601 en UTC); `400` cuerpo mal formado; `401` usuario o contraseña incorrectos; `429` demasiados intentos; `503` persistencia no disponible |
 | `GET /api/ranking?limit=N` | `200 {"tick", "entries": [{"rank", "player_id", "username", "leaves_earned"}]}`; `400` parámetros no válidos; `401` sin token o inválido; `429` demasiadas consultas; `503` el simulador no está disponible |
 | `GET /api/report?scope=me\|global&from_tick=&to_tick=` | `200 {"scope", "player_id" (solo `me`), "epoch", "from_tick", "to_tick", "totals": {…}}`; `400` parámetros no válidos; `401`; `404` sin instantáneas o sin cuenta; `429`; `503` |
+| `GET /api/catalog` | `200` el catálogo en snake_case (`catalog_version`, `drop`, `tank`, `growth`, `evaporation`, `fire`, `sprinkler`, `drip`, `treatment_plant`, `installation_price_increase_percent`, `bigger_drop`, `bigger_tank`, `offline_installation_seconds`), u64 como texto, con `ETag` y `Cache-Control`; `304` si `If-None-Match` coincide; sin token; `429`; `503` persistencia no disponible y sin copia. Ver [Catálogo](#catálogo) |
 | `GET /api/system` | `200 {"generated_at", "services": [{"name", "status": "up"\|"down", "detail"?}], "hub": {…} \| null}`; sin token; `429` demasiadas consultas. Ver [Estado del sistema](#estado-del-sistema) |
 | `POST /api/admin/bot-accounts` | `201 {"accounts": [{"player_id", "username", "token", "expires_at"}]}`; `400` datos no válidos; `401` sin token o inválido; `403` el token no es de administrador; `429` demasiadas solicitudes; `413` cuerpo demasiado grande; `500`/`503 {"error", "created"}` fallo a mitad (sin tokens) |
 | `GET /api/docs` | Página de Swagger UI |
@@ -205,6 +209,15 @@ Ejemplo (world parado):
 }
 ```
 
+## Catálogo
+
+`GET /api/catalog` entrega las instalaciones, las mejoras y las cifras del juego tal como las sirve la persistencia (`CatalogService.GetCatalog` en `PERSISTENCE_ADDR`, sección D-01 del documento inicial). El cliente puede leer de aquí los precios y los textos en lugar de fijarlos en el código.
+
+- **Sin token:** son datos del juego, no de un jugador. Límite de 60 por minuto por IP (`CATALOG_LIMIT_PER_IP` en `src/limits.ts`), en memoria y por instancia, con `429` y `Retry-After`.
+- **Formato:** claves en snake_case con los nombres de `catalog.proto`. Los enteros de 64 bits (agua, hojas, humedad, precios, `offline_installation_seconds`) viajan como texto (regla 7); los de 32 bits (lados, intervalos, ticks, porcentajes) son números. `catalog_version` es el hash del contenido.
+- **Caché:** la API guarda el catálogo 30 s (`CATALOG_CACHE_TTL_SECONDS`) y las peticiones simultáneas comparten una sola consulta. La respuesta lleva `Cache-Control: public, max-age=30` y `ETag` con el hash del catálogo; con `If-None-Match` coincidente responde `304` sin cuerpo.
+- **Caída de la persistencia:** la llamada usa la política de `grpc-retry.ts` (2 s, hasta 3 reintentos con 100, 200 y 400 ms) y propaga `x-request-id`. Si falla y hay una copia (aunque haya vencido), se sirve esa con `Cache-Control: no-cache` (RF-19); sin copia, `503` con el mensaje habitual.
+
 ## Pendiente
 
-- Catálogo (`GET /api/catalog`).
+- Nada por ahora.

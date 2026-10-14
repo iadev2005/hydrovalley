@@ -5,6 +5,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { type AdminDeps, adminRoutes } from "./admin-routes.js";
 import { type AuthDeps, authRoutes } from "./auth-routes.js";
+import { type CatalogDeps, catalogRoutes } from "./catalog-routes.js";
 import { type ReadDeps, readRoutes } from "./read-routes.js";
 import { registerRequestId, requestIdOptions } from "./request-id.js";
 import { type SystemDeps, systemRoutes } from "./system-routes.js";
@@ -39,6 +40,7 @@ export async function buildApp(
   read?: ReadDeps,
   admin?: AdminDeps,
   system?: SystemDeps,
+  catalog?: CatalogDeps,
 ): Promise<FastifyInstance> {
   // Sin coerción de tipos: un número no se acepta como nombre de usuario.
   const app = Fastify({
@@ -54,13 +56,14 @@ export async function buildApp(
       info: {
         title: "hydrovalley API",
         description:
-          "Registro, acceso, catálogo, ranking y reportes. Por ahora expone la salud del servicio, el registro, el acceso, el ranking y el reporte de las 3R.",
+          "Registro, acceso, catálogo, ranking y reportes. Por ahora expone la salud del servicio, el registro, el acceso, el catálogo, el ranking y el reporte de las 3R.",
         version: "0.1.0",
       },
       tags: [
         { name: "system", description: "Operación del servicio" },
         { name: "auth", description: "Registro y acceso con token firmado" },
         { name: "ranking", description: "Ranking global por hojas ganadas" },
+        { name: "catalog", description: "Instalaciones, mejoras y cifras del juego" },
         { name: "admin", description: "Operación reservada a administradores" },
         {
           name: "reports",
@@ -101,7 +104,9 @@ export async function buildApp(
     await app.register(systemRoutes, system);
   }
 
-  // TODO: catálogo.
+  if (catalog) {
+    await app.register(catalogRoutes, catalog);
+  }
 
   return app;
 }
