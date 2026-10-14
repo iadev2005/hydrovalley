@@ -60,8 +60,9 @@ server {
 
     # HTTP plano en el puerto de HTTPS (código 497 de nginx): redirige al
     # mismo host y puerto que pidió el cliente ($http_host lleva el puerto
-    # publicado, no el 8080 interno del contenedor).
-    error_page 497 =301 https://$http_host$request_uri;
+    # publicado, no el 8080 interno del contenedor). 308 y no 301: conserva el
+    # método y el cuerpo, así que un POST a http:// sigue siendo POST.
+    error_page 497 =308 https://$http_host$request_uri;
 
     access_log /var/log/nginx/access.log hv_safe;
 

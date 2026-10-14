@@ -121,13 +121,16 @@ ADMIN_PASSWORD_HASH=
 # Vigencia del token en segundos (opcional; 43200 = 12 h, máximo 604800).
 # TOKEN_TTL_SECONDS=43200
 
-# TLS de nginx (opcional, ver «TLS»): nombres o IP adicionales del certificado
-# autofirmado, separados por comas (en el laboratorio, las IP 10.68.17.x).
+# TLS de nginx (opcional, ver «TLS»): nombres o IP adicionales que se suman al
+# SAN del certificado autofirmado, separados por comas. Deben ser los nombres o
+# las IP por los que los clientes entran a nginx (en el laboratorio, la IP
+# 10.68.17.x de la máquina); si no coinciden, la verificación falla. No afecta
+# a un certificado montado.
 # TLS_EXTRA_SANS=
 
 # Bots (opcionales; solo con el perfil «bots», ver «Bots»). La contraseña va
 # en claro y es la del administrador de ADMIN_USERNAME, no su hash.
-# HV_TLS_INSECURE=false   # en compose.yml el valor por defecto es true
+# HV_TLS_INSECURE=false   # por defecto es true: sin verificar, solo dentro de la red de Compose; en el laboratorio, false y HV_CA_CERT
 # HV_CA_CERT=
 # HV_ADMIN_USERNAME=
 # HV_ADMIN_PASSWORD=
@@ -142,7 +145,7 @@ ADMIN_PASSWORD_HASH=
 
 ## Bots
 
-El servicio `bots` (`src/bots/`) está en `compose.yml` bajo el perfil `bots`: `up` no lo arranca. Corre, imprime su resumen y termina; habla solo con nginx dentro de la red de Compose (`HV_BASE_URL=https://nginx:8080`), como cualquier jugador. Como nginx usa un certificado autofirmado, el servicio `bots` de `compose.yml` omite la verificación por defecto (`HV_TLS_INSECURE=true`; vale para el plan B, porque el tráfico no sale de la red de Compose). Para verificar de verdad: `HV_TLS_INSECURE=false` y `HV_CA_CERT` con la ruta, dentro del contenedor, del certificado en que confiar (montado con un volumen). Necesita un administrador (RF-31) para crear sus cuentas: `HV_ADMIN_USERNAME` es el `ADMIN_USERNAME` sembrado y `HV_ADMIN_PASSWORD` su contraseña en claro (no el hash). El stack tiene que estar levantado.
+El servicio `bots` (`src/bots/`) está en `compose.yml` bajo el perfil `bots`: `up` no lo arranca. Corre, imprime su resumen y termina; habla solo con nginx dentro de la red de Compose (`HV_BASE_URL=https://nginx:8080`), como cualquier jugador. Como nginx usa un certificado autofirmado, el servicio `bots` de `compose.yml` omite la verificación por defecto (`HV_TLS_INSECURE=true`) y lo avisa con un WARN al arrancar; eso solo es aceptable dentro de la red de Compose del plan B, donde el tráfico no sale de la máquina. En el laboratorio, usar `HV_CA_CERT`. Para verificar de verdad: `HV_TLS_INSECURE=false` y `HV_CA_CERT` con la ruta, dentro del contenedor, del certificado en que confiar (montado con un volumen). Necesita un administrador (RF-31) para crear sus cuentas: `HV_ADMIN_USERNAME` es el `ADMIN_USERNAME` sembrado y `HV_ADMIN_PASSWORD` su contraseña en claro (no el hash). El stack tiene que estar levantado.
 
 ```
 docker compose -f deploy/compose.yml --profile bots run --rm bots neighbors     # vecinos (hasta Ctrl-C si BOTS_DURATION=0)
@@ -171,7 +174,7 @@ Los destinos se resuelven en cada petición con el DNS de Docker (`NGINX_RESOLVE
 
 ## TLS (RNF-12)
 
-nginx termina TLS en el 8080, el único puerto publicado: `https://…:8080` para la página y la API, `wss://…:8080/play` para el juego (el frontend elige `wss:` cuando la página es `https:`). El HTTP plano que llegue a ese mismo puerto recibe un `301` hacia `https://` con el mismo host, puerto, ruta y consulta. TLS 1.2 y 1.3, sin HSTS (el certificado es autofirmado y el navegador no debe recordar un aviso que no puede resolver). El tráfico interno (gRPC, HTTP entre servicios) sigue sin cifrar, riesgo aceptado en `CLAUDE.md`.
+nginx termina TLS en el 8080, el único puerto publicado: `https://…:8080` para la página y la API, `wss://…:8080/play` para el juego (el frontend elige `wss:` cuando la página es `https:`). El HTTP plano que llegue a ese mismo puerto recibe un `308` (conserva el método de un POST) hacia `https://` con el mismo host, puerto, ruta y consulta. TLS 1.2 y 1.3, sin HSTS (el certificado es autofirmado y el navegador no debe recordar un aviso que no puede resolver). El tráfico interno (gRPC, HTTP entre servicios) sigue sin cifrar, riesgo aceptado en `CLAUDE.md`.
 
 **Certificado.** `deploy/nginx/docker-entrypoint.d/40-tls-cert.sh` corre antes de nginx:
 
@@ -204,7 +207,7 @@ Otras rutas: `TLS_CERT_FILE` y `TLS_KEY_FILE`. `tests/e2e/compose.tls.yml` es un
 tests/e2e/run.sh
 ```
 
-Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, con un certificado TLS efímero que genera con `openssl` y monta en nginx (`tests/e2e/compose.tls.yml`; las pruebas confían en él con `NODE_EXTRA_CA_CERTS` y los bots con `HV_CA_CERT`, nunca sin verificar), por HTTPS y WSS, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`. `tls.test.mjs` comprueba además la redirección de HTTP a HTTPS, TLS 1.3 (y el rechazo de TLS 1.1), la ausencia de HSTS y el healthcheck de nginx.
+Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, con un certificado TLS efímero que genera con `openssl` y monta en nginx (`tests/e2e/compose.tls.yml`; las pruebas confían en él con `NODE_EXTRA_CA_CERTS` y los bots con `HV_CA_CERT`, nunca sin verificar), por HTTPS y WSS, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`. `tls.test.mjs` comprueba además la redirección de HTTP a HTTPS (308), TLS 1.3, el rechazo de TLS 1.1 por el servidor (con `openssl s_client`), la ausencia de HSTS, el healthcheck de nginx y, con una instancia suelta de la imagen sin certificado montado, el certificado autogenerado y su SAN (incluido `TLS_EXTRA_SANS`).
 
 ### Casos de fallos (CP-05, CP-06, CP-07, CP-08 y CP-12)
 

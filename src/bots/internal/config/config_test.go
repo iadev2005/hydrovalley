@@ -194,3 +194,20 @@ func TestTLSConfigReportsUnreadableOrInvalidCertificate(t *testing.T) {
 		t.Fatalf("invalid PEM: got %v", err)
 	}
 }
+
+func TestWarnIfInsecureLogsOnceOnlyWhenVerificationIsOff(t *testing.T) {
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+
+	Config{}.WarnIfInsecure(log)
+	Config{CACertPath: "/certs/tls.crt"}.WarnIfInsecure(log)
+	if buf.Len() != 0 {
+		t.Fatalf("verification on must not warn, got %q", buf.String())
+	}
+
+	Config{TLSInsecure: true}.WarnIfInsecure(log)
+	out := buf.String()
+	if strings.Count(out, "\n") != 1 || !strings.Contains(out, "level=WARN") || !strings.Contains(out, "HV_TLS_INSECURE") {
+		t.Fatalf("want a single WARN naming HV_TLS_INSECURE, got %q", out)
+	}
+}

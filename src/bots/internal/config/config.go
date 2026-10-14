@@ -157,6 +157,15 @@ func (c Config) RequireAdmin() error {
 	return nil
 }
 
+// WarnIfInsecure avisa una sola vez, a nivel WARN, de que la verificación del
+// certificado del proxy está desactivada (HV_TLS_INSECURE=true). Cada
+// escenario la llama una vez al crear su registro.
+func (c Config) WarnIfInsecure(log *slog.Logger) {
+	if c.TLSInsecure {
+		log.Warn("HV_TLS_INSECURE=true: the proxy certificate is NOT verified; use HV_CA_CERT outside the Compose network")
+	}
+}
+
 // TLSConfig arma la configuración TLS de los clientes: nil si no se pidió
 // nada (se usan los certificados del sistema), una que omite la verificación
 // con HV_TLS_INSECURE, o una que confía en el certificado de HV_CA_CERT además
