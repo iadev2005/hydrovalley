@@ -26,4 +26,4 @@ La rama estaba 50 commits por detrás de `dev` (sin TLS), rompía el smoke por e
 
 ## Progreso
 
-- T0 hecho (`44b66e2`, autor Cristian Baczek). T1 en `feature/a8-a10-concurrency-fire-load` (ruta delegada).
+- T0 hecho (`44b66e2`, autor Cristian Baczek). T1 y T2 en `feature/a8-a10-concurrency-fire-load` (ruta delegada), revisados con 4 lentes y aprobados en dos tramos. Avisos menores pendientes: un comentario invertido en `report.go:212` y el mínimo fijo de 10 consultas de ranking (una prueba muy corta queda «no evaluable», a propósito).
