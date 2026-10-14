@@ -63,6 +63,10 @@ type Config struct {
 
 // Valores de arranque de la prueba de carga (CP-11).
 const (
+	// DefaultLoadRankingInterval es la única fuente del intervalo por defecto
+	// entre consultas de ranking; la prueba de carga la toma de aquí.
+	DefaultLoadRankingInterval = 2 * time.Second
+
 	loadCount    = 30
 	loadDuration = 60 * time.Second
 )
@@ -147,7 +151,7 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		c.Seed, c.SeedSet = n, true
 	}
-	c.LoadRankingInterval = 2 * time.Second
+	c.LoadRankingInterval = DefaultLoadRankingInterval
 	if v := getenv("BOTS_LOAD_RANKING"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {

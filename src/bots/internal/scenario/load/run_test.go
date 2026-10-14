@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/iadev2005/hydrovalley/src/bots/internal/client"
+	"github.com/iadev2005/hydrovalley/src/bots/internal/config"
 )
 
 // valley simula el hub y el mundo: /play con token "admin" o "bot", estado
@@ -358,5 +359,13 @@ func TestRankingLoopCountsRealFailuresAsErrors(t *testing.T) {
 	rm := runRankingLoop(ctx, cfg, slog.New(slog.DiscardHandler))
 	if rm.Errors == 0 || rm.Success != 0 || rm.Errors != rm.Sent {
 		t.Errorf("los fallos reales (429) cuentan como errores: %+v", rm)
+	}
+}
+
+// El intervalo del ranking tiene una sola fuente: el valor por defecto de la
+// configuración (BOTS_LOAD_RANKING_INTERVAL).
+func TestRankingIntervalDefaultIsTheConfigDefault(t *testing.T) {
+	if got := (Config{}).withDefaults().RankingInterval; got != config.DefaultLoadRankingInterval {
+		t.Errorf("RankingInterval = %v, want %v", got, config.DefaultLoadRankingInterval)
 	}
 }

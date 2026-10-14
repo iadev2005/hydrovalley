@@ -151,7 +151,7 @@ func TestLoadTLSRejectsBadValuesNamingTheVariable(t *testing.T) {
 
 func TestLoadRankingVariables(t *testing.T) {
 	c, err := Load(env(map[string]string{"HV_BASE_URL": "http://x"}))
-	if err != nil || c.LoadRanking || c.LoadRankingInterval != 2*time.Second || c.LoadBaselineReport != "" {
+	if err != nil || c.LoadRanking || c.LoadRankingInterval != DefaultLoadRankingInterval || DefaultLoadRankingInterval != 2*time.Second || c.LoadBaselineReport != "" {
 		t.Fatalf("defaults: %+v %v", c, err)
 	}
 	c, err = Load(env(map[string]string{

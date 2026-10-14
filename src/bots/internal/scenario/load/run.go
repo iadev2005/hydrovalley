@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/iadev2005/hydrovalley/src/bots/internal/client"
+	"github.com/iadev2005/hydrovalley/src/bots/internal/config"
 )
 
 // Config afina la prueba. Todo lo que valga cero toma el valor del
@@ -57,7 +58,7 @@ func (c Config) withDefaults() Config {
 	def(&c.Settle, 1500*time.Millisecond)
 	def(&c.ConnectTimeout, 10*time.Second)
 	def(&c.StepTimeout, 10*time.Second)
-	def(&c.RankingInterval, 1*time.Second)
+	def(&c.RankingInterval, config.DefaultLoadRankingInterval)
 	return c
 }
 
