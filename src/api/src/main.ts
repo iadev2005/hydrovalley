@@ -5,6 +5,8 @@ import { createPublicKey } from "node:crypto";
 import { type Config, loadConfig } from "./config.js";
 import { createGrpcHealthProbe } from "./grpc-health.js";
 import { createHubStatsSource } from "./hub-stats.js";
+import { createCachedCatalog } from "./catalog-cache.js";
+import { createGrpcCatalogSource } from "./grpc-catalog-source.js";
 import { createSystemStatus } from "./system-status.js";
 import { createGrpcAccountDirectory } from "./grpc-account-directory.js";
 import { createGrpcRankingSource } from "./grpc-ranking-source.js";
@@ -12,6 +14,8 @@ import { createGrpcReportSource } from "./grpc-report-source.js";
 import { createPasswordService } from "./passwords.js";
 import {
   ADMIN_LIMIT_PER_ADMIN,
+  CATALOG_CACHE_TTL_SECONDS,
+  CATALOG_LIMIT_PER_IP,
   LIMITER_MAX_KEYS,
   LOGIN_LIMIT_PER_IP,
   LOGIN_LIMIT_PER_USER_IP,
@@ -91,6 +95,13 @@ const app = await buildApp(
       }),
     }),
     limiter: limiter(SYSTEM_LIMIT_PER_IP),
+  },
+  {
+    catalog: createCachedCatalog({
+      source: createGrpcCatalogSource({ address: config.persistenceAddr }),
+      ttlMs: CATALOG_CACHE_TTL_SECONDS * 1000,
+    }),
+    limiter: limiter(CATALOG_LIMIT_PER_IP),
   },
 );
 
