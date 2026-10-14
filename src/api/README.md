@@ -19,6 +19,7 @@ Servicio en TypeScript (Node 22 LTS) que atiende el registro, el acceso con toke
 | `src/read-routes.ts` | `GET /api/ranking` y `GET /api/report`: token, límite por IP, esquemas OpenAPI y traducción de errores |
 | `src/account-directory.ts` | Puerto `AccountDirectory` y sus errores; las rutas dependen de él, no de gRPC |
 | `src/ranking-source.ts`, `src/report-source.ts`, `src/source-errors.ts` | Puertos `RankingSource` y `ReportSource` y sus errores de dominio (`SourceUnavailableError`, `SourceNotFoundError`, `SourceInvalidRequestError`) |
+| `src/request-id.ts` | Identificador de petición (RNF-07): validación, `genReqId` de Fastify, cabecera de respuesta y el interceptor que lo envía como metadato gRPC `x-request-id` |
 | `src/grpc-retry.ts` | Plazo, reintentos y presupuesto compartidos por todos los adaptadores gRPC |
 | `src/grpc-account-directory.ts` | Adaptador gRPC de `AccountService` |
 | `src/grpc-ranking-source.ts` | Adaptador gRPC de `WorldService.GetRanking` (`WORLD_ADDR`) |
@@ -122,6 +123,10 @@ Las dos rutas siguen el documento inicial (`GET /api/ranking`, `GET /api/report`
 ### Llamadas a los demás servicios
 
 Plazo de 2 s por intento, dentro de un presupuesto total de 3 s por llamada: el plazo de cada intento se recorta a lo que queda y no se empieza una espera que lo agotaría. `GetAccount`, `GetUsernames`, `GetRanking` y `GetReport` (idempotentes) se reintentan hasta 3 veces, con esperas de 100, 200 y 400 ms más hasta un 25 % de azar, solo ante `UNAVAILABLE` o plazo agotado. `ALREADY_EXISTS` → `409`, `INVALID_ARGUMENT` → `400`, `UNAVAILABLE` o plazo agotado → `503`; cualquier otro error → `500` con un mensaje genérico.
+
+### Identificador de petición (RNF-07)
+
+nginx envía `X-Request-Id`. La API acepta un UUID o 32 caracteres hexadecimales (64 como máximo); si falta o no es válido, genera un UUID. Ese valor es el id de petición de Fastify (campo `reqId` en cada línea de registro de la petición), se devuelve en la cabecera `X-Request-Id` (también en los errores) y se reenvía como metadato gRPC `x-request-id` en todas las llamadas a persistencia y al simulador, hechas con un solo transporte (`createGrpcTransportFor`) y un `AsyncLocalStorage`, de modo que las rutas y los puertos no cambian. Fuera de una petición (p. ej. al arrancar) no se envía metadato. Cómo seguirlo: `deploy/README.md`, «Identificador de petición».
 
 ## Código generado
 
