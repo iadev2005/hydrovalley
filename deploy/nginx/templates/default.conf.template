@@ -20,12 +20,25 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# Identificador de petición (RNF-07). Si el cliente trae un X-Request-Id
+# válido (UUID o 32 caracteres hexadecimales, como mucho 64 caracteres) se
+# reutiliza; si falta o no es válido, se usa el $request_id de nginx. Se
+# valida aquí para que nada con saltos de línea ni de longitud arbitraria
+# llegue a los registros ni a las cabeceras que nginx envía. La API lo vuelve
+# a validar y lo propaga a persistencia y al simulador (metadato gRPC
+# x-request-id).
+map $http_x_request_id $hv_request_id {
+    default $request_id;
+    "~^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" $http_x_request_id;
+    "~^[0-9a-fA-F]{32}$" $http_x_request_id;
+}
+
 # Registro de acceso sin la consulta de la URL: /play?token=… lleva el token
 # firmado, y $request y $request_uri incluyen la consulta. Aquí solo va $uri
 # (la ruta, sin consulta). No se registran $args, $query_string ni el
 # Referer. Cualquier formato nuevo debe seguir esa regla.
 log_format hv_safe '$remote_addr - [$time_local] "$request_method $uri $server_protocol" '
-                   '$status $body_bytes_sent "$http_user_agent"';
+                   '$status $body_bytes_sent "$http_user_agent" rid=$hv_request_id';
 
 # Salud del contenedor: HTTP plano y solo por el bucle local.
 server {
@@ -94,6 +107,12 @@ server {
         # IP falsa en el X-Forwarded-For que envía.
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # RNF-07: el mismo id hacia la API y de vuelta al cliente, también en
+        # las respuestas que genera nginx (502, 504). La API ya lo devuelve;
+        # se oculta la suya para que no salga duplicado.
+        proxy_set_header X-Request-Id $hv_request_id;
+        proxy_hide_header X-Request-Id;
+        add_header X-Request-Id $hv_request_id always;
         proxy_connect_timeout 2s;
         proxy_read_timeout 30s;
     }

@@ -201,6 +201,25 @@ Otras rutas: `TLS_CERT_FILE` y `TLS_KEY_FILE`. `tests/e2e/compose.tls.yml` es un
 
 **Aviso del navegador y confianza.** Con un certificado autofirmado el navegador avisa («la conexión no es privada»): se acepta una vez por navegador. Para evitarlo, importar `tls.crt` como autoridad de confianza (`docker compose cp nginx:/etc/nginx/tls/tls.crt .`) o usar `curl --cacert tls.crt`. Las herramientas de línea de comandos: `curl -k` (solo para probar), `NODE_EXTRA_CA_CERTS=tls.crt` en Node, `HV_CA_CERT` o `HV_TLS_INSECURE=true` en los bots. El nombre al que se entra debe estar en el SAN: `localhost` y `nginx` siempre; el resto, con `TLS_EXTRA_SANS`.
 
+## Identificador de petición (RNF-07)
+
+Cada petición se puede seguir de punta a punta por un identificador, sin cambiar de herramienta:
+
+- **REST (`/api`).** nginx toma el `X-Request-Id` del cliente si es válido (UUID o 32 caracteres hexadecimales, de 64 como máximo) y, si falta o no lo es, usa su `$request_id`. Lo reenvía a la API, lo devuelve en la respuesta (también en un 502 o 504 que genere nginx) y lo registra en su línea de acceso como `rid=<id>` (como siempre, sin la consulta de la URL). La API lo valida otra vez (genera un UUID si no sirve), lo pone en cada línea de registro de esa petición (campo `reqId`) y lo envía como metadato gRPC `x-request-id` en sus llamadas a persistencia y al simulador. Persistencia y el simulador lo escriben en las líneas de esas llamadas (`request_id` en persistencia; el campo `request_id` del tramo `rpc` en el simulador; `-` si no viene).
+- **Llamadas internas del simulador a persistencia** (`GetCatalog`, `LoadSnapshot`, `SaveSnapshot`): el simulador genera un id por llamada (`world-<uuid>`) y lo envía como `x-request-id`; el mismo id aparece en su registro y en el de persistencia.
+- **Juego (`/play`).** El identificador es el `action_id` de cada acción. El hub lo registra a nivel `debug` (admisión y resultado final; con `LOG_LEVEL=debug`) para no inundar el registro `info` con cien gotas por segundo. En cada `Step` envía `x-request-id: tick-<n>` (`n` es el tick), y el simulador lo escribe en su registro `debug` del `Step` y de cada comando con su `action_id`, así que un `Step` se encuentra en los dos.
+
+Seguir una petición:
+
+```
+curl -sk -H 'X-Request-Id: 3f2b8c1e-5a47-4d0e-9b6a-1c2d3e4f5a6b' \
+  -H 'Content-Type: application/json' -d '{"username":"ana","password":"..."}' \
+  https://localhost:8080/api/auth/login
+docker compose logs nginx api persistence | grep 3f2b8c1e-5a47-4d0e-9b6a-1c2d3e4f5a6b
+```
+
+Si no se envía la cabecera, la respuesta trae la que se generó (`curl -i`). Para una acción del juego: `docker compose logs hub world | grep <action_id>` (con `LOG_LEVEL=debug`). Nunca se registran tokens, contraseñas ni la consulta de `/play`.
+
 ## Prueba de humo
 
 ```
