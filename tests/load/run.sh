@@ -66,7 +66,11 @@ run_dir="$(mktemp -d "${REPORTS_DIR}/.run.XXXXXX")"
 chmod 777 "${run_dir}"
 run_name="$(basename "${run_dir}")"
 load_cleanup() {
+  local status=$?
   rm -rf "${run_dir}" || true
+  # stack_cleanup lee $? para decidir si muestra los registros y con qué
+  # código sale: se lo devolvemos intacto.
+  (exit "${status}")
   stack_cleanup
 }
 trap load_cleanup EXIT
