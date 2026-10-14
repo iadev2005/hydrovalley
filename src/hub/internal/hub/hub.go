@@ -217,6 +217,10 @@ type Hub struct {
 	clock Clock
 	cfg   Config
 	log   *slog.Logger
+	// debug es verdadero si el registro admite nivel debug: se consulta una
+	// vez al crear el hub para que el camino caliente no arme argumentos que
+	// no se van a escribir.
+	debug bool
 
 	mu      sync.Mutex
 	players map[string]*player
@@ -257,6 +261,7 @@ func New(world WorldClient, clock Clock, cfg Config, log *slog.Logger) *Hub {
 		clock:   clock,
 		cfg:     cfg,
 		log:     log,
+		debug:   log.Enabled(context.Background(), slog.LevelDebug),
 		players: make(map[string]*player),
 		breaker: breaker.New(cfg.BreakerThreshold, cfg.ProbeInterval),
 		ledger:  make(map[uint64]uint64),
@@ -418,6 +423,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	}
 	cmd, outcome := build()
 	if outcome != Admitted {
+		h.logOutcome(s.playerID, actionID, outcome)
 		s.replyLocked(actionID, outcome)
 		return outcome
 	}
@@ -425,6 +431,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	cmd.ActionId = actionID
 	cmd.PlayerId = s.playerID
 	if _, ok := p.pending[actionID]; ok {
+		h.logOutcome(s.playerID, actionID, IgnoredPending)
 		return IgnoredPending
 	}
 	now := h.clock.Now()
@@ -437,6 +444,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 		outcome = RejectedPaused
 	}
 	if outcome != Admitted {
+		h.logOutcome(s.playerID, actionID, outcome)
 		s.replyLocked(actionID, outcome)
 		return outcome
 	}
@@ -447,6 +455,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	q.admittedAt = now
 	h.queue = append(h.queue, q)
 	h.admittedRate.Add(now)
+	h.logOutcome(s.playerID, actionID, Admitted)
 	return Admitted
 }
 
