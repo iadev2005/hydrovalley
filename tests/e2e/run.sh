@@ -60,20 +60,6 @@ up_args=(up -d --quiet-pull)
 if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
   up_args+=(--build)
 fi
-# Espera hasta `timeout` segundos a que /api/system dé los cinco servicios `up`.
-# Imprime los segundos que tardó, o nada si se agotó el plazo.
-wait_all_up() {
-  local start=$SECONDS timeout="${1:-300}"
-  while (( SECONDS - start < timeout )); do
-    if [[ "$(curl -fsS --cacert "${NODE_EXTRA_CA_CERTS}" --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]; then
-      echo $((SECONDS - start))
-      return 0
-    fi
-    sleep 1
-  done
-  return 0
-}
-
 # RNF-10: tiempo de `compose up` hasta que /api/system da los cinco servicios
 # `up` (con imágenes ya cargadas si E2E_SKIP_BUILD=1; con construcción incluye
 # el build, y entonces la cifra no es la de «levantar desde las imágenes»).
@@ -81,7 +67,7 @@ rnf10_start=$SECONDS
 docker compose "${up_args[@]}"
 rnf10_up=$((SECONDS - rnf10_start))
 rnf10_healthy=""
-rnf10_wait="$(wait_all_up 300)"
+rnf10_wait="$(stack_wait_all_up 300)"
 if [[ -n "${rnf10_wait}" ]]; then
   rnf10_healthy=$((rnf10_up + rnf10_wait))
 fi
@@ -139,7 +125,7 @@ if [[ "${E2E_SKIP_CP04:-0}" != "1" ]]; then
   # misma configuración que el stack levantado.
   export COMPOSE_FILE="${COMPOSE_FILE}:${repo_root}/tests/e2e/compose.cp04.yml"
   docker compose up -d --quiet-pull
-  cp04_up="$(wait_all_up 300)"
+  cp04_up="$(stack_wait_all_up 300)"
   if [[ -z "${cp04_up}" ]]; then
     echo "run.sh: el stack del catálogo de prueba no quedó listo en 300 s" >&2
     exit 1

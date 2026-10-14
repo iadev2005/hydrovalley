@@ -5,6 +5,9 @@
 #   1. Línea base (CP-11 puro, sin ranking en segundo plano)
 #   2. Con GET /api/ranking en bucle (RNF-03): su p95 se compara con el de la
 #      línea base (BOTS_LOAD_BASELINE_REPORT); sin línea base RNF-03 no se evalúa.
+# La línea base que usa la variante 2 es siempre la de esta misma ejecución
+# (se escribe en un directorio propio de la ejecución): nunca un informe que
+# haya quedado de una ejecución anterior.
 #
 # Uso:
 #   tests/load/run.sh
@@ -13,11 +16,15 @@
 #   LOAD_DURATION        duración de cada prueba (por defecto 60s)
 #   LOAD_BOTS            número de bots (por defecto 30)
 #   LOAD_VARIANT         both | baseline | ranking (por defecto both); «ranking»
-#                        solo sirve con un load-baseline.json previo en REPORTS_DIR
+#                        necesita LOAD_BASELINE_REPORT para poder evaluar RNF-03
+#   LOAD_BASELINE_REPORT ruta (en el host) de un informe de línea base previo;
+#                        solo se lee con LOAD_VARIANT=ranking
 #   LOAD_RANKING_INTERVAL  espera entre consultas de ranking (BOTS_LOAD_RANKING_INTERVAL,
 #                        2s por defecto)
 #   REPORTS_DIR          directorio de salida de los JSON (por defecto ./reports,
-#                        ignorado por git: son artefactos, no resultados versionados)
+#                        ignorado por git: son artefactos, no resultados versionados).
+#                        Cada ejecución sobrescribe load-baseline.json y
+#                        load-ranking.json de las variantes que corre
 #   LOAD_SKIP_BUILD=1    no construir imágenes, usar las precargadas (CI)
 #   LOAD_KEEP=1          no bajar el stack al terminar (para depuración)
 #   HV_HTTP_PORT         puerto del host para nginx (8080)
@@ -51,7 +58,18 @@ STACK_KEEP_NAME="LOAD_KEEP"
 stack_init_tls
 stack_init_keys
 stack_init_admin "load-admin"
-trap stack_cleanup EXIT
+
+# Directorio propio de esta ejecución para la línea base (dentro de REPORTS_DIR,
+# que se monta en los bots): así la variante con ranking lee exactamente la
+# línea base que se acaba de medir. Se borra al terminar.
+run_dir="$(mktemp -d "${REPORTS_DIR}/.run.XXXXXX")"
+chmod 777 "${run_dir}"
+run_name="$(basename "${run_dir}")"
+load_cleanup() {
+  rm -rf "${run_dir}" || true
+  stack_cleanup
+}
+trap load_cleanup EXIT
 
 echo "--- levantando servicios de hydrovalley ---"
 up_args=(up -d --quiet-pull)
@@ -60,22 +78,13 @@ if [[ "${LOAD_SKIP_BUILD:-0}" != "1" ]]; then
 fi
 docker compose "${up_args[@]}"
 
-# Espera a que los 5 servicios reporten 'up' en /api/system (hasta 300 s)
-start_wait=$SECONDS
-healthy=false
-while (( SECONDS - start_wait < 300 )); do
-  if [[ "$(curl -fsS --cacert "${NODE_EXTRA_CA_CERTS}" --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]; then
-    healthy=true
-    break
-  fi
-  sleep 1
-done
-
-if [[ "${healthy}" != "true" ]]; then
+# Espera a que los 5 servicios reporten 'up' en /api/system (hasta 300 s).
+ready_s="$(stack_wait_all_up 300)"
+if [[ -z "${ready_s}" ]]; then
   echo "run.sh: los servicios no estuvieron listos a tiempo" >&2
   exit 1
 fi
-echo "--- servicios listos y saludables en $((SECONDS - start_wait)) s ---"
+echo "--- servicios listos y saludables en ${ready_s} s ---"
 
 bots_image="${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-bots:${HV_TAG:-dev}"
 if [[ "${LOAD_SKIP_BUILD:-0}" != "1" ]] || ! docker image inspect "${bots_image}" >/dev/null 2>&1; then
@@ -83,13 +92,15 @@ if [[ "${LOAD_SKIP_BUILD:-0}" != "1" ]] || ! docker image inspect "${bots_image}
 fi
 
 # Los bots llegan a nginx por https://nginx:8080 y confían en el certificado
-# efímero (HV_CA_CERT, ver tests/e2e/compose.tls.yml).
+# efímero (HV_CA_CERT, ver tests/e2e/compose.tls.yml). `report` es la ruta del
+# informe dentro de /reports. La contraseña del administrador va por el
+# entorno de ese proceso (deploy/compose.yml la toma de HV_ADMIN_PASSWORD), no
+# en los argumentos: `ps` los muestra a cualquier usuario de la máquina.
 bots_load() {
   local report="$1"
   shift
-  docker compose --profile bots run --rm \
+  HV_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD}" docker compose --profile bots run --rm \
     -e HV_ADMIN_USERNAME="${ADMIN_USERNAME}" \
-    -e HV_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD}" \
     -e BOTS_COUNT="${LOAD_BOTS}" \
     -e BOTS_DURATION="${LOAD_DURATION}" \
     -e BOTS_RESET=true \
@@ -108,9 +119,14 @@ if [[ "${LOAD_VARIANT}" == "both" || "${LOAD_VARIANT}" == "baseline" ]]; then
   echo " 1. PRUEBA DE CARGA: LÍNEA BASE CP-11 (sin ranking)"
   echo "    Bots: ${LOAD_BOTS} · Duración: ${LOAD_DURATION}"
   echo "========================================================================"
-  if ! bots_load load-baseline.json; then
+  # Nada de informes de ejecuciones anteriores: ni como salida ni como línea base.
+  rm -f "${REPORTS_DIR}/load-baseline.json"
+  if ! bots_load "${run_name}/load-baseline.json"; then
     echo "AVISO: la prueba de carga base no superó los umbrales exigidos" >&2
     run_passed=false
+  fi
+  if [[ -f "${run_dir}/load-baseline.json" ]]; then
+    cp "${run_dir}/load-baseline.json" "${REPORTS_DIR}/load-baseline.json"
   fi
 fi
 
@@ -125,11 +141,22 @@ if [[ "${LOAD_VARIANT}" == "both" || "${LOAD_VARIANT}" == "ranking" ]]; then
   if [[ -n "${LOAD_RANKING_INTERVAL:-}" ]]; then
     ranking_env+=(-e "BOTS_LOAD_RANKING_INTERVAL=${LOAD_RANKING_INTERVAL}")
   fi
-  if [[ -f "${REPORTS_DIR}/load-baseline.json" ]]; then
-    ranking_env+=(-e BOTS_LOAD_BASELINE_REPORT=/reports/load-baseline.json)
-  else
-    echo "AVISO: no hay ${REPORTS_DIR}/load-baseline.json: RNF-03 no se podrá evaluar" >&2
+  # La línea base es la de esta ejecución (run_dir). Con LOAD_VARIANT=ranking
+  # solo se usa la que se indique de forma explícita en LOAD_BASELINE_REPORT.
+  if [[ "${LOAD_VARIANT}" == "ranking" && -n "${LOAD_BASELINE_REPORT:-}" ]]; then
+    if [[ -f "${LOAD_BASELINE_REPORT}" ]]; then
+      cp "${LOAD_BASELINE_REPORT}" "${run_dir}/load-baseline.json"
+    else
+      echo "run.sh: LOAD_BASELINE_REPORT no existe: ${LOAD_BASELINE_REPORT}" >&2
+      exit 1
+    fi
   fi
+  if [[ -f "${run_dir}/load-baseline.json" ]]; then
+    ranking_env+=(-e "BOTS_LOAD_BASELINE_REPORT=/reports/${run_name}/load-baseline.json")
+  else
+    echo "AVISO: no hay línea base de esta ejecución: RNF-03 no se podrá evaluar" >&2
+  fi
+  rm -f "${REPORTS_DIR}/load-ranking.json"
   if ! bots_load load-ranking.json "${ranking_env[@]}"; then
     echo "AVISO: la prueba de carga con ranking no superó los umbrales exigidos" >&2
     run_passed=false

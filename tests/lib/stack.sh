@@ -5,7 +5,8 @@
 # Cada script define antes COMPOSE_PROJECT_NAME, COMPOSE_FILE (con
 # tests/e2e/compose.tls.yml), COMPOSE_ENV_FILES y HV_HTTP_PORT, y después llama
 # a las funciones en este orden: stack_init_tls, stack_init_keys,
-# stack_init_admin y `trap stack_cleanup EXIT`.
+# stack_init_admin y `trap stack_cleanup EXIT`. Después de levantar el stack,
+# stack_wait_all_up espera a que esté listo.
 #
 # Variables que lee:
 #   STACK_SKIP_BUILD  "1": no construir, usar las imágenes ya cargadas
@@ -82,6 +83,23 @@ console.log(await hash(pw, { algorithm: 2, memoryCost: 19456, timeCost: 2, paral
     exit 1
   fi
   export ADMIN_PASSWORD_HASH
+}
+
+# Espera hasta `timeout` segundos (300 por defecto) a que /api/system dé los
+# cinco servicios `up`. Imprime los segundos que tardó y devuelve 0; si se
+# agota el plazo no imprime nada (y también devuelve 0: quien llama comprueba
+# la salida vacía). Necesita HV_BASE_URL y NODE_EXTRA_CA_CERTS (stack_init_tls).
+#   stack_wait_all_up [timeout]
+stack_wait_all_up() {
+  local start=$SECONDS timeout="${1:-300}"
+  while (( SECONDS - start < timeout )); do
+    if [[ "$(curl -fsS --cacert "${NODE_EXTRA_CA_CERTS}" --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]; then
+      echo $((SECONDS - start))
+      return 0
+    fi
+    sleep 1
+  done
+  return 0
 }
 
 # Limpieza: con fallo muestra el estado y los registros; baja el stack con sus
