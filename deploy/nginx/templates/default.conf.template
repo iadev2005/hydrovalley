@@ -9,9 +9,11 @@
 # resolver), no al arrancar: nginx arranca aunque la API o el hub no estén
 # y los encuentra cuando aparecen (regla 5 de portabilidad).
 #
-# TODO(RNF-12): HTTPS en el 8080 con un certificado autofirmado del
-# laboratorio (ssl_certificate por variable de entorno o volumen de solo
-# lectura). Mientras tanto, HTTP.
+# TLS (RNF-12): nginx termina TLS en el 8080, el único puerto publicado.
+# ${TLS_CERT_FILE} y ${TLS_KEY_FILE} son un par montado por el laboratorio o
+# el autofirmado que genera docker-entrypoint.d/40-tls-cert.sh al arrancar.
+# Un segundo servidor en HTTP, solo en 127.0.0.1:8079, atiende el healthcheck
+# del contenedor y no es alcanzable desde fuera.
 
 map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -25,9 +27,41 @@ map $http_upgrade $connection_upgrade {
 log_format hv_safe '$remote_addr - [$time_local] "$request_method $uri $server_protocol" '
                    '$status $body_bytes_sent "$http_user_agent"';
 
+# Salud del contenedor: HTTP plano y solo por el bucle local.
 server {
-    listen 8080;
+    listen 127.0.0.1:8079;
     server_tokens off;
+    access_log off;
+
+    location = /healthz {
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+server {
+    listen 8080 ssl;
+    server_tokens off;
+
+    ssl_certificate ${TLS_CERT_FILE};
+    ssl_certificate_key ${TLS_KEY_FILE};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    # Sin HSTS: el certificado del laboratorio es autofirmado y el navegador
+    # recordaría un aviso que el usuario no puede resolver.
+
+    # HTTP plano en el puerto de HTTPS (código 497 de nginx): redirige al
+    # mismo host y puerto que pidió el cliente ($http_host lleva el puerto
+    # publicado, no el 8080 interno del contenedor).
+    error_page 497 =301 https://$http_host$request_uri;
 
     access_log /var/log/nginx/access.log hv_safe;
 

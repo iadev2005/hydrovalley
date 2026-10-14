@@ -3,9 +3,10 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Destino del plan B (nginx) para el servidor de desarrollo; se cambia con
-// VITE_PROXY_TARGET si el stack corre en otro puerto.
-const target = process.env.VITE_PROXY_TARGET ?? "http://localhost:8080";
+// Destino del plan B (nginx, HTTPS con certificado autofirmado) para el
+// servidor de desarrollo; se cambia con VITE_PROXY_TARGET si el stack corre en
+// otro puerto. `secure: false` acepta ese certificado autofirmado.
+const target = process.env.VITE_PROXY_TARGET ?? "https://localhost:8080";
 
 export default defineConfig({
   plugins: [react()],
@@ -20,10 +21,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": { target, changeOrigin: true },
+      "/api": { target, changeOrigin: true, secure: false },
       // El hub compara Origin con Host: sin changeOrigin, el Host sigue siendo
       // el de Vite (localhost:5173), igual que el Origin del navegador.
-      "/play": { target, ws: true, changeOrigin: false },
+      "/play": { target, ws: true, changeOrigin: false, secure: false },
     },
   },
   test: {

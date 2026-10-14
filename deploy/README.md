@@ -4,7 +4,7 @@
 | --- | --- |
 | `compose.yml` | Plan B: todo en una máquina, un contenedor por servicio (diagrama `08-despliegue-plan-b`) |
 | `.env.example` | Plantilla de `deploy/.env` (credenciales de PostgreSQL, claves del token, administrador, puerto del host y etiqueta de las imágenes). `.env` nunca se versiona |
-| `nginx/` | Proxy de entrada: plantilla de configuración y la imagen, que incluye el frontend |
+| `nginx/` | Proxy de entrada: plantilla de configuración, la imagen (que incluye el frontend) y el script que prepara el certificado TLS |
 | `nodes/` | Plan A: un archivo por máquina (pendiente) |
 
 ## Plan B
@@ -32,10 +32,10 @@ Para incluir la imagen de los bots en la descarga:
 HV_TAG=dev docker compose -f deploy/compose.yml --profile bots pull
 ```
 
-Luego, http://localhost:8080. Solo nginx publica un puerto (`HV_HTTP_PORT`, 8080 por defecto); PostgreSQL no se publica. Los servicios se encuentran por su nombre (`world:50051`, `persistence:50051`…) mediante variables de entorno.
+Luego, https://localhost:8080 (certificado autofirmado: el navegador avisa; ver «TLS»). Solo nginx publica un puerto (`HV_HTTP_PORT`, 8080 por defecto); PostgreSQL no se publica. Los servicios se encuentran por su nombre (`world:50051`, `persistence:50051`…) mediante variables de entorno.
 
 - **Arranque**: no se usa `depends_on`. Cada servicio arranca aunque los demás no estén y se reconecta solo (regla 5); `restart: unless-stopped` cubre las caídas. Hasta que la persistencia conecta con PostgreSQL y el simulador carga su instantánea, el hub tiene el valle en pausa.
-- **Healthchecks**: van en cada imagen, para que el plan A los herede. Hub: `hub healthcheck` (`/healthz`). Simulador y persistencia: `grpc_health_probe` contra `grpc.health.v1` (SERVING solo con la instantánea cargada o la base conectada). API: `node dist/healthcheck.js`. nginx: `wget` a `/healthz`. PostgreSQL: `pg_isready`, en `compose.yml`.
+- **Healthchecks**: van en cada imagen, para que el plan A los herede. Hub: `hub healthcheck` (`/healthz`). Simulador y persistencia: `grpc_health_probe` contra `grpc.health.v1` (SERVING solo con la instantánea cargada o la base conectada). API: `node dist/healthcheck.js`. nginx: `wget` a `/healthz` por HTTP en `127.0.0.1:8079` (solo bucle local, sin publicar; ver «TLS»). PostgreSQL: `pg_isready`, en `compose.yml`.
 
 ## Imágenes en ghcr.io (pipeline de CI)
 
@@ -121,8 +121,14 @@ ADMIN_PASSWORD_HASH=
 # Vigencia del token en segundos (opcional; 43200 = 12 h, máximo 604800).
 # TOKEN_TTL_SECONDS=43200
 
+# TLS de nginx (opcional, ver «TLS»): nombres o IP adicionales del certificado
+# autofirmado, separados por comas (en el laboratorio, las IP 10.68.17.x).
+# TLS_EXTRA_SANS=
+
 # Bots (opcionales; solo con el perfil «bots», ver «Bots»). La contraseña va
 # en claro y es la del administrador de ADMIN_USERNAME, no su hash.
+# HV_TLS_INSECURE=false   # en compose.yml el valor por defecto es true
+# HV_CA_CERT=
 # HV_ADMIN_USERNAME=
 # HV_ADMIN_PASSWORD=
 # BOTS_COUNT=
@@ -136,7 +142,7 @@ ADMIN_PASSWORD_HASH=
 
 ## Bots
 
-El servicio `bots` (`src/bots/`) está en `compose.yml` bajo el perfil `bots`: `up` no lo arranca. Corre, imprime su resumen y termina; habla solo con nginx dentro de la red de Compose (`HV_BASE_URL=http://nginx:8080`), como cualquier jugador. Necesita un administrador (RF-31) para crear sus cuentas: `HV_ADMIN_USERNAME` es el `ADMIN_USERNAME` sembrado y `HV_ADMIN_PASSWORD` su contraseña en claro (no el hash). El stack tiene que estar levantado.
+El servicio `bots` (`src/bots/`) está en `compose.yml` bajo el perfil `bots`: `up` no lo arranca. Corre, imprime su resumen y termina; habla solo con nginx dentro de la red de Compose (`HV_BASE_URL=https://nginx:8080`), como cualquier jugador. Como nginx usa un certificado autofirmado, el servicio `bots` de `compose.yml` omite la verificación por defecto (`HV_TLS_INSECURE=true`; vale para el plan B, porque el tráfico no sale de la red de Compose). Para verificar de verdad: `HV_TLS_INSECURE=false` y `HV_CA_CERT` con la ruta, dentro del contenedor, del certificado en que confiar (montado con un volumen). Necesita un administrador (RF-31) para crear sus cuentas: `HV_ADMIN_USERNAME` es el `ADMIN_USERNAME` sembrado y `HV_ADMIN_PASSWORD` su contraseña en claro (no el hash). El stack tiene que estar levantado.
 
 ```
 docker compose -f deploy/compose.yml --profile bots run --rm bots neighbors     # vecinos (hasta Ctrl-C si BOTS_DURATION=0)
@@ -163,7 +169,34 @@ El informe JSON (`BOTS_REPORT_PATH`) se escribe dentro del contenedor, que no ti
 
 Los destinos se resuelven en cada petición con el DNS de Docker (`NGINX_RESOLVER`, 127.0.0.11), así nginx arranca aunque la API o el hub todavía no estén.
 
-**TLS (RNF-12), pendiente**: por ahora HTTP en el 8080. En el laboratorio, HTTPS en ese mismo puerto con un certificado autofirmado.
+## TLS (RNF-12)
+
+nginx termina TLS en el 8080, el único puerto publicado: `https://…:8080` para la página y la API, `wss://…:8080/play` para el juego (el frontend elige `wss:` cuando la página es `https:`). El HTTP plano que llegue a ese mismo puerto recibe un `301` hacia `https://` con el mismo host, puerto, ruta y consulta. TLS 1.2 y 1.3, sin HSTS (el certificado es autofirmado y el navegador no debe recordar un aviso que no puede resolver). El tráfico interno (gRPC, HTTP entre servicios) sigue sin cifrar, riesgo aceptado en `CLAUDE.md`.
+
+**Certificado.** `deploy/nginx/docker-entrypoint.d/40-tls-cert.sh` corre antes de nginx:
+
+- Si en `TLS_CERT_FILE` y `TLS_KEY_FILE` (por defecto `/etc/nginx/tls/tls.crt` y `/etc/nginx/tls/tls.key`) ya hay un par, lo usa tal cual (el de un volumen montado nunca se toca).
+- Si no, genera un certificado autofirmado (ECDSA P-256, 825 días, `CN=hydrovalley-proxy`) en esas rutas. Nace al crearse el contenedor: ni la clave ni el certificado van en el repositorio ni en la imagen publicada en `ghcr.io`. Un contenedor reiniciado lo reutiliza, y lo renueva si le quedan menos de 30 días; recrearlo (o cambiar `TLS_EXTRA_SANS`) genera uno nuevo.
+- SAN: `localhost`, `nginx` y `127.0.0.1`, más lo de `TLS_EXTRA_SANS` (lista separada por comas; lo que parece una IP va como IP y el resto como nombre). En el laboratorio hay que incluir la IP por la que se entra, para que el nombre coincida:
+
+```
+TLS_EXTRA_SANS=10.68.17.1,labbd-01 docker compose -f deploy/compose.yml up -d
+```
+
+**Un certificado propio (el del laboratorio).** Montar una carpeta con `tls.crt` y `tls.key` en `/etc/nginx/tls`, de solo lectura (el usuario 101 de nginx debe poder leerla):
+
+```yaml
+services:
+  nginx:
+    volumes:
+      - ./tls:/etc/nginx/tls:ro
+```
+
+Otras rutas: `TLS_CERT_FILE` y `TLS_KEY_FILE`. `tests/e2e/compose.tls.yml` es un ejemplo completo.
+
+**Healthcheck.** Un segundo `server`, en HTTP y solo en `127.0.0.1:8079`, atiende `/healthz` para el `HEALTHCHECK` de la imagen; no se publica. El `/healthz` del 8080 sigue ahí (por HTTPS).
+
+**Aviso del navegador y confianza.** Con un certificado autofirmado el navegador avisa («la conexión no es privada»): se acepta una vez por navegador. Para evitarlo, importar `tls.crt` como autoridad de confianza (`docker compose cp nginx:/etc/nginx/tls/tls.crt .`) o usar `curl --cacert tls.crt`. Las herramientas de línea de comandos: `curl -k` (solo para probar), `NODE_EXTRA_CA_CERTS=tls.crt` en Node, `HV_CA_CERT` o `HV_TLS_INSECURE=true` en los bots. El nombre al que se entra debe estar en el SAN: `localhost` y `nginx` siempre; el resto, con `TLS_EXTRA_SANS`.
 
 ## Prueba de humo
 
@@ -171,7 +204,7 @@ Los destinos se resuelven en cada petición con el DNS de Docker (`NGINX_RESOLVE
 tests/e2e/run.sh
 ```
 
-Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`.
+Levanta el plan B con el proyecto `hydrovalley-e2e` y los valores de `.env.example`, con un certificado TLS efímero que genera con `openssl` y monta en nginx (`tests/e2e/compose.tls.yml`; las pruebas confían en él con `NODE_EXTRA_CA_CERTS` y los bots con `HV_CA_CERT`, nunca sin verificar), por HTTPS y WSS, registra jugadores y entra con ellos, suelta una gota por nginx, comprueba que un jugador sin rol de administrador recibe `forbidden`, comprueba el crecimiento de una casilla y las hojas tras varias gotas, siembra un administrador efímero (contraseña aleatoria y su hash Argon2id, calculado con la imagen de la API; nada se guarda en disco) y prueba el modo demo y el reinicio del valle, espera al tick 50, comprueba que hay una fila en `snapshots`, corre el bot tramposo (CP-03, 5 s, imagen de los bots) con ese mismo administrador y lo baja todo con `down -v`. `tls.test.mjs` comprueba además la redirección de HTTP a HTTPS, TLS 1.3 (y el rechazo de TLS 1.1), la ausencia de HSTS y el healthcheck de nginx.
 
 ### Casos de fallos (CP-05, CP-06, CP-07, CP-08 y CP-12)
 

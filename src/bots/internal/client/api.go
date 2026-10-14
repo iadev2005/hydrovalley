@@ -6,6 +6,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +76,18 @@ func NewAPI(baseURL string) (*API, error) {
 		Sleep:      sleepCtx,
 		MaxRetries: 6,
 	}, nil
+}
+
+// UseTLS fija la configuración TLS del cliente (certificado de confianza
+// propio o, solo en pruebas, sin verificación). nil deja los valores del
+// sistema.
+func (a *API) UseTLS(cfg *tls.Config) {
+	if cfg == nil {
+		return
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = cfg
+	a.HTTP.Transport = tr
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

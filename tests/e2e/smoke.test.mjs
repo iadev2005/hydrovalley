@@ -7,7 +7,7 @@
 // por la persistencia en el tick 50.
 //
 // Variables:
-//   HV_BASE_URL          raíz de nginx (por defecto http://localhost:8080)
+//   HV_BASE_URL          raíz de nginx (por defecto https://localhost:8080)
 //   E2E_READY_TIMEOUT_S  espera máxima a que el stack esté listo (180)
 //   ADMIN_USERNAME, E2E_ADMIN_PASSWORD  cuenta de administrador sembrada para
 //                        la prueba (run.sh las genera; ver RF-31)
@@ -25,7 +25,7 @@ import { promisify } from "node:util";
 import { PlaySession } from "./play-session.mjs";
 
 const run = promisify(execFile);
-const BASE_URL = (process.env.HV_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
+const BASE_URL = (process.env.HV_BASE_URL ?? "https://localhost:8080").replace(/\/$/, "");
 const WS_BASE = BASE_URL.replace(/^http/, "ws");
 const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_S ?? 180) * 1000;
 // Instantánea del mundo cada 50 ticks (`tick % 50 == 0`): regla 8 de

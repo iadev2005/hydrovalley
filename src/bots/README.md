@@ -20,7 +20,9 @@ Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos),
 
 | Variable | Obligatoria | Valor por defecto | Uso |
 | --- | --- | --- | --- |
-| `HV_BASE_URL` | Sí | — | Dirección del proxy, p. ej. `http://nginx:8080` (plan B) o `http://10.68.17.x:8080` (plan A). `https` usa `wss` para `/play` |
+| `HV_BASE_URL` | Sí | — | Dirección del proxy, p. ej. `https://nginx:8080` (plan B) o `https://10.68.17.x:8080` (plan A). `https` usa `wss` para `/play` |
+| `HV_CA_CERT` | No | — | Ruta de un certificado PEM en que confiar (además de los del sistema), p. ej. el autofirmado del laboratorio. Preferible a `HV_TLS_INSECURE`. Excluyente con ella |
+| `HV_TLS_INSECURE` | No | `false` | `true` omite la verificación del certificado del proxy, para el autofirmado del laboratorio. No usar fuera de pruebas |
 | `HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD` | Sí, para aprovisionar | — | Cuenta de administrador; solo sirve para crear las cuentas de bots. La contraseña nunca se registra |
 | `BOTS_COUNT` | No | `3` (`30` en `load`) | Número de bots. `cheater` usa siempre uno |
 | `BOTS_DURATION` | No | `0` (`60s` en `load`, `10s` en `cheater`, `120s` en `firefighter`) | Duración (`30s`, `5m`); en `neighbors`, `0` = hasta que se detenga. En `load` es el tiempo de envío; en `cheater`, el de la inundación. En esos tres, `0` cae al valor por defecto |
@@ -34,7 +36,7 @@ Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos),
 ## Uso
 
 ```
-HV_BASE_URL=http://localhost:8080 HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
+HV_BASE_URL=https://localhost:8080 HV_TLS_INSECURE=true HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
 BOTS_COUNT=3 BOTS_DURATION=30s go run ./cmd/bots neighbors
 ```
 
@@ -43,7 +45,7 @@ Al terminar registra un resumen: acciones enviadas, resultados por estado (`appl
 Prueba de carga (CP-11), 30 bots durante 60 s y con informe:
 
 ```
-HV_BASE_URL=http://localhost:8080 HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
+HV_BASE_URL=https://localhost:8080 HV_TLS_INSECURE=true HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
 BOTS_REPORT_PATH=load-report.json go run ./cmd/bots load
 ```
 
@@ -118,7 +120,7 @@ El contexto es la raíz del repositorio:
 
 ```
 docker build -f src/bots/Dockerfile -t hydrovalley-bots .
-docker run --rm -e HV_BASE_URL=http://host:8080 -e HV_ADMIN_USERNAME=admin -e HV_ADMIN_PASSWORD=... hydrovalley-bots neighbors
+docker run --rm -e HV_BASE_URL=https://host:8080 -e HV_TLS_INSECURE=true -e HV_ADMIN_USERNAME=admin -e HV_ADMIN_PASSWORD=... hydrovalley-bots neighbors
 ```
 
 Binario estático en `golang:1.26` sobre `gcr.io/distroless/static-debian13:nonroot`. En Compose es el servicio `bots`, bajo el perfil del mismo nombre: `docker compose -f deploy/compose.yml --profile bots run --rm bots load-test` (`load-test` es alias de `load`).

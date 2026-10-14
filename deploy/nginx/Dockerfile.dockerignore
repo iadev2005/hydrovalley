@@ -5,6 +5,8 @@
 *
 !deploy/nginx/templates/
 !deploy/nginx/templates/**
+!deploy/nginx/docker-entrypoint.d/
+!deploy/nginx/docker-entrypoint.d/**
 !src/frontend/
 !src/frontend/**
 src/frontend/node_modules/

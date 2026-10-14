@@ -14,17 +14,36 @@
 #                       propio; sin ellas se genera uno efímero
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
 # «bots») con el administrador efímero.
-# Requiere Docker con Compose v2 y Node 22 o superior.
+# nginx sirve HTTPS: run.sh genera un certificado efímero (openssl) y lo monta
+# con tests/e2e/compose.tls.yml; ver tls.test.mjs.
+# Requiere Docker con Compose v2, openssl y Node 22 o superior.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 export COMPOSE_PROJECT_NAME=hydrovalley-e2e
-export COMPOSE_FILE="${repo_root}/deploy/compose.yml"
+# compose.tls.yml monta el certificado efímero (E2E_TLS_DIR) en nginx.
+export COMPOSE_FILE="${repo_root}/deploy/compose.yml:${repo_root}/tests/e2e/compose.tls.yml"
 # Valores de ejemplo con una base desechable: nunca el deploy/.env real.
 export COMPOSE_ENV_FILES="${repo_root}/deploy/.env.example"
 export HV_HTTP_PORT="${HV_HTTP_PORT:-8080}"
-export HV_BASE_URL="http://localhost:${HV_HTTP_PORT}"
+export HV_BASE_URL="https://localhost:${HV_HTTP_PORT}"
+
+# Certificado TLS efímero para nginx (RNF-12): se genera en cada ejecución, se
+# monta en nginx y las pruebas confían en él con NODE_EXTRA_CA_CERTS (los
+# bots, con HV_CA_CERT; ver compose.tls.yml): nunca se omite la verificación.
+# Directorio y clave legibles por cualquiera porque nginx corre con el usuario
+# 101; es una clave desechable que se borra al terminar.
+E2E_TLS_DIR="$(mktemp -d)"
+export E2E_TLS_DIR
+chmod 755 "${E2E_TLS_DIR}"
+openssl ecparam -genkey -name prime256v1 -noout -out "${E2E_TLS_DIR}/tls.key"
+openssl req -new -x509 -key "${E2E_TLS_DIR}/tls.key" -out "${E2E_TLS_DIR}/tls.crt" \
+  -days 2 -subj "/CN=hydrovalley-e2e" \
+  -addext "subjectAltName=DNS:localhost,DNS:nginx,IP:127.0.0.1" \
+  -addext "extendedKeyUsage=serverAuth"
+chmod 644 "${E2E_TLS_DIR}/tls.key" "${E2E_TLS_DIR}/tls.crt"
+export NODE_EXTRA_CA_CERTS="${E2E_TLS_DIR}/tls.crt"
 
 # Clave Ed25519 efímera para la prueba: se genera en cada ejecución y nunca
 # se guarda (RNF-13). Si ya viene definida en el entorno, se respeta.
@@ -86,6 +105,7 @@ cleanup() {
     docker compose logs --no-color --tail=80 || true
   fi
   docker compose down -v --remove-orphans || true
+  rm -rf "${E2E_TLS_DIR}"
   exit "${status}"
 }
 trap cleanup EXIT
@@ -102,7 +122,7 @@ docker compose "${up_args[@]}"
 rnf10_up=$((SECONDS - rnf10_start))
 rnf10_healthy=""
 while (( SECONDS - rnf10_start < 300 )); do
-  if [[ "$(curl -fsS --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]; then
+  if [[ "$(curl -fsS --cacert "${NODE_EXTRA_CA_CERTS}" --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]; then
     rnf10_healthy=$((SECONDS - rnf10_start))
     break
   fi
@@ -116,6 +136,9 @@ if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
 fi
 
 node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
+
+# RNF-12: TLS en nginx (redirección de HTTP, versiones, healthcheck).
+node --test --test-reporter=spec "${repo_root}/tests/e2e/tls.test.mjs"
 
 # CP-05 a CP-08 y CP-12: fallos de servicios (faults*.test.mjs; CP-08, el más
 # disruptivo, va al final). Corren después de la prueba de

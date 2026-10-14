@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	crand "crypto/rand"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -66,6 +67,9 @@ type SessionConfig struct {
 	// convierte a ws(s) y se le añade /play.
 	BaseURL string
 	Token   string
+	// TLS es la configuración de wss (certificado de confianza propio o, solo
+	// en pruebas, sin verificación); nil usa los certificados del sistema.
+	TLS *tls.Config
 	// Map pide el mapa en cada StateMessage (map=true); los bots de carga
 	// lo apagan.
 	Map    bool
@@ -257,6 +261,15 @@ func (s *Session) writeLocked(c *websocket.Conn, frame []byte) error {
 	return c.Write(ctx, websocket.MessageText, frame)
 }
 
+func (s *Session) dialOptions() *websocket.DialOptions {
+	if s.cfg.TLS == nil {
+		return nil
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = s.cfg.TLS
+	return &websocket.DialOptions{HTTPClient: &http.Client{Transport: tr}}
+}
+
 // Run mantiene la conexión hasta que ctx termine (devuelve nil) o el hub
 // cierre con 4401 o responda 401 (devuelve ErrUnauthorized, sin reconectar).
 // Cualquier otra caída se reintenta con espera creciente y, al volver, se
@@ -265,7 +278,7 @@ func (s *Session) writeLocked(c *websocket.Conn, frame []byte) error {
 func (s *Session) Run(ctx context.Context) error {
 	attempt := 0
 	for {
-		conn, resp, err := websocket.Dial(ctx, s.url, nil)
+		conn, resp, err := websocket.Dial(ctx, s.url, s.dialOptions())
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
