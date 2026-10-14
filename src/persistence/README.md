@@ -18,6 +18,7 @@ Servicio en Python que es la única puerta a PostgreSQL (regla 5 de `CLAUDE.md`)
 | `persistence/report_servicer.py` | Servidor gRPC de `ReportService`: validación y traducción de errores |
 | `persistence/catalog_servicer.py` | Servidor gRPC de `CatalogService`: traduce las cifras validadas a los mensajes de `catalog.proto` |
 | `persistence/server.py` | Montaje del servidor y del servicio de salud |
+| `persistence/request_id.py` | Identificador de petición (RNF-07): interceptor del servidor, variable de contexto y filtro de logging |
 | `migrations/` | Migraciones SQL versionadas (`NNNN_descripcion.sql`) |
 | `tests/` | Pruebas unitarias y de integración |
 
@@ -85,6 +86,10 @@ El servicio arranca aunque PostgreSQL no esté (regla 5 de portabilidad): el gRP
 - **Retención**: todas las instantáneas de la última hora (tick mayor que el último menos 36.000, es decir, 720) y, de las anteriores, la primera de cada hora de tick (`tick // 36.000`).
 - **Migraciones**: cada archivo de `migrations/` es una versión; las aplicadas se anotan en `schema_migrations`. Se aplican al conectar, en una transacción y bajo un cerrojo consultivo, así que repetir el arranque no cambia nada. Esa transacción no usa el `statement_timeout` de 2 s de la conexión del servicio: lleva su propio plazo (`SET LOCAL` de `statement_timeout` y `lock_timeout`, 10 min por defecto) para las sentencias y para esperar el cerrojo.
 - Existen las tablas `snapshots`, `snapshot_players`, `accounts` y `catalog_entries`.
+
+## Identificador de petición (RNF-07)
+
+Un interceptor del servidor lee el metadato gRPC `x-request-id` (que envían la API en cada llamada y el simulador en las suyas), lo deja en una variable de contexto y registra una línea por llamada (`<método> <código> <ms>`, a nivel INFO; las llamadas de salud, a DEBUG). Todas las líneas de esa llamada llevan `request_id=<id>` en el formato de registro; sin metadato, o con uno que no sea seguro de escribir (más de 64 caracteres o fuera de `[A-Za-z0-9-]`), sale `-`. No se registra el contenido de las peticiones. Cómo seguirlo: `deploy/README.md`, «Identificador de petición».
 
 ## Cuentas (`AccountService`)
 
