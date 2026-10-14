@@ -1,0 +1,13 @@
+# Variación de deploy/compose.yml para la prueba e2e: monta el certificado
+# efímero que genera run.sh (TLS_DIR) en nginx, y hace que los bots confíen en
+# él en lugar de omitir la verificación. run.sh la suma a COMPOSE_FILE.
+services:
+  nginx:
+    volumes:
+      - ${E2E_TLS_DIR:?lo define tests/e2e/run.sh}:/etc/nginx/tls:ro
+  bots:
+    environment:
+      HV_TLS_INSECURE: "false"
+      HV_CA_CERT: /certs/tls.crt
+    volumes:
+      - ${E2E_TLS_DIR:?lo define tests/e2e/run.sh}/tls.crt:/certs/tls.crt:ro

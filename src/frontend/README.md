@@ -155,7 +155,7 @@ El frontend se compila dentro de la imagen de Nginx mediante una construcción m
 ## Verificación Manual de la Salida de Emergencia (A4)
 
 1. **Conmutación manual y persistencia:**
-   - Iniciar el servidor local (`pnpm run dev`) o navegar a `http://localhost:8080`.
+   - Iniciar el servidor local (`pnpm run dev`) o navegar a `https://localhost:8080` (certificado autofirmado: aceptar el aviso del navegador).
    - Pulsar el botón **🗺️ Vista cenital** en la barra inferior del valle: el renderizado cambia inmediatamente a la cuadrícula 2D nativa (`<ValleyCanvas />`).
    - Interactuar seleccionando casillas o soltando gotas: el comportamiento y la actualización de recursos son idénticos a la vista isométrica.
    - Recargar la página (`F5`): verificar que la vista cenital permanece seleccionada al leer `localStorage` (`hydrovalley.view_mode`).

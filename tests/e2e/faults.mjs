@@ -17,7 +17,7 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-export const BASE_URL = (process.env.HV_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
+export const BASE_URL = (process.env.HV_BASE_URL ?? "https://localhost:8080").replace(/\/$/, "");
 export const WS_BASE = BASE_URL.replace(/^http/, "ws");
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
