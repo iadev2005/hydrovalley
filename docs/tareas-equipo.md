@@ -301,7 +301,7 @@ Cada uno es un PR pequeño:
 - **Frontend:** al reconectar, mostrar las acciones reenviadas como «resultado desconocido» hasta su resultado final; el botón **Actualizar** del ranking debe respetar `Retry-After` tras un 429.
 - **`/api/catalog` (aviso de la revisión de A11):** con la persistencia caída y la copia vencida, cada refresco espera hasta unos 3 s antes de servir la copia vieja (`src/api/src/catalog-cache.ts`). Mejor servir la copia al instante y refrescar en segundo plano, o recordar el fallo unos segundos.
 - **README raíz:** dice React + Phaser; aclarar el estado hasta que A2/A3 estén.
-- **Reglas del valle:** `odd/tasks/valley-rules.md` (T5) quedó a medias por falta de comprobación en navegador; hacerla tras A2.
+- **Reglas del valle:** `odd/tasks/valley-rules.md` (T5) comprobada en navegador con el frontend React + Phaser (A2/A3/A4) y cerrada con [x].
 
 ---
 

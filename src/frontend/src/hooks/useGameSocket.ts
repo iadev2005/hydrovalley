@@ -183,8 +183,10 @@ export function useGameSocket({
         setPendingCount(pendingRef.current.size);
         for (const entry of plan.resend) {
           ws.send(entry.frame);
+          addLog(`${entry.label} ${entry.actionId} reenviado (resultado desconocido)`);
         }
         const notes = [
+          ...plan.resend.map((e) => `${e.label}: resultado desconocido`),
           ...plan.expired.map((e) => `${e.label}: expiró`),
           ...plan.adminDropped.map((e) => `${e.label}: no se reenvía sola tras reconectar; vuelve a intentarlo`),
         ];

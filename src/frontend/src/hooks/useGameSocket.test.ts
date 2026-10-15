@@ -148,4 +148,76 @@ describe("useGameSocket", () => {
 
     expect(onSessionExpired).toHaveBeenCalledWith("la sesión caducó, vuelve a entrar");
   });
+
+  it("shows resent actions as 'resultado desconocido' on reconnect until final result", () => {
+    vi.useFakeTimers();
+    let now = 100_000;
+    const getNow = () => now;
+    const { result } = renderHook(() => useGameSocket({ session, now: getNow }));
+    const ws1 = MockWebSocket.instances[0];
+    expect(ws1).toBeDefined();
+    if (!ws1) return;
+
+    act(() => {
+      ws1.emit("open");
+    });
+
+    let sent = false;
+    act(() => {
+      sent = result.current.sendDrop(2, 3);
+    });
+
+    expect(sent).toBe(true);
+    expect(result.current.pendingCount).toBe(1);
+    expect(result.current.actionMessage?.text).toContain("pendiente");
+
+    const sentActionId = (JSON.parse(ws1.sent[0] ?? "{}") as { action_id: string }).action_id;
+
+    // Disconnect
+    act(() => {
+      ws1.close(1006); // Abnormal closure triggering reconnect
+    });
+
+    // Advance clock within 30s expiry limit and run reconnect timer
+    now += 2_000;
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    // A second WebSocket instance is created for reconnect
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws2 = MockWebSocket.instances[1];
+    expect(ws2).toBeDefined();
+    if (!ws2) return;
+
+    act(() => {
+      ws2.emit("open");
+    });
+
+    // Action was resent over ws2
+    expect(ws2.sent.length).toBe(1);
+    expect(ws2.sent[0]).toContain(sentActionId);
+
+    // Displays "resultado desconocido"
+    expect(result.current.actionMessage?.text).toContain("resultado desconocido");
+    expect(result.current.actionMessage?.ok).toBe(false);
+
+    // Final result arrives from server
+    act(() => {
+      ws2.emit("message", {
+        data: JSON.stringify({
+          type: "result",
+          action_id: sentActionId,
+          status: "applied",
+        }),
+      });
+    });
+
+    // Updates to final result
+    expect(result.current.actionMessage?.text).toContain("aplicada");
+    expect(result.current.actionMessage?.ok).toBe(true);
+    expect(result.current.pendingCount).toBe(0);
+
+    vi.useRealTimers();
+  });
 });

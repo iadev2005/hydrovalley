@@ -93,4 +93,41 @@ describe("useReports", () => {
 
     expect(onSessionExpired).toHaveBeenCalled();
   });
+
+  it("locks retry when 429 occurs with Retry-After and unlocks after timeout", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const fetchFn: FetchFn = async () => {
+      calls++;
+      return {
+        status: 429,
+        ok: false,
+        headers: { get: (name: string) => (name.toLowerCase() === "retry-after" ? "5" : null) },
+        json: async () => ({}),
+      };
+    };
+
+    const { result } = renderHook(() => useReports({ session, fetchFn }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.isRetryLocked).toBe(true);
+    expect(result.current.rankingStatus).toContain("demasiadas consultas");
+
+    // Calling refresh during lock should be ignored
+    act(() => {
+      result.current.refresh();
+    });
+    expect(calls).toBe(2); // Initial ranking + report calls
+
+    // Advance timers by 5000 ms
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(result.current.isRetryLocked).toBe(false);
+    vi.useRealTimers();
+  });
 });

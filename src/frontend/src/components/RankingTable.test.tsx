@@ -34,4 +34,21 @@ describe("RankingTable", () => {
     fireEvent.click(refreshBtn);
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
+
+  it("disables refresh button when isRetryLocked is true", () => {
+    const onRefresh = vi.fn();
+    render(
+      <RankingTable
+        ranking={mockRanking}
+        statusText="demasiadas consultas, espera 5 s"
+        onRefresh={onRefresh}
+        isRetryLocked={true}
+      />,
+    );
+
+    const refreshBtn = screen.getByRole("button", { name: "Actualizar" }) as HTMLButtonElement;
+    expect(refreshBtn.disabled).toBe(true);
+    fireEvent.click(refreshBtn);
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
 });
