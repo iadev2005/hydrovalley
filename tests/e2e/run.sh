@@ -63,19 +63,38 @@ fi
 # RNF-10: tiempo de `compose up` hasta que /api/system da los cinco servicios
 # `up` (con imágenes ya cargadas si E2E_SKIP_BUILD=1; con construcción incluye
 # el build, y entonces la cifra no es la de «levantar desde las imágenes»).
+# Con E2E_NO_CACHE=1 se construye sin caché para medir el arranque desde cero.
+# Se exige estrictamente el cumplimiento en menos de 5 minutos (300 s).
+rnf10_limit=300
 rnf10_start=$SECONDS
+if [[ "${E2E_NO_CACHE:-0}" == "1" && "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
+  docker compose build --no-cache
+fi
 docker compose "${up_args[@]}"
 rnf10_up=$((SECONDS - rnf10_start))
 rnf10_healthy=""
-rnf10_wait="$(stack_wait_all_up 300)"
-if [[ -n "${rnf10_wait}" ]]; then
-  rnf10_healthy=$((rnf10_up + rnf10_wait))
+rnf10_remaining=$(( rnf10_limit - rnf10_up ))
+if (( rnf10_remaining > 0 )); then
+  rnf10_wait="$(stack_wait_all_up "${rnf10_remaining}")"
+  if [[ -n "${rnf10_wait}" ]]; then
+    rnf10_healthy=$((rnf10_up + rnf10_wait))
+  fi
 fi
-echo "MEDICION RNF-10: compose_up_s=${rnf10_up} all_up_s=${rnf10_healthy:-n/d} build=$([[ "${E2E_SKIP_BUILD:-0}" == "1" ]] && echo no || echo si) limite_s=300"
+echo "MEDICION RNF-10: compose_up_s=${rnf10_up} all_up_s=${rnf10_healthy:-n/d} build=$([[ "${E2E_SKIP_BUILD:-0}" == "1" ]] && echo no || echo si) cache=$([[ "${E2E_NO_CACHE:-0}" == "1" ]] && echo no || echo si) limite_s=${rnf10_limit}"
+
+if [[ -z "${rnf10_healthy}" ]] || (( rnf10_healthy > rnf10_limit )); then
+  echo "FALLO RNF-10: el sistema no levantó en menos de $(( rnf10_limit / 60 )) minutos (tiempo medido: ${rnf10_healthy:-más de ${rnf10_limit}} s, límite: ${rnf10_limit} s)" >&2
+  exit 1
+fi
+
 # Los bots viven bajo el perfil «bots» y `up` no los construye: smoke.test.mjs
 # los lanza con `compose run`, así que su imagen tiene que existir.
 if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
-  docker compose --profile bots build bots
+  bot_build_args=(--profile bots build)
+  if [[ "${E2E_NO_CACHE:-0}" == "1" ]]; then
+    bot_build_args+=(--no-cache)
+  fi
+  docker compose "${bot_build_args[@]}" bots
 fi
 
 # Si le pasas argumentos, ejecuta solo los archivos indicados y termina.
