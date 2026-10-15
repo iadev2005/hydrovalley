@@ -60,14 +60,16 @@ async function startupCycle(order) {
   const baseline = await inspectServices(order);
   await stopAllServices();
 
+  const afterStarts = {};
   const firstStartAt = performance.now();
   let lastStartAt = firstStartAt;
   for (const [index, name] of order.entries()) {
     if (index > 0) await sleep(START_GAP_MS);
     await startService(name);
+    const reading = await inspectServices([name]);
+    afterStarts[name] = reading[name];
     lastStartAt = performance.now();
   }
-  const afterStarts = await inspectServices(order);
   const sinceLast = () => performance.now() - lastStartAt;
   const sinceFirst = () => performance.now() - firstStartAt;
   const stages = {};
@@ -90,9 +92,10 @@ async function startupCycle(order) {
   stages.system = { last: sinceLast(), first: sinceFirst() };
 
   // 2) Un jugador inicia sesión, abre /play y una gota recibe `applied`. El
-  // acceso tiene límite de intentos (10 por minuto): se pide una sola vez, sin
-  // ráfagas, y solo se reintenta la sesión.
-  const token = await waitFor(async () => loginAdmin(), { timeoutMs: remaining(), intervalMs: 3000, description: "the admin login to answer 200" });
+  // acceso tiene límite de intentos (10 por minuto): se pide con reintentos
+  // espaciados a 7 s para no saturar el cupo si la API tardara en responder,
+  // y solo la sesión se sondea cada segundo.
+  const token = await waitFor(async () => loginAdmin(), { timeoutMs: remaining(), intervalMs: 7000, description: "the admin login to answer 200" });
   const player = await waitFor(async () => {
     let session;
     try {
