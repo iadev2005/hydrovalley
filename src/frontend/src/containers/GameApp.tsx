@@ -266,6 +266,7 @@ export function GameApp({
         ranking={reportsHook.ranking}
         statusText={reportsHook.rankingStatus}
         onRefresh={reportsHook.refresh}
+        isRetryLocked={reportsHook.isRetryLocked}
       />
 
       <ReportPanel
