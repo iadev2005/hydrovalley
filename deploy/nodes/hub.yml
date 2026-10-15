@@ -1,0 +1,54 @@
+# Nodo hub (plan A): WebSocket en tiempo real (Go). Marca el tick y llama a
+# `Step` en LAB_WORLD_HOST:HV_WORLD_PORT.
+#
+#   docker compose -p hv-hub -f deploy/nodes/hub.yml \
+#     --env-file lab-addresses.local --env-file secrets.local up -d
+#
+# Publica HV_HUB_PORT (8081): lo usan nginx (/play) y la API (/stats, solo red
+# del laboratorio). Solo recibe la clave pública del token.
+# El chat (8082) es del nivel 2 y todavía no existe.
+#
+# Bots (a demanda, perfil «bots»), contra el proxy del laboratorio:
+#   docker compose -p hv-hub -f deploy/nodes/hub.yml --env-file lab-addresses.local \
+#     --env-file secrets.local --profile bots run --rm bots load-test
+
+name: hv-hub
+
+services:
+  hub:
+    restart: unless-stopped
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-hub:${HV_TAG:-dev}
+    environment:
+      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051}
+      HUB_LISTEN: :8081
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?definir TOKEN_PUBLIC_KEY en secrets.local}
+    ports:
+      - "${HV_HUB_PORT:-8081}:8081"
+
+  # Bots (Go): entran por el proxy como un navegador. No arrancan con `up`.
+  # Sin restart (corren y terminan) y sin depends_on (regla 5).
+  bots:
+    profiles: ["bots"]
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-bots:${HV_TAG:-dev}
+    environment:
+      HV_BASE_URL: https://${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}:${HV_PROXY_PORT:-8080}
+      # El proxy usa un certificado autofirmado que el bot no conoce: por
+      # defecto no se verifica (el bot lo avisa al arrancar), aceptable en la
+      # red cerrada del laboratorio. Para verificar: HV_TLS_INSECURE=false y
+      # HV_CA_CERT con la ruta de un certificado montado (README, «Bots»).
+      HV_TLS_INSECURE: ${HV_TLS_INSECURE:-true}
+      HV_CA_CERT: ${HV_CA_CERT:-}
+      HV_ADMIN_USERNAME: ${HV_ADMIN_USERNAME:-}
+      HV_ADMIN_PASSWORD: ${HV_ADMIN_PASSWORD:-}
+      BOTS_COUNT: ${BOTS_COUNT:-}
+      BOTS_DURATION: ${BOTS_DURATION:-}
+      BOTS_SEED: ${BOTS_SEED:-}
+      BOTS_RESET: ${BOTS_RESET:-}
+      BOTS_REPORT_PATH: ${BOTS_REPORT_PATH:-}
+      BOTS_LOAD_RANKING: ${BOTS_LOAD_RANKING:-}
+      BOTS_LOAD_RANKING_INTERVAL: ${BOTS_LOAD_RANKING_INTERVAL:-}
+      BOTS_LOAD_BASELINE_REPORT: ${BOTS_LOAD_BASELINE_REPORT:-}
+      BOTS_FIREFIGHTER_SEED_PLANTS: ${BOTS_FIREFIGHTER_SEED_PLANTS:-}
+      BOTS_FIREFIGHTER_BONUS: ${BOTS_FIREFIGHTER_BONUS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}

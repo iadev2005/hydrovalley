@@ -1,0 +1,24 @@
+# Nodo persistence (plan A): única puerta a PostgreSQL (regla 5).
+#
+#   docker compose -p hv-persistence -f deploy/nodes/persistence.yml \
+#     --env-file lab-addresses.local --env-file secrets.local up -d
+#
+# Llama a la base de datos en LAB_DB_HOST:HV_DB_PORT y publica su gRPC en
+# HV_PERSISTENCE_PORT (50051). Arranca aunque la base no esté (regla 5).
+
+name: hv-persistence
+
+services:
+  persistence:
+    restart: unless-stopped
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-persistence:${HV_TAG:-dev}
+    environment:
+      # La clave va dentro de la URL: sin caracteres reservados (@ : / ? #).
+      DATABASE_URL: postgresql://${POSTGRES_USER:?definir POSTGRES_USER en secrets.local}:${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD en secrets.local}@${LAB_DB_HOST:?definir LAB_DB_HOST en lab-addresses.local}:${HV_DB_PORT:-5433}/${POSTGRES_DB:?definir POSTGRES_DB en secrets.local}
+      PERSISTENCE_LISTEN: 0.0.0.0:50051
+      # Administrador (RF-31): se siembra al arrancar si están las dos variables.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${HV_PERSISTENCE_PORT:-50051}:50051"

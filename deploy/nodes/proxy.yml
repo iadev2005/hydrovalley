@@ -1,0 +1,51 @@
+# Nodo proxy (plan A): nginx (HTTPS, frontend) y la API (TypeScript).
+#
+#   docker compose -p hv-proxy -f deploy/nodes/proxy.yml \
+#     --env-file lab-addresses.local --env-file secrets.local up -d
+#
+# nginx llega a la API por la red de Compose de este nodo (api:3000) y al hub
+# por la red del laboratorio (LAB_HUB_HOST:HV_HUB_PORT). La API llama a la
+# persistencia, al simulador y a /stats del hub por sus direcciones del
+# laboratorio. Solo se publica HV_PROXY_PORT (8080, HTTPS): es la única
+# dirección que usan los navegadores y los bots.
+#
+# Solo este nodo tiene la clave privada del token (la API firma con ella).
+# TLS_EXTRA_SANS lleva la IP de este nodo para que un navegador de otra
+# máquina pueda abrir https://<IP>:8080 (el certificado es autofirmado y el
+# navegador avisará).
+
+name: hv-proxy
+
+x-service: &service
+  restart: unless-stopped
+  networks: [backend]
+
+services:
+  api:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}
+    environment:
+      API_LISTEN: 0.0.0.0:3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PERSISTENCE_ADDR: ${LAB_PERSISTENCE_HOST:?definir LAB_PERSISTENCE_HOST en lab-addresses.local}:${HV_PERSISTENCE_PORT:-50051}
+      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051}
+      # HTTP interno del hub (`/stats`) para el panel del sistema.
+      HUB_STATS_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081}
+      TOKEN_PRIVATE_KEY: ${TOKEN_PRIVATE_KEY:?definir TOKEN_PRIVATE_KEY en secrets.local}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-43200}
+      # nginx es el único proxy delante de la API.
+      TRUST_PROXY: "true"
+
+  nginx:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-proxy:${HV_TAG:-dev}
+    environment:
+      API_ADDR: api:3000
+      HUB_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081}
+      NGINX_RESOLVER: 127.0.0.11
+      TLS_EXTRA_SANS: ${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}${TLS_EXTRA_SANS:+,${TLS_EXTRA_SANS}}
+    ports:
+      - "${HV_PROXY_PORT:-8080}:8080"
+
+networks:
+  backend: {}
