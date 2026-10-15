@@ -145,7 +145,7 @@ Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o m�
 
 ### Resumen
 
-Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55).
+Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 en curso (Claude, `odd/tasks/b1-lab-plan-a.md`).
 
 | ID | Tarea | Nivel | Tamaño | Depende de | Perfil |
 | --- | --- | --- | --- | --- | --- |
