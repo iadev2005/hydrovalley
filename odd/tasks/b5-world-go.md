@@ -41,8 +41,8 @@ Fuera de alcance: desplegarlo por defecto (sigue siendo Rust), B8.
 - [x] T3 · Instalaciones, mejoras, precios y dueños inactivos. Evidencia: RED por compilación; 33 pruebas de Rust portadas.
 - [x] T4 · Incendios y SplitMix64. Evidencia: RED por compilación; `rng.rs` 7/7 e incendios 22/26 (los 4 restantes dependen de restaurar instantáneas, T6); determinismo con la misma semilla.
 - [x] T5 · Modo demo, reinicio y épocas, ventana de `action_id`, ranking. Evidencia: RED por compilación; `ranking.rs` 9/9 y 20 de `world.rs` (ventana, demo, reinicio, catálogo del reinicio, determinismo). En total 168 pruebas con `-race`; vet, gofmt y staticcheck limpios. Pendientes para T6: 6 pruebas de restauración e instantáneas.
-- [ ] T6 · Codificación de proto y de instantáneas.
-- [ ] T7 · Prueba de conformidad Rust ↔ Go.
+- [x] T6 · Codificación de proto y de instantáneas. Evidencia: RED por compilación; 10 pruebas de restauración e instantáneas portadas (incluidas las 6 pendientes de T4–T5); `Restore` usa el catálogo vigente como Rust.
+- [x] T7 · Prueba de conformidad Rust ↔ Go. Evidencia: 7 guiones de 300–1.000 ticks (catálogo real, incendios a 20.000 ppm, demo y reinicios, inválidos y duplicados, cifras propias, restauraciones con fuego, cifras extremas). Go coincide con Rust en todos a la primera; las instantáneas son idénticas byte a byte y Go retoma el valle desde 9 instantáneas hechas por Rust (comprobación del plan B). La prueba de Go detecta 6 mutaciones introducidas a propósito y la de Rust detecta un cambio en `rng.rs`. Los datos generados (guiones y salidas esperadas, ~1,8 MB) van en el último commit, sin revisión automática, como los SVG.
 - [ ] T8 · Almacén, simulador (`boot_id`, reintentos, instantáneas) y servidor gRPC con salud; imagen y Compose.
 - [ ] T9 · Comparativa en `tests/bench` y gráfico.
 
