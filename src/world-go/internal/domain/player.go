@@ -67,3 +67,21 @@ func startingPlayer(playerID string, tankCapacity uint64) Player {
 		WaterRefilled: tankCapacity,
 	}
 }
+
+// recordPurchase suma una compra de kind (fija el precio de la siguiente).
+func (p *Player) recordPurchase(kind InstallationKind) {
+	for i := range p.Purchases {
+		if p.Purchases[i].Kind == kind {
+			p.Purchases[i].Count = satAdd32(p.Purchases[i].Count, 1)
+			return
+		}
+	}
+	p.Purchases = append(p.Purchases, Purchase{Kind: kind, Count: 1})
+}
+
+// spendLeaves gasta hojas, sin bajar de 0 (como Rust, saturando); lo gastado
+// suma a LeavesSpent. El llamador ya comprobó que alcanzan.
+func (p *Player) spendLeaves(amount uint64) {
+	p.Leaves = satSub(p.Leaves, amount)
+	p.LeavesSpent = satAdd(p.LeavesSpent, amount)
+}

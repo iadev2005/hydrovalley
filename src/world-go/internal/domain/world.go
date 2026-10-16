@@ -1,6 +1,9 @@
 package domain
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 // SnapshotIntervalTicks es cada cuántos ticks se toma una instantánea
 // (Capa 5).
@@ -36,19 +39,22 @@ type World struct {
 	humidityContributed uint64
 	tiles               []Tile
 	players             map[string]*playerSlot
-	// TODO(T4): rng SplitMix64 con semilla (world.rs:104, 125); su estado
-	// viaja en la instantánea.
-	// TODO(T5): resetCatalog, el catálogo ofrecido a los reinicios del tick
-	// en curso (world.rs:111, 256).
+	// rng es el único azar del mundo (regla 6): decide la ignición; su
+	// estado viaja en la instantánea (world.rs:104).
+	rng SplitMix64
+	// resetCatalog es el catálogo ofrecido a los reinicios del tick en curso;
+	// solo existe durante StepWithResetCatalog y no viaja en la instantánea
+	// (world.rs:111).
+	resetCatalog *Catalog
 }
 
-// NewWorld crea un valle vacío en el tick 0.
-//
-// TODO(T4): recibirá la semilla del generador, como World::with_seed
-// (world.rs:125); hasta entonces no hay azar que sembrar.
-func NewWorld(catalog Catalog) *World {
+// NewWorld crea un valle vacío en el tick 0 (World::with_seed, world.rs:125;
+// LoadSnapshot devolvió NOT_FOUND). La semilla fija toda la secuencia de
+// incendios (regla 6): quien arranca el servicio la elige y la registra.
+func NewWorld(catalog Catalog, seed uint64) *World {
 	return &World{
 		catalog: catalog,
+		rng:     NewSplitMix64(seed),
 		tiles:   make([]Tile, tileCount(ValleyWidth, ValleyHeight)),
 		players: make(map[string]*playerSlot),
 	}
@@ -59,29 +65,50 @@ func NewWorld(catalog Catalog) *World {
 // Los comandos se aplican con el número del tick nuevo t: la instantánea de
 // ese tick los incluye. El orden dentro del tick es fijo y es el de Rust:
 //
-//  1. Olvida los action_id fuera de la ventana de 600 ticks (T5).
+//  1. Olvida los action_id fuera de la ventana de 600 ticks.
 //  2. Comandos, en orden de admisión. El crecimiento se resuelve al sumar la
 //     humedad de cada gota (así las hojas son de quien la empujó al umbral)
 //     y, por tanto, antes de la evaporación del mismo tick.
 //  3. Recarga de los depósitos, si t es múltiplo del intervalo del catálogo
 //     en ticks.
-//  4. Plantas de tratamiento: litros extra de recarga a su dueño (T3).
-//  5. Aspersores: humedad a su área; apagan los fuegos de su área (T3).
+//  4. Plantas de tratamiento: litros extra de recarga a su dueño.
+//  5. Aspersores: humedad a su área; apagan los fuegos de su área.
 //  6. Fuego: un tick más a cada casilla que arde; a los 300 se consume y
 //     vuelve a tierra seca. También en modo demo.
 //  7. Evaporación, si t es múltiplo de TicksPerSecond (salvo en modo demo),
-//     con el goteo dividiéndola en su área (T3). También en las casillas que
+//     con el goteo dividiéndola en su área. También en las casillas que
 //     arden.
 //  8. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
 //     modo demo y en las que arden).
-//  9. Ignición al azar (salvo en modo demo) (T4).
+//  9. Ignición al azar (salvo en modo demo): un sorteo con el generador con
+//     semilla por cada casilla elegible, por filas.
 //  10. El tick pasa a t.
 //
-// TODO(T5): StepWithResetCatalog (world.rs:256), que ofrece un catálogo a los
-// reinicios del tick; Step es el caso sin catálogo.
+// Las instalaciones (4, 5 y el goteo de 7) solo actúan mientras su dueño no
+// lleve ausente más de OfflineInstallationSeconds (RF-25).
+//
+// Solo la ignición usa el azar, y lo toma del generador con semilla del
+// mundo, cuyo estado viaja en la instantánea: misma semilla y mismos comandos
+// dan el mismo valle.
 func (w *World) Step(commands []Command) StepOutcome {
+	return w.StepWithResetCatalog(commands, nil)
+}
+
+// StepWithResetCatalog es como Step, pero ofrece catalog a los reinicios del
+// tick (world.rs:256): el mundo lo adopta solo cuando un ResetValley se
+// aplica (un reinicio duplicado o rechazado no cambia nada) y, si se aplica,
+// el propio reinicio ya usa las cifras nuevas. Sin reinicio aplicado, el
+// catálogo se descarta. catalog nil es el caso sin oferta.
+func (w *World) StepWithResetCatalog(commands []Command, catalog *Catalog) StepOutcome {
+	w.resetCatalog = catalog
+	outcome := w.advance(commands)
+	w.resetCatalog = nil
+	return outcome
+}
+
+func (w *World) advance(commands []Command) StepOutcome {
 	tick := satAdd(w.tick, 1)
-	// TODO(T5): w.forgetOldActions(tick) (world.rs:269, 692).
+	w.forgetOldActions(tick)
 
 	results := make([]CommandResult, len(commands))
 	for i := range commands {
@@ -118,17 +145,24 @@ func (w *World) apply(command *Command, tick uint64) CommandOutcome {
 	case DropCommand:
 		outcome = w.drop(command.PlayerID, kind.X, kind.Y)
 	case SetDemoModeCommand:
-		// TODO(T5): w.demoMode = kind.Enabled; Applied (world.rs:296-299).
-		outcome = RejectedOutcome(InvalidCommand)
+		w.demoMode = kind.Enabled
+		outcome = AppliedOutcome
 	case ResetValleyCommand:
-		// TODO(T5): w.resetValley(); Applied (world.rs:300-303).
-		outcome = RejectedOutcome(InvalidCommand)
+		w.resetValley()
+		outcome = AppliedOutcome
 	case PlaceInstallationCommand:
-		// TODO(T3): w.placeInstallation(...) (world.rs:304-306, 402).
-		outcome = RejectedOutcome(InvalidCommand)
+		if kind.Kind > TreatmentPlant {
+			// Go-only: Rust no puede representar un tipo desconocido.
+			outcome = RejectedOutcome(InvalidCommand)
+		} else {
+			outcome = w.placeInstallation(command.PlayerID, kind.Kind, kind.X, kind.Y)
+		}
 	case BuyUpgradeCommand:
-		// TODO(T3): w.buyUpgrade(...) (world.rs:307, 437).
-		outcome = RejectedOutcome(InvalidCommand)
+		if kind.Kind > BiggerTank {
+			outcome = RejectedOutcome(InvalidCommand)
+		} else {
+			outcome = w.buyUpgrade(command.PlayerID, kind.Kind)
+		}
 	default:
 		outcome = RejectedOutcome(InvalidCommand)
 	}
@@ -245,8 +279,8 @@ func (w *World) refillTanks(tick uint64) {
 // comandos (world.rs:610; el orden está en la documentación de Step).
 func (w *World) advanceValley(tick uint64) {
 	w.refillTanks(tick)
-	// TODO(T3): w.runTreatmentPlants(tick) (world.rs:509) y
-	// w.runSprinklers(tick) (world.rs:537), en este orden y antes del fuego.
+	w.runTreatmentPlants(tick)
+	w.runSprinklers(tick)
 
 	// Los fuegos avanzan también en modo demo: un fuego siempre se resuelve
 	// (gotas, aspersor o consumirse).
@@ -260,27 +294,44 @@ func (w *World) advanceValley(tick uint64) {
 	// La cifra del catálogo es por segundo: se aplica entera una vez por
 	// segundo (cada TicksPerSecond ticks), nunca como fracción.
 	if isMultiple(tick, TicksPerSecond) {
-		w.evaporateValley()
+		w.evaporateValley(tick)
 	}
 	for i := range w.tiles {
 		Wither(&w.tiles[i], w.catalog.Evaporation)
 	}
-	// TODO(T4): w.igniteFires() (world.rs:649): un sorteo por casilla
-	// elegible, por filas, al final del tick.
+	w.igniteFires()
 }
 
-// evaporateValley es la evaporación del segundo (world.rs:579).
-//
-// TODO(T3): el riego por goteo (Reducir) divide la evaporación en su área de
-// DripRules.AreaSide casillas de lado (world.rs:579-606): el divisor se
-// aplica una sola vez por casilla, el ahorro se acredita al primer goteo en
-// orden de casilla y suma a WaterReduced de su dueño. Sin goteos, que es el
-// caso de T2, toda casilla pierde la cifra entera.
-func (w *World) evaporateValley() {
-	amount := w.catalog.Evaporation.HumidityPerSecond
+// igniteFires es la ignición al azar (world.rs:649; RF-29): recorre las
+// casillas por filas y, por cada una elegible (con planta, humedad 0 y sin
+// fuego), hace un sorteo con Fire.IgnitionChancePPM partes por millón. Un
+// sorteo por casilla elegible y en ese orden fijo: con la misma semilla y el
+// mismo estado la secuencia es siempre la misma. Va al final del tick, así
+// que una casilla que acaba de marchitarse a tierra seca ya no cuenta y una
+// recién encendida empieza a contar sus ticks en el siguiente.
+func (w *World) igniteFires() {
+	ppm := w.catalog.Fire.IgnitionChancePPM
 	for i := range w.tiles {
-		Evaporate(&w.tiles[i], amount)
+		tile := &w.tiles[i]
+		// && en corto: solo una casilla elegible gasta un número (world.rs:653).
+		if IsEligible(tile) && w.rng.ChancePPM(ppm) {
+			Ignite(tile)
+		}
 	}
+}
+
+// RngState es el estado del generador, para la instantánea (RngStateLen
+// bytes).
+func (w *World) RngState() []byte { return w.rng.Bytes() }
+
+// SetRngState restaura el estado del generador; false (sin cambiar nada) si
+// no mide RngStateLen bytes.
+func (w *World) SetRngState(state []byte) bool {
+	rng, ok := SplitMix64FromBytes(state)
+	if ok {
+		w.rng = rng
+	}
+	return ok
 }
 
 // burnFires cuenta un tick más de fuego en cada casilla que arde; las que
@@ -289,6 +340,48 @@ func (w *World) evaporateValley() {
 func (w *World) burnFires() {
 	for i := range w.tiles {
 		Burn(&w.tiles[i], w.catalog.Fire)
+	}
+}
+
+// resetValley es el reinicio del valle (world.rs:665; RF-31): el mundo
+// vuelve a su estado inicial y los jugadores a los valores de arranque del
+// catálogo, con los contadores de RF-27 y de las 3R a cero.
+//
+// No toca el tick, el modo demo, el generador de azar ni humidityContributed
+// (que solo crece), y conserva a los jugadores y su ventana de action_id (y
+// el tick de su última acción). Incrementa la época. Si hay un catálogo
+// ofrecido, lo adopta antes de nada y lo consume.
+func (w *World) resetValley() {
+	if w.resetCatalog != nil {
+		w.catalog = *w.resetCatalog
+		w.resetCatalog = nil
+	}
+	clear(w.tiles)
+	w.epoch = satAdd32(w.epoch, 1)
+	tank := w.catalog.Tank.Capacity
+	for _, slot := range w.players {
+		previous := slot.record
+		slot.record = startingPlayer(previous.PlayerID, tank)
+		slot.record.LastActionTick = previous.LastActionTick
+		slot.record.RecentActions = previous.RecentActions
+	}
+}
+
+// forgetOldActions olvida los action_id aplicados hace más de la ventana
+// (world.rs:692; Capa 3). Un action_id aplicado en el tick a se recuerda
+// mientras tick - a <= RecentActionsWindowTicks, ese límite incluido: con
+// la ventana de 600, una acción del tick 1 sigue en el tick 601 (duplicado)
+// y cae en el 602. RecentActions está en orden de tick.
+func (w *World) forgetOldActions(tick uint64) {
+	for _, slot := range w.players {
+		actions := slot.record.RecentActions
+		expired := sort.Search(len(actions), func(i int) bool {
+			return satSub(tick, actions[i].Tick) <= RecentActionsWindowTicks
+		})
+		for _, applied := range actions[:expired] {
+			delete(slot.recentIDs, applied.ActionID)
+		}
+		slot.record.RecentActions = slices.Delete(actions, 0, expired)
 	}
 }
 
