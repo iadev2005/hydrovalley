@@ -30,8 +30,8 @@ Fuera de alcance: orquestación con réplicas (B8), chat (B2).
 
 ## Tareas
 
-- [ ] T1 · Compose por máquina, direcciones, secretos y simulación local del plan A.
-- [ ] T2 · Scripts de PowerShell (diagnóstico, despliegue, salud) y guía del día del laboratorio.
+- [x] T1 · Compose por máquina, direcciones, secretos y simulación local del plan A. Evidencia: `docker compose config` de los cinco nodos con valores de prueba; `deploy/nodes/simulate.sh` (cinco proyectos que solo se hablan por puertos del anfitrión): todo en verde, acceso, catálogo y una gota por WSS; con el nodo de Python parado, 5 gotas `applied` y recuperación completa (repetido por el orquestador: 9 s en total, con caché); shellcheck limpio.
+- [x] T2 · Scripts de PowerShell (diagnóstico, despliegue, salud) y guía del día del laboratorio. Evidencia: los cuatro scripts se analizan sin errores con el analizador de pwsh 7; partes ejecutadas en pwsh sobre Linux contra la simulación. Sin probar: Windows PowerShell 5.1, `Test-NetConnection` y el laboratorio real (cortafuegos, máquina apagada). Pendiente: las IP de cada nodo (`[DATO]` en `lab-addresses.example`).
 
 ## Progreso
 
