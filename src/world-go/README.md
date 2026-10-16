@@ -42,7 +42,7 @@ Plan y evidencia en `odd/tasks/b5-world-go.md`.
 | T2 | Gotas, humedad, crecimiento, marchitamiento, evaporación, depósito, `Step` | hecho |
 | T3 | Instalaciones, mejoras, precios, dueños inactivos | hecho |
 | T4 | Incendios y SplitMix64 | hecho |
-| T5 | Modo demo, reinicio y épocas, ventana de `action_id`, ranking | pendiente |
+| T5 | Modo demo, reinicio y épocas, ventana de `action_id`, ranking | hecho |
 | T6 | Codificación de proto y de instantáneas | pendiente |
 | T7 | Prueba de conformidad Rust ↔ Go | pendiente |
 | T8 | Almacén, simulador, servidor gRPC, imagen y Compose | pendiente |

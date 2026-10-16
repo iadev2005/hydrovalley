@@ -26,8 +26,8 @@ func dropCmd(actionID, playerID string, x, y uint32) Command {
 func newTestWorld() *World { return NewWorld(d01(), 0) }
 
 // setDemoMode es el atajo de las pruebas que no quieren gastar un tick (en
-// Rust, World::set_demo_mode bajo cfg(test)); el comando SetDemoMode llega
-// en T5.
+// Rust, World::set_demo_mode bajo cfg(test)); en producción el modo demo solo
+// cambia con SetDemoModeCommand.
 func (w *World) setDemoMode(enabled bool) { w.demoMode = enabled }
 
 func outcomes(step StepOutcome) []CommandOutcome {
