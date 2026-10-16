@@ -48,4 +48,4 @@ Fuera de alcance: desplegarlo por defecto (sigue siendo Rust), B8.
 
 ## Progreso
 
-- T1 y T2 en `feature/b5-world-go-core` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada. Avisos esperados mientras falten T3–T5: los comandos sin portar responden `invalid_command`. Fusionada (PR #60); `world-go` es comprobación obligatoria en `dev` y `main`. T3–T5 en `feature/b5-world-go-rules` (ruta delegada); revisión de riesgo medio aprobada sin hallazgos.
+- T1 y T2 en `feature/b5-world-go-core` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada. Avisos esperados mientras falten T3–T5: los comandos sin portar responden `invalid_command`. Fusionada (PR #60); `world-go` es comprobación obligatoria en `dev` y `main`. T3–T5 en `feature/b5-world-go-rules` (ruta delegada); revisión de riesgo medio aprobada sin hallazgos. Fusionada (PR #61). T6–T7 en `feature/b5-world-go-codec` (ruta delegada).
