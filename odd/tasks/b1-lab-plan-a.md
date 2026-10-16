@@ -35,4 +35,4 @@ Fuera de alcance: orquestación con réplicas (B8), chat (B2).
 
 ## Progreso
 
-- T1 en `feature/b1-lab-plan-a` (ruta delegada).
+- T1 y T2 en `feature/b1-lab-plan-a` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada. Corregido después: la guía bajaba los nodos sin `-Secrets` y Compose las exige incluso para `down`. Riesgos aceptados y documentados: el puerto 5433 de PostgreSQL se publica a la subred del laboratorio (cortafuegos limitado a `10.68.17.0/24`) y los bots omiten la verificación del certificado autofirmado salvo que se pase `HV_CA_CERT`.

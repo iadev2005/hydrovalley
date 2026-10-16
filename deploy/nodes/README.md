@@ -125,11 +125,11 @@ Una máquina apagada de verdad deja las conexiones sin respuesta, no rechazadas:
 
 ## Al terminar
 
-Las máquinas son compartidas: dejarlas como estaban.
+Las máquinas son compartidas: dejarlas como estaban. `-Down` también necesita `-Secrets`: Compose exige las variables obligatorias del archivo incluso para bajarlo.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\lab\deploy-node.ps1 -Node <nodo> -Addresses deploy\nodes\lab-addresses.local -Down          # conserva los datos
-powershell -ExecutionPolicy Bypass -File scripts\lab\deploy-node.ps1 -Node <nodo> -Addresses deploy\nodes\lab-addresses.local -Down -Volumes # en db, borra la base de datos
+powershell -ExecutionPolicy Bypass -File scripts\lab\deploy-node.ps1 -Node <nodo> -Addresses deploy\nodes\lab-addresses.local -Secrets deploy\nodes\secrets.local -Down          # conserva los datos
+powershell -ExecutionPolicy Bypass -File scripts\lab\deploy-node.ps1 -Node <nodo> -Addresses deploy\nodes\lab-addresses.local -Secrets deploy\nodes\secrets.local -Down -Volumes # en db, borra la base de datos
 docker logout ghcr.io          # si se inició sesión con un PAT
 ```
 
