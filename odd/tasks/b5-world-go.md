@@ -38,9 +38,9 @@ Fuera de alcance: desplegarlo por defecto (sigue siendo Rust), B8.
 
 - [x] T1 · Módulo, tipos y catálogo (+ job de CI `world-go`). Evidencia: precios probados por mutación (no TDD estricto en ese punto); `go test -race`, vet, gofmt, staticcheck y actionlint limpios.
 - [x] T2 · Gotas, humedad, crecimiento y marchitamiento, evaporación, depósito y esqueleto de `Step`. Evidencia: RED por compilación; unas 60 pruebas portadas de Rust (`growth.rs` 18, `fire.rs` 4, `world.rs` 36, precios y etapas) más casos propios; 78 casos en verde. Incluye las funciones de incendio por casilla (las necesita la gota) y la detección de duplicados; quedan en T3–T5 las marcas TODO con la línea de Rust correspondiente.
-- [ ] T3 · Instalaciones, mejoras, precios y dueños inactivos.
-- [ ] T4 · Incendios y SplitMix64.
-- [ ] T5 · Modo demo, reinicio y épocas, ventana de `action_id`, ranking.
+- [x] T3 · Instalaciones, mejoras, precios y dueños inactivos. Evidencia: RED por compilación; 33 pruebas de Rust portadas.
+- [x] T4 · Incendios y SplitMix64. Evidencia: RED por compilación; `rng.rs` 7/7 e incendios 22/26 (los 4 restantes dependen de restaurar instantáneas, T6); determinismo con la misma semilla.
+- [x] T5 · Modo demo, reinicio y épocas, ventana de `action_id`, ranking. Evidencia: RED por compilación; `ranking.rs` 9/9 y 20 de `world.rs` (ventana, demo, reinicio, catálogo del reinicio, determinismo). En total 168 pruebas con `-race`; vet, gofmt y staticcheck limpios. Pendientes para T6: 6 pruebas de restauración e instantáneas.
 - [ ] T6 · Codificación de proto y de instantáneas.
 - [ ] T7 · Prueba de conformidad Rust ↔ Go.
 - [ ] T8 · Almacén, simulador (`boot_id`, reintentos, instantáneas) y servidor gRPC con salud; imagen y Compose.
