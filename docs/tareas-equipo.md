@@ -145,7 +145,7 @@ Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o m�
 
 ### Resumen
 
-Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55).
+Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 hecha salvo el ensayo real (Claude, PR #59; falta asignar las IP y probar en el laboratorio).
 
 | ID | Tarea | Nivel | Tamaño | Depende de | Perfil |
 | --- | --- | --- | --- | --- | --- |
@@ -311,7 +311,7 @@ Cada uno es un PR pequeño:
 
 - **Por qué:** primero del nivel 2 y objetivo real del proyecto (RES-07). El profesor apagará una máquina en la defensa.
 - **Depende de:** A1 (imágenes en ghcr.io) y de que el encargado del laboratorio cree la regla del cortafuegos (entrada TCP 8080, 8081, 8082, 50051 y 5433 desde `10.68.17.0/24`).
-- **Archivos:** `deploy/nodes/<nodo>.yml` (`db.yml`, `persistence.yml`, `world.yml`, `hub.yml`, `proxy.yml`), `scripts/` (diagnóstico y despliegue), `deploy/nodes/README.md`.
+- **Archivos:** `deploy/nodes/<nodo>.yml` (`db.yml`, `persistence.yml`, `world.yml`, `hub.yml`, `proxy.yml`), `deploy/nodes/lab-addresses.example` y `secrets.example`, `deploy/nodes/simulate.sh` (simulación del plan A en una máquina), `scripts/lab/` (PowerShell: diagnóstico, despliegue y salud), `deploy/nodes/README.md` (guía del día del laboratorio).
 - **Qué hacer:**
   1. Un Compose por máquina con las **mismas imágenes**; solo cambian direcciones y puertos (`10.68.17.x:puerto`). Incluir `HUB_STATS_ADDR` para la API.
   2. Script de diagnóstico: comprueba que cada máquina ve los puertos de las demás antes de levantar nada.
