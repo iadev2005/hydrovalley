@@ -65,12 +65,12 @@ func NewWorld(catalog Catalog) *World {
 //     y, por tanto, antes de la evaporación del mismo tick.
 //  3. Recarga de los depósitos, si t es múltiplo del intervalo del catálogo
 //     en ticks.
-//  4. Plantas de tratamiento: litros extra de recarga a su dueño (T3).
-//  5. Aspersores: humedad a su área; apagan los fuegos de su área (T3).
+//  4. Plantas de tratamiento: litros extra de recarga a su dueño.
+//  5. Aspersores: humedad a su área; apagan los fuegos de su área.
 //  6. Fuego: un tick más a cada casilla que arde; a los 300 se consume y
 //     vuelve a tierra seca. También en modo demo.
 //  7. Evaporación, si t es múltiplo de TicksPerSecond (salvo en modo demo),
-//     con el goteo dividiéndola en su área (T3). También en las casillas que
+//     con el goteo dividiéndola en su área. También en las casillas que
 //     arden.
 //  8. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
 //     modo demo y en las que arden).
@@ -124,11 +124,18 @@ func (w *World) apply(command *Command, tick uint64) CommandOutcome {
 		// TODO(T5): w.resetValley(); Applied (world.rs:300-303).
 		outcome = RejectedOutcome(InvalidCommand)
 	case PlaceInstallationCommand:
-		// TODO(T3): w.placeInstallation(...) (world.rs:304-306, 402).
-		outcome = RejectedOutcome(InvalidCommand)
+		if kind.Kind > TreatmentPlant {
+			// Go-only: Rust no puede representar un tipo desconocido.
+			outcome = RejectedOutcome(InvalidCommand)
+		} else {
+			outcome = w.placeInstallation(command.PlayerID, kind.Kind, kind.X, kind.Y)
+		}
 	case BuyUpgradeCommand:
-		// TODO(T3): w.buyUpgrade(...) (world.rs:307, 437).
-		outcome = RejectedOutcome(InvalidCommand)
+		if kind.Kind > BiggerTank {
+			outcome = RejectedOutcome(InvalidCommand)
+		} else {
+			outcome = w.buyUpgrade(command.PlayerID, kind.Kind)
+		}
 	default:
 		outcome = RejectedOutcome(InvalidCommand)
 	}
@@ -245,8 +252,8 @@ func (w *World) refillTanks(tick uint64) {
 // comandos (world.rs:610; el orden está en la documentación de Step).
 func (w *World) advanceValley(tick uint64) {
 	w.refillTanks(tick)
-	// TODO(T3): w.runTreatmentPlants(tick) (world.rs:509) y
-	// w.runSprinklers(tick) (world.rs:537), en este orden y antes del fuego.
+	w.runTreatmentPlants(tick)
+	w.runSprinklers(tick)
 
 	// Los fuegos avanzan también en modo demo: un fuego siempre se resuelve
 	// (gotas, aspersor o consumirse).
@@ -260,27 +267,13 @@ func (w *World) advanceValley(tick uint64) {
 	// La cifra del catálogo es por segundo: se aplica entera una vez por
 	// segundo (cada TicksPerSecond ticks), nunca como fracción.
 	if isMultiple(tick, TicksPerSecond) {
-		w.evaporateValley()
+		w.evaporateValley(tick)
 	}
 	for i := range w.tiles {
 		Wither(&w.tiles[i], w.catalog.Evaporation)
 	}
 	// TODO(T4): w.igniteFires() (world.rs:649): un sorteo por casilla
 	// elegible, por filas, al final del tick.
-}
-
-// evaporateValley es la evaporación del segundo (world.rs:579).
-//
-// TODO(T3): el riego por goteo (Reducir) divide la evaporación en su área de
-// DripRules.AreaSide casillas de lado (world.rs:579-606): el divisor se
-// aplica una sola vez por casilla, el ahorro se acredita al primer goteo en
-// orden de casilla y suma a WaterReduced de su dueño. Sin goteos, que es el
-// caso de T2, toda casilla pierde la cifra entera.
-func (w *World) evaporateValley() {
-	amount := w.catalog.Evaporation.HumidityPerSecond
-	for i := range w.tiles {
-		Evaporate(&w.tiles[i], amount)
-	}
 }
 
 // burnFires cuenta un tick más de fuego en cada casilla que arde; las que
