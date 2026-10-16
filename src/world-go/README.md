@@ -16,6 +16,7 @@ src/world-go/
   go.mod                  módulo; replace a ../../gen/go (código generado, no versionado)
   cmd/world-go/           servidor (T8)
   internal/domain/        reglas puras, sin gRPC ni red (espejo de src/world/src/domain)
+  internal/conformance/   prueba de conformidad con Rust (guiones en tests/conformance)
   internal/codec/         traducción entre el contrato (proto/) y el dominio (espejo de src/world/src/codec.rs)
 ```
 
@@ -29,7 +30,11 @@ El dominio no depende de los tipos generados desde `proto/`; la traducción vive
 - un `rng_state` vacío siembra el generador con el tick; uno que no mide 8 bytes se rechaza;
 - `Parts()` y `Restore` copian: no comparten memoria con el mundo.
 
-Los bytes de `world_state` coinciden con los de Rust (ver `tests/conformance/`).
+Los bytes de la fila de instantánea y del `WorldState` son idénticos a los de Rust: lo comprueba la prueba de conformidad.
+
+## Conformidad con Rust
+
+`internal/conformance` ejecuta con el dominio y el codec de Go los guiones de `tests/conformance/scenarios/` y los compara con `tests/conformance/expected/`, que escribe el simulador en Rust. Comprueba, tick a tick, los resultados de los comandos, `humidity_contributed`, los fuegos y las huellas de las instantáneas; que las instantáneas finales son idénticas byte a byte; y que Go retoma el valle desde las instantáneas que escribió Rust y llega al mismo estado final (plan B de D-03). No necesita Rust: los esperados están versionados. Si Rust cambia a propósito, se regeneran (ver `tests/conformance/README.md`). La caché de `go test` no vigila `tests/conformance` (queda fuera del módulo): para repetir una prueba sin cambios en Go, `go test -count=1 ./...`.
 
 ## Cómo probar
 
@@ -55,6 +60,6 @@ Plan y evidencia en `odd/tasks/b5-world-go.md`.
 | T4 | Incendios y SplitMix64 | hecho |
 | T5 | Modo demo, reinicio y épocas, ventana de `action_id`, ranking | hecho |
 | T6 | Codificación de proto y de instantáneas (`internal/codec`, `Restore`/`Parts`) | hecho |
-| T7 | Prueba de conformidad Rust ↔ Go | pendiente |
+| T7 | Prueba de conformidad Rust ↔ Go (`internal/conformance`, `tests/conformance`) | hecho |
 | T8 | Almacén, simulador, servidor gRPC, imagen y Compose | pendiente |
 | T9 | Comparativa y gráfico | pendiente |
