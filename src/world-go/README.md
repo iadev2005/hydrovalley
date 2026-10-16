@@ -39,7 +39,7 @@ Plan y evidencia en `odd/tasks/b5-world-go.md`.
 | Tarea | Alcance | Estado |
 | --- | --- | --- |
 | T1 | Módulo, tipos y catálogo, job de CI | hecho |
-| T2 | Gotas, humedad, crecimiento, marchitamiento, evaporación, depósito, `Step` | pendiente |
+| T2 | Gotas, humedad, crecimiento, marchitamiento, evaporación, depósito, `Step` | hecho |
 | T3 | Instalaciones, mejoras, precios, dueños inactivos | pendiente |
 | T4 | Incendios y SplitMix64 | pendiente |
 | T5 | Modo demo, reinicio y épocas, ventana de `action_id`, ranking | pendiente |

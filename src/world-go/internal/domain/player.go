@@ -55,3 +55,15 @@ func (p *Player) HasUpgrade(kind UpgradeKind) bool {
 	}
 	return false
 }
+
+// startingPlayer es un jugador recién llegado (o reiniciado): depósito lleno
+// y todo a cero. El depósito inicial cuenta como recargado, para que se
+// cumpla RF-27: water = water_refilled - water_spent.
+func startingPlayer(playerID string, tankCapacity uint64) Player {
+	return Player{
+		PlayerID:      playerID,
+		Water:         tankCapacity,
+		TankCapacity:  tankCapacity,
+		WaterRefilled: tankCapacity,
+	}
+}

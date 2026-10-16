@@ -57,3 +57,11 @@ func isMultiple(value, divisor uint64) bool {
 	}
 	return value%divisor == 0
 }
+
+// minU64 es u64::min.
+func minU64(a, b uint64) uint64 {
+	if a < b {
+		return a
+	}
+	return b
+}
