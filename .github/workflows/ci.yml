@@ -262,6 +262,74 @@ jobs:
         working-directory: src/hub
         run: go test -race ./...
 
+  # Tick en Go (world-go, plan B del simulador). Mismo patrón que `hub`: el
+  # filtro de rutas va dentro del job, así que sin cambios termina en verde y
+  # puede ser una comprobación obligatoria. Todavía no importa gen/go (el
+  # codec llega en T6), pero ya lo genera para no tocar el job después.
+  world-go:
+    name: world-go
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            world_go:
+              - 'src/world-go/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en world-go
+        if: steps.changes.outputs.world_go != 'true'
+        run: echo "Sin cambios en src/world-go, proto ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.world_go == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El go.mod de gen/go sale de proto/go.mod.tmpl, la misma plantilla
+      # que usan scripts/gen-proto.sh y el Dockerfile del hub.
+      - name: buf generate
+        if: steps.changes.outputs.world_go == 'true'
+        run: |
+          buf generate --template proto/buf.gen.yaml
+          cp proto/go.mod.tmpl gen/go/go.mod
+
+      # Sin dependencias externas todavía no hay go.sum que cachear.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        if: steps.changes.outputs.world_go == 'true'
+        with:
+          go-version-file: src/world-go/go.mod
+          cache: false
+
+      - name: Formato
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: go vet ./...
+
+      - name: staticcheck
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Pruebas (con el detector de carreras)
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: go test -race ./...
+
   # Bots (Go). Mismo patrón que `hub`: el filtro de rutas va dentro del job,
   # así que sin cambios termina en verde y puede ser una comprobación
   # obligatoria. No usa proto/ ni gen/: los marcos de /play se escriben a mano.
