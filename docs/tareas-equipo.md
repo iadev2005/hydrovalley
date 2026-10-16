@@ -311,7 +311,7 @@ Cada uno es un PR pequeño:
 
 - **Por qué:** primero del nivel 2 y objetivo real del proyecto (RES-07). El profesor apagará una máquina en la defensa.
 - **Depende de:** A1 (imágenes en ghcr.io) y de que el encargado del laboratorio cree la regla del cortafuegos (entrada TCP 8080, 8081, 8082, 50051 y 5433 desde `10.68.17.0/24`).
-- **Archivos:** `deploy/nodes/<nodo>.yml` (`db.yml`, `persistence.yml`, `world.yml`, `hub.yml`, `proxy.yml`), `scripts/` (diagnóstico y despliegue), `deploy/nodes/README.md`.
+- **Archivos:** `deploy/nodes/<nodo>.yml` (`db.yml`, `persistence.yml`, `world.yml`, `hub.yml`, `proxy.yml`), `deploy/nodes/lab-addresses.example` y `secrets.example`, `deploy/nodes/simulate.sh` (simulación del plan A en una máquina), `scripts/lab/` (PowerShell: diagnóstico, despliegue y salud), `deploy/nodes/README.md` (guía del día del laboratorio).
 - **Qué hacer:**
   1. Un Compose por máquina con las **mismas imágenes**; solo cambian direcciones y puertos (`10.68.17.x:puerto`). Incluir `HUB_STATS_ADDR` para la API.
   2. Script de diagnóstico: comprueba que cada máquina ve los puertos de las demás antes de levantar nada.
