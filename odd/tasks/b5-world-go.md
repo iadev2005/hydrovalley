@@ -48,4 +48,4 @@ Fuera de alcance: desplegarlo por defecto (sigue siendo Rust), B8.
 
 ## Progreso
 
-- T1 y T2 en `feature/b5-world-go-core` (ruta delegada).
+- T1 y T2 en `feature/b5-world-go-core` (ruta delegada); revisión de riesgo alto con 4 lentes aprobada. Avisos esperados mientras falten T3–T5: los comandos sin portar responden `invalid_command`.
