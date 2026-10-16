@@ -9,7 +9,7 @@ import (
 // Portadas de las pruebas de world.rs de la sección «Instalaciones y mejoras
 // (T3)» (world.rs:1783-2455). Mismas cifras literales que en Rust. Las que
 // pasan por reinicio o por modo demo con comandos llegan en T5; las que pasan
-// por la instantánea, en T6.
+// por la instantánea, en snapshot_test.go.
 
 // holder es un jugador que ya tiene hojas ganadas.
 type holder struct {

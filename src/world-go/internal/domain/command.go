@@ -3,7 +3,7 @@ package domain
 // Command es un comando admitido por el hub para este tick.
 //
 // Tipos del dominio, sin nada de gRPC: la traducción desde y hacia los
-// mensajes del contrato vive en el codec (T6).
+// mensajes del contrato vive en internal/codec.
 type Command struct {
 	ActionID string
 	PlayerID string

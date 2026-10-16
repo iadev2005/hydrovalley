@@ -7,7 +7,7 @@ import (
 
 // Portadas de world_fire_tests.rs (incendios; D-01, RF-28, RF-29, RF-30,
 // CP-04, CP-10). Las que dependen de reinicio, de restaurar una instantánea o
-// de su estado del generador llegan en T5 y T6.
+// de su estado del generador están en snapshot_test.go.
 
 const caro = "c3a5e2f0-1b4d-4c6e-8f7a-2d9b0c1e3f03"
 
