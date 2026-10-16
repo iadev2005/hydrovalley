@@ -36,8 +36,8 @@ Fuera de alcance: desplegarlo por defecto (sigue siendo Rust), B8.
 
 ## Tareas
 
-- [ ] T1 · Módulo, tipos y catálogo (+ job de CI `world-go`).
-- [ ] T2 · Gotas, humedad, crecimiento y marchitamiento, evaporación, depósito y esqueleto de `Step`.
+- [x] T1 · Módulo, tipos y catálogo (+ job de CI `world-go`). Evidencia: precios probados por mutación (no TDD estricto en ese punto); `go test -race`, vet, gofmt, staticcheck y actionlint limpios.
+- [x] T2 · Gotas, humedad, crecimiento y marchitamiento, evaporación, depósito y esqueleto de `Step`. Evidencia: RED por compilación; unas 60 pruebas portadas de Rust (`growth.rs` 18, `fire.rs` 4, `world.rs` 36, precios y etapas) más casos propios; 78 casos en verde. Incluye las funciones de incendio por casilla (las necesita la gota) y la detección de duplicados; quedan en T3–T5 las marcas TODO con la línea de Rust correspondiente.
 - [ ] T3 · Instalaciones, mejoras, precios y dueños inactivos.
 - [ ] T4 · Incendios y SplitMix64.
 - [ ] T5 · Modo demo, reinicio y épocas, ventana de `action_id`, ranking.
