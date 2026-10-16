@@ -164,11 +164,13 @@ jobs:
             world:
               - 'src/world/**'
               - 'proto/**'
+              - 'catalog/**'
+              - 'tests/conformance/**'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en el simulador
         if: steps.changes.outputs.world != 'true'
-        run: echo "Sin cambios en src/world, proto ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/world, proto, catalog, tests/conformance ni el workflow; no hay nada que probar."
 
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1 (sin versiones semánticas; mismo commit que master)
         if: steps.changes.outputs.world == 'true'
@@ -264,8 +266,9 @@ jobs:
 
   # Tick en Go (world-go, plan B del simulador). Mismo patrón que `hub`: el
   # filtro de rutas va dentro del job, así que sin cambios termina en verde y
-  # puede ser una comprobación obligatoria. Todavía no importa gen/go (el
-  # codec llega en T6), pero ya lo genera para no tocar el job después.
+  # puede ser una comprobación obligatoria. Usa el código generado en gen/go
+  # (el codec) y la prueba de conformidad con Rust, que lee los guiones y los
+  # resultados esperados de tests/conformance y el catálogo de catalog/.
   world-go:
     name: world-go
     runs-on: ubuntu-latest
@@ -283,11 +286,13 @@ jobs:
             world_go:
               - 'src/world-go/**'
               - 'proto/**'
+              - 'catalog/**'
+              - 'tests/conformance/**'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en world-go
         if: steps.changes.outputs.world_go != 'true'
-        run: echo "Sin cambios en src/world-go, proto ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/world-go, proto, catalog, tests/conformance ni el workflow; no hay nada que probar."
 
       - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         if: steps.changes.outputs.world_go == 'true'
@@ -303,12 +308,11 @@ jobs:
           buf generate --template proto/buf.gen.yaml
           cp proto/go.mod.tmpl gen/go/go.mod
 
-      # Sin dependencias externas todavía no hay go.sum que cachear.
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         if: steps.changes.outputs.world_go == 'true'
         with:
           go-version-file: src/world-go/go.mod
-          cache: false
+          cache-dependency-path: src/world-go/go.sum
 
       - name: Formato
         if: steps.changes.outputs.world_go == 'true'
