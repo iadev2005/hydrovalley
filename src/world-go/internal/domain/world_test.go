@@ -23,7 +23,7 @@ func dropCmd(actionID, playerID string, x, y uint32) Command {
 	return Command{ActionID: actionID, PlayerID: playerID, Kind: DropCommand{X: x, Y: y}}
 }
 
-func newTestWorld() *World { return NewWorld(d01()) }
+func newTestWorld() *World { return NewWorld(d01(), 0) }
 
 // setDemoMode es el atajo de las pruebas que no quieren gastar un tick (en
 // Rust, World::set_demo_mode bajo cfg(test)); el comando SetDemoMode llega
@@ -374,7 +374,7 @@ func customCatalog() Catalog {
 }
 
 func TestADropUsesTheFiguresOfTheCatalog(t *testing.T) {
-	w := NewWorld(customCatalog())
+	w := NewWorld(customCatalog(), 0)
 	out := w.Step([]Command{dropCmd(action(1), ana, 1, 1)})
 
 	wantOutcomes(t, outcomes(out), AppliedOutcome)
@@ -391,7 +391,7 @@ func TestANewPlayerStartsWithTheFullTankOfTheCatalog(t *testing.T) {
 	c := d01()
 	c.Tank.Capacity = 1
 	c.Drop.WaterCost = 2
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	out := w.Step([]Command{dropCmd(action(1), ana, 1, 1)})
 
 	wantOutcomes(t, outcomes(out), RejectedOutcome(InsufficientWater))
@@ -403,7 +403,7 @@ func TestANewPlayerStartsWithTheFullTankOfTheCatalog(t *testing.T) {
 func TestADemoDropUsesTheDemoHumidityOfTheCatalog(t *testing.T) {
 	c := customCatalog()
 	c.Drop.DemoHumidity = 3
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	w.setDemoMode(true)
 	w.Step([]Command{dropCmd(action(1), ana, 1, 1)})
 
@@ -416,7 +416,7 @@ func TestADemoDropUsesTheDemoHumidityOfTheCatalog(t *testing.T) {
 }
 
 func TestTheWorldReportsTheVersionOfItsCatalog(t *testing.T) {
-	if got := NewWorld(customCatalog()).CatalogVersion(); got != "custom" {
+	if got := NewWorld(customCatalog(), 0).CatalogVersion(); got != "custom" {
 		t.Errorf("version = %q, want custom", got)
 	}
 }
@@ -450,7 +450,7 @@ func TestAFullTankDoesNotOverflowAndCountsNothing(t *testing.T) {
 func TestTheRefillIsCappedAtTheCapacityAndCountsOnlyWhatFits(t *testing.T) {
 	c := d01()
 	c.Tank.RefillAmount = 5
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	w.Step(drops(1, 3, ana, 0, 0)) // 17 L
 	advanceTo(t, w, 20)
 	p := mustPlayer(t, w, ana)
@@ -472,7 +472,7 @@ func TestEveryPlayerRefillsEvenWhenIdle(t *testing.T) {
 func TestTheRefillIntervalComesFromTheCatalog(t *testing.T) {
 	c := d01()
 	c.Tank.RefillIntervalSeconds = 1
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	w.Step(drops(1, 4, ana, 0, 0))
 	for _, s := range []struct{ tick, water uint64 }{{9, 16}, {10, 17}, {20, 18}} {
 		advanceTo(t, w, s.tick)
@@ -487,7 +487,7 @@ func TestTheRefillIntervalComesFromTheCatalog(t *testing.T) {
 func TestARefillIntervalOfZeroNeverRefills(t *testing.T) {
 	c := d01()
 	c.Tank.RefillIntervalSeconds = 0
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	w.Step(drops(1, 4, ana, 0, 0))
 	idle(w, 100)
 	if got := mustPlayer(t, w, ana).Water; got != 16 {
@@ -512,7 +512,7 @@ func TestATileLosesTheCatalogHumidityEverySecond(t *testing.T) {
 func TestEvaporationNeverGoesBelowZeroAndUsesTheCatalog(t *testing.T) {
 	c := d01()
 	c.Evaporation.HumidityPerSecond = 30
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	w.Step(drops(1, 2, ana, 4, 4)) // 50
 	for _, s := range []struct{ tick, humidity uint64 }{{10, 20}, {20, 0}, {30, 0}} {
 		advanceTo(t, w, s.tick)
@@ -574,7 +574,7 @@ func TestTheLeavesGoToThePlayerWhoseDropPushedTheTileOver(t *testing.T) {
 func TestATileClimbsThroughAllTheStagesWithTheCatalogLeaves(t *testing.T) {
 	c := d01()
 	c.Tank.Capacity = 100
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	stages := []TileStage{DrySoil}
 	for round := range uint32(4) {
 		// Cuatro gotas por etapa, en ticks seguidos (antes de que evaporar,
@@ -594,7 +594,7 @@ func TestATileClimbsThroughAllTheStagesWithTheCatalogLeaves(t *testing.T) {
 func TestATreeKeepsItsHumidityAtTheCatalogCap(t *testing.T) {
 	c := d01()
 	c.Tank.Capacity = 100
-	w := NewWorld(c)
+	w := NewWorld(c, 0)
 	w.Step(drops(1, 40, ana, 0, 0)) // 1000 de humedad aportada
 	tile := mustTile(t, w, 0, 0)
 	if tile.Stage != Tree || tile.Humidity > 100 {

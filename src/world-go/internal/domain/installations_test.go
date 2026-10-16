@@ -21,7 +21,7 @@ type holder struct {
 // ya tienen hojas, para probar las compras sin hacer crecer medio valle. Rust
 // lo construye restaurando una instantánea (T6); aquí se inyectan.
 func richWorld(catalog Catalog, holders ...holder) *World {
-	w := NewWorld(catalog)
+	w := NewWorld(catalog, 0)
 	for _, h := range holders {
 		slot := w.playerSlot(h.id)
 		slot.record.Leaves = h.leaves
@@ -223,7 +223,7 @@ func TestInstallationsCostLeavesInDemoModeToo(t *testing.T) {
 func TestANewcomerCannotEnterAFullWorldEvenWithAFreePrice(t *testing.T) {
 	catalog := d01()
 	catalog.Sprinkler.Price = 0
-	w := NewWorld(catalog)
+	w := NewWorld(catalog, 0)
 	for n := range MaxPlayers {
 		w.playerSlot(fmt.Sprintf("00000000-0000-4000-9000-%012d", n))
 	}

@@ -36,19 +36,20 @@ type World struct {
 	humidityContributed uint64
 	tiles               []Tile
 	players             map[string]*playerSlot
-	// TODO(T4): rng SplitMix64 con semilla (world.rs:104, 125); su estado
-	// viaja en la instantánea.
+	// rng es el único azar del mundo (regla 6): decide la ignición; su
+	// estado viaja en la instantánea (world.rs:104).
+	rng SplitMix64
 	// TODO(T5): resetCatalog, el catálogo ofrecido a los reinicios del tick
 	// en curso (world.rs:111, 256).
 }
 
-// NewWorld crea un valle vacío en el tick 0.
-//
-// TODO(T4): recibirá la semilla del generador, como World::with_seed
-// (world.rs:125); hasta entonces no hay azar que sembrar.
-func NewWorld(catalog Catalog) *World {
+// NewWorld crea un valle vacío en el tick 0 (World::with_seed, world.rs:125;
+// LoadSnapshot devolvió NOT_FOUND). La semilla fija toda la secuencia de
+// incendios (regla 6): quien arranca el servicio la elige y la registra.
+func NewWorld(catalog Catalog, seed uint64) *World {
 	return &World{
 		catalog: catalog,
+		rng:     NewSplitMix64(seed),
 		tiles:   make([]Tile, tileCount(ValleyWidth, ValleyHeight)),
 		players: make(map[string]*playerSlot),
 	}
@@ -74,7 +75,8 @@ func NewWorld(catalog Catalog) *World {
 //     arden.
 //  8. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
 //     modo demo y en las que arden).
-//  9. Ignición al azar (salvo en modo demo) (T4).
+//  9. Ignición al azar (salvo en modo demo): un sorteo con el generador con
+//     semilla por cada casilla elegible, por filas.
 //  10. El tick pasa a t.
 //
 // TODO(T5): StepWithResetCatalog (world.rs:256), que ofrece un catálogo a los
@@ -272,8 +274,39 @@ func (w *World) advanceValley(tick uint64) {
 	for i := range w.tiles {
 		Wither(&w.tiles[i], w.catalog.Evaporation)
 	}
-	// TODO(T4): w.igniteFires() (world.rs:649): un sorteo por casilla
-	// elegible, por filas, al final del tick.
+	w.igniteFires()
+}
+
+// igniteFires es la ignición al azar (world.rs:649; RF-29): recorre las
+// casillas por filas y, por cada una elegible (con planta, humedad 0 y sin
+// fuego), hace un sorteo con Fire.IgnitionChancePPM partes por millón. Un
+// sorteo por casilla elegible y en ese orden fijo: con la misma semilla y el
+// mismo estado la secuencia es siempre la misma. Va al final del tick, así
+// que una casilla que acaba de marchitarse a tierra seca ya no cuenta y una
+// recién encendida empieza a contar sus ticks en el siguiente.
+func (w *World) igniteFires() {
+	ppm := w.catalog.Fire.IgnitionChancePPM
+	for i := range w.tiles {
+		tile := &w.tiles[i]
+		// && en corto: solo una casilla elegible gasta un número (world.rs:653).
+		if IsEligible(tile) && w.rng.ChancePPM(ppm) {
+			Ignite(tile)
+		}
+	}
+}
+
+// RngState es el estado del generador, para la instantánea (RngStateLen
+// bytes).
+func (w *World) RngState() []byte { return w.rng.Bytes() }
+
+// SetRngState restaura el estado del generador; false (sin cambiar nada) si
+// no mide RngStateLen bytes.
+func (w *World) SetRngState(state []byte) bool {
+	rng, ok := SplitMix64FromBytes(state)
+	if ok {
+		w.rng = rng
+	}
+	return ok
 }
 
 // burnFires cuenta un tick más de fuego en cada casilla que arde; las que
