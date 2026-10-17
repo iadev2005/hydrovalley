@@ -22,7 +22,7 @@ COPY src/frontend/ ./
 RUN pnpm run build
 
 # nginx oficial sin privilegios: usuario 101 y puerto 8080.
-FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e
+FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:782bb89768cc87b7f95c18b95baa1af250e5d451f26794f59363540161147c01
 
 # Destinos por defecto del plan B; el plan A los cambia por variables de
 # entorno sin reconstruir la imagen.
