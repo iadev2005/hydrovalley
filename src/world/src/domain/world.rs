@@ -628,6 +628,7 @@ impl World {
         for tile in &mut self.tiles {
             growth::wither(tile, &self.catalog.evaporation);
         }
+        self.propagate_fires();
         self.ignite_fires();
     }
 
@@ -636,6 +637,42 @@ impl World {
     fn burn_fires(&mut self) {
         for tile in &mut self.tiles {
             fire::burn(tile, &self.catalog.fire);
+        }
+    }
+
+    /// Propagación del fuego a casillas vecinas (nivel 2, Tarea B3).
+    ///
+    /// Recorre las casillas por filas. Para cada casilla elegible (con planta,
+    /// humedad dentro de su umbral y sin fuego) que tenga al menos una vecina
+    /// ortogonal que ya estuviera ardiendo al inicio de la fase, realiza un
+    /// sorteo con `fire.propagation_chance_ppm`. Si sale, la casilla se enciende.
+    /// Solo propaga desde los incendios que ya ardían al entrar al paso,
+    /// evitando cascadas instantáneas en un mismo tick.
+    fn propagate_fires(&mut self) {
+        let ppm = self.catalog.fire.propagation_chance_ppm;
+        let mut burning_at_start = [false; 1024];
+        let mut any_burning = false;
+        for (i, tile) in self.tiles.iter().enumerate() {
+            if tile.fire.is_some() {
+                burning_at_start[i] = true;
+                any_burning = true;
+            }
+        }
+        if !any_burning {
+            return;
+        }
+
+        for y in 0..VALLEY_HEIGHT {
+            for x in 0..VALLEY_WIDTH {
+                let index = y as usize * VALLEY_WIDTH as usize + x as usize;
+                let tile = &mut self.tiles[index];
+                if fire::is_eligible(tile)
+                    && orthogonal_neighbor_indices(x, y).any(|n| burning_at_start[n])
+                    && self.rng.chance_ppm(ppm)
+                {
+                    fire::ignite(tile);
+                }
+            }
         }
     }
 
@@ -801,6 +838,30 @@ fn area_indices(x: u32, y: u32, side: u32) -> Vec<usize> {
             .map(move |column| row as usize * VALLEY_WIDTH as usize + column as usize)
     })
     .collect()
+}
+
+/// Índices de las casillas vecinas ortogonales (Norte, Sur, Este, Oeste)
+/// dentro de los límites del valle de 32 × 32.
+fn orthogonal_neighbor_indices(x: u32, y: u32) -> impl Iterator<Item = usize> {
+    let mut neighbors = [0usize; 4];
+    let mut count = 0;
+    if y > 0 {
+        neighbors[count] = (y as usize - 1) * VALLEY_WIDTH as usize + x as usize;
+        count += 1;
+    }
+    if y + 1 < VALLEY_HEIGHT {
+        neighbors[count] = (y as usize + 1) * VALLEY_WIDTH as usize + x as usize;
+        count += 1;
+    }
+    if x > 0 {
+        neighbors[count] = y as usize * VALLEY_WIDTH as usize + (x as usize - 1);
+        count += 1;
+    }
+    if x + 1 < VALLEY_WIDTH {
+        neighbors[count] = y as usize * VALLEY_WIDTH as usize + (x as usize + 1);
+        count += 1;
+    }
+    neighbors.into_iter().take(count)
 }
 
 fn tile_count(width: u32, height: u32) -> usize {

@@ -208,7 +208,7 @@ Cifras de arranque, para empezar a probar. Todas son valores iniciales: viven en
 | Planta de tratamiento (Reciclar) | 40 hojas | +1 L extra de recarga cada 2 s |
 | Gota más grande (mejora) | 30 hojas | La gota humedece 3 × 3 casillas |
 | Depósito mayor (mejora) | 20 hojas | +10 L de capacidad del depósito |
-| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 50 por millón por tick (valor inicial elegido por el equipo; unos 1 cada 20 s con 100 casillas así). Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 5 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
+| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 50 por millón por tick (valor inicial elegido por el equipo; unos 1 cada 20 s con 100 casillas así). Se propaga a casillas vecinas ortogonales elegibles (secas y con planta) con una probabilidad de 2.000 por millón por tick (0,2 % por tick = ~2 % por segundo por vecina ardiendo, valor inicial de nivel 2). Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 5 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
 
 #### Los estados de una casilla
 
@@ -231,7 +231,7 @@ stateDiagram-v2
         --
         state "Sin fuego" as SinFuego
         [*] --> SinFuego
-        SinFuego --> Ardiendo: azar, si está seca y tiene planta
+        SinFuego --> Ardiendo: azar o propagación vecina, si está seca y con planta
         Ardiendo --> SinFuego: tercera gota
         Ardiendo --> SinFuego: aspersor en su zona
         Ardiendo --> SinFuego: se consume (300 ticks) / crecimiento pasa a Tierra seca

@@ -94,6 +94,8 @@ type FireRules struct {
 	BurnOutTicks          uint32
 	// IgnitionChancePPM son partes por millón por tick.
 	IgnitionChancePPM uint32
+	// PropagationChancePPM son partes por millón por tick.
+	PropagationChancePPM uint32
 }
 
 // SprinklerRules son las cifras del aspersor de agua gris (Reutilizar).

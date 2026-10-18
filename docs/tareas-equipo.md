@@ -332,6 +332,7 @@ Cada uno es un PR pequeño:
 - **Archivos:** `src/world/src/domain/` (reglas y pruebas), `catalog/catalog.json` (cifras nuevas), documento (D-01, con las cifras propuestas por el equipo).
 - **Qué hacer:** el fuego salta a vecinas con una probabilidad por tick definida en el catálogo; solo con el generador con semilla (regla 6), así la misma semilla da el mismo valle (CP-10).
 - **Aceptación:** pruebas de dominio deterministas; CP-10 sigue pasando; las cifras nuevas en D-01.
+- **Estado:** implementado. Cifra de catálogo `propagation_chance_ppm = 2000` (2.000 ppm = 0,2 %/tick = ~2 %/s). Sorteo con `SplitMix64` respetando la 4-vecindad ortogonal y ejecución síncrona por tick (sin cascadas intra-tick). Modelo de elegibilidad desacoplado y escalable en `TileStage` y `Tile` preparado para nuevos biomas y obras comunitarias (estanque RF-26). Pruebas unitarias de propagación deterministas y CP-10 pasando.
 
 #### B4 · Obras comunitarias (RF-26)
 
