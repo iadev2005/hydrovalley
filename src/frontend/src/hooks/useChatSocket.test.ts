@@ -52,6 +52,14 @@ class MockWebSocket {
   }
 }
 
+function getWs(index = 0): MockWebSocket {
+  const ws = MockWebSocket.instances[index];
+  if (!ws) {
+    throw new Error(`expected MockWebSocket instance at index ${index}`);
+  }
+  return ws;
+}
+
 describe("useChatSocket", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
@@ -75,7 +83,7 @@ describe("useChatSocket", () => {
   it("conecta al WebSocket con el token en la query y envía SyncFrame al abrir", () => {
     const { result } = renderHook(() => useChatSocket({ session }));
     expect(MockWebSocket.instances.length).toBe(1);
-    const ws = MockWebSocket.instances[0]!;
+    const ws = getWs(0);
     expect(ws.url).toContain("/chat?token=jwt.token.valido");
     expect(result.current.status).toBe("connecting");
 
@@ -86,7 +94,8 @@ describe("useChatSocket", () => {
     expect(result.current.status).toBe("connected");
     expect(result.current.isOpen).toBe(true);
     expect(ws.sent.length).toBe(1);
-    expect(JSON.parse(ws.sent[0]!)).toEqual({
+    const firstSent = ws.sent[0] ?? "";
+    expect(JSON.parse(firstSent)).toEqual({
       type: "sync",
       after_seq: "0",
     });
@@ -94,7 +103,7 @@ describe("useChatSocket", () => {
 
   it("recibe MessageFrames, los almacena ordenados por seq e ignora duplicados", () => {
     const { result } = renderHook(() => useChatSocket({ session }));
-    const ws = MockWebSocket.instances[0]!;
+    const ws = getWs(0);
     act(() => {
       ws.triggerOpen();
     });
@@ -131,15 +140,16 @@ describe("useChatSocket", () => {
     });
 
     expect(result.current.messages.length).toBe(2);
-    expect(result.current.messages[0]!.seq).toBe(1);
-    expect(result.current.messages[0]!.text).toBe("primer mensaje");
-    expect(result.current.messages[1]!.seq).toBe(2);
-    expect(result.current.messages[1]!.text).toBe("segundo mensaje");
+    const [m1, m2] = result.current.messages;
+    expect(m1?.seq).toBe(1);
+    expect(m1?.text).toBe("primer mensaje");
+    expect(m2?.seq).toBe(2);
+    expect(m2?.text).toBe("segundo mensaje");
   });
 
   it("detecta cambio de server_epoch, descarta mensajes anteriores y solicita after_seq = 0", () => {
     const { result } = renderHook(() => useChatSocket({ session }));
-    const ws = MockWebSocket.instances[0]!;
+    const ws = getWs(0);
     act(() => {
       ws.triggerOpen();
     });
@@ -180,13 +190,14 @@ describe("useChatSocket", () => {
 
     // Se limpió el buffer local y se envió SyncFrame pidiendo desde 0
     expect(result.current.messages.length).toBe(0);
-    const lastSent = JSON.parse(ws.sent[ws.sent.length - 1]!);
+    const lastSentRaw = ws.sent[ws.sent.length - 1] ?? "";
+    const lastSent = JSON.parse(lastSentRaw);
     expect(lastSent).toEqual({ type: "sync", after_seq: "0" });
   });
 
   it("sendMessage envía un SendFrame si el socket está abierto", () => {
     const { result } = renderHook(() => useChatSocket({ session }));
-    const ws = MockWebSocket.instances[0]!;
+    const ws = getWs(0);
     act(() => {
       ws.triggerOpen();
     });
@@ -197,7 +208,8 @@ describe("useChatSocket", () => {
     });
     expect(ok).toBe(true);
     expect(ws.sent.length).toBe(2); // [0]: sync, [1]: send
-    const sendPayload = JSON.parse(ws.sent[1]!);
+    const sendPayloadRaw = ws.sent[1] ?? "";
+    const sendPayload = JSON.parse(sendPayloadRaw);
     expect(sendPayload.type).toBe("send");
     expect(sendPayload.text).toBe("hola mundo");
     expect(sendPayload.message_id).toBeDefined();
@@ -212,7 +224,7 @@ describe("useChatSocket", () => {
   it("cierra con 4401 y llama a onSessionExpired sin reintentar", () => {
     const onSessionExpired = vi.fn();
     const { result } = renderHook(() => useChatSocket({ session, onSessionExpired }));
-    const ws = MockWebSocket.instances[0]!;
+    const ws = getWs(0);
 
     act(() => {
       ws.triggerOpen();

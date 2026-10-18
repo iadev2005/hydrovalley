@@ -44,6 +44,8 @@ export function shouldReconnect(code: number): boolean {
 
 export type CloseAction = "ignore" | "show_access" | "expired" | "reconnect";
 
+export type ConnectionStatus = "disconnected" | "connecting" | "connected";
+
 /**
  * Qué hacer cuando se cierra el WebSocket de la sesión:
  * - `ignore`: el cierre es de un socket que ya no es el actual (salida o
