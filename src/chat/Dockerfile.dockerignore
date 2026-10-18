@@ -1,0 +1,9 @@
+# Filtro del contexto para src/chat/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: solo
+# entran proto/ y los archivos del chat.
+*
+!proto/
+!src/chat/go.mod
+!src/chat/go.sum
+!src/chat/cmd/
+!src/chat/internal/
