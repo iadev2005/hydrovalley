@@ -111,6 +111,10 @@ node --test --test-reporter=spec "${repo_root}/tests/e2e/smoke.test.mjs"
 # POST /api/admin/bot-accounts.
 node --test --test-reporter=spec "${repo_root}/tests/e2e/cp01-concurrent-drops.test.mjs"
 
+# CP-09 (RF-13, RF-14): orden canónico de mensajes simultáneos y sincronización
+# del chat con reloj lógico secuencial.
+node --test --test-reporter=spec "${repo_root}/tests/e2e/cp09-chat-order.test.mjs"
+
 # RNF-12: TLS en nginx (redirección de HTTP, versiones, healthcheck).
 node --test --test-reporter=spec "${repo_root}/tests/e2e/tls.test.mjs"
 
@@ -118,13 +122,14 @@ node --test --test-reporter=spec "${repo_root}/tests/e2e/tls.test.mjs"
 # API, la persistencia y el simulador.
 node --test --test-reporter=spec "${repo_root}/tests/e2e/request-id.test.mjs"
 
-# CP-05 a CP-08 y CP-12: fallos de servicios (faults*.test.mjs; CP-08, el más
+# CP-05 a CP-08, CP-12 y RF-15: fallos de servicios (faults*.test.mjs; CP-08, el más
 # disruptivo, va al final). Corren después de la prueba de
 # humo, con el mismo stack y el administrador efímero.
 if [[ "${E2E_SKIP_FAULTS:-0}" != "1" ]]; then
   node --test --test-reporter=spec --test-concurrency=1 \
     "${repo_root}/tests/e2e/faults.test.mjs" \
-    "${repo_root}/tests/e2e/faults-hub-persistence.test.mjs"
+    "${repo_root}/tests/e2e/faults-hub-persistence.test.mjs" \
+    "${repo_root}/tests/e2e/faults-chat.test.mjs"
   # CP-08 para todos los servicios y los levanta en otro orden: va aparte y al
   # final (node ordena los archivos por nombre, así que no basta con listarlo).
   node --test --test-reporter=spec --test-concurrency=1 \

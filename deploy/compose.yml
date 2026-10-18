@@ -82,6 +82,18 @@ services:
       # token de /play. Es la pareja de TOKEN_PRIVATE_KEY; va en deploy/.env.
       TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?define TOKEN_PUBLIC_KEY en deploy/.env}
 
+  chat:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-chat:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/chat/Dockerfile
+    environment:
+      CHAT_HTTP_LISTEN: :8082
+      CHAT_GRPC_LISTEN: :50051
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?define TOKEN_PUBLIC_KEY en deploy/.env}
+
   api:
     <<: *service
     image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}
@@ -114,6 +126,7 @@ services:
     environment:
       API_ADDR: api:3000
       HUB_ADDR: hub:8081
+      CHAT_ADDR: chat:8082
       NGINX_RESOLVER: 127.0.0.11
       # TLS (RNF-12): sin certificado montado, nginx genera uno autofirmado al
       # arrancar. Nombres o IP extra para su SAN (el laboratorio: 10.68.17.x);

@@ -262,6 +262,72 @@ jobs:
         working-directory: src/hub
         run: go test -race ./...
 
+  # Chat en tiempo real (Go). Mismo patrón que `hub`: el filtro de
+  # rutas va dentro del job, así que sin cambios termina en verde y puede
+  # ser una comprobación obligatoria. Usa el código generado en gen/go.
+  chat:
+    name: chat
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            chat:
+              - 'src/chat/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el chat
+        if: steps.changes.outputs.chat != 'true'
+        run: echo "Sin cambios en src/chat, proto ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.chat == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El go.mod de gen/go sale de proto/go.mod.tmpl, la misma plantilla
+      # que usan scripts/gen-proto.sh y el Dockerfile del chat.
+      - name: buf generate
+        if: steps.changes.outputs.chat == 'true'
+        run: |
+          buf generate --template proto/buf.gen.yaml
+          cp proto/go.mod.tmpl gen/go/go.mod
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        if: steps.changes.outputs.chat == 'true'
+        with:
+          go-version-file: src/chat/go.mod
+          cache-dependency-path: src/chat/go.sum
+
+      - name: Formato
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: go vet ./...
+
+      - name: staticcheck
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Pruebas (con el detector de carreras)
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: go test -race ./...
+
   # Tick en Go (world-go, plan B del simulador). Mismo patrón que `hub`: el
   # filtro de rutas va dentro del job, así que sin cambios termina en verde y
   # puede ser una comprobación obligatoria. Todavía no importa gen/go (el
@@ -520,7 +586,7 @@ jobs:
 
       - name: Pruebas unitarias del arnés (tests/e2e)
         if: steps.changes.outputs.frontend == 'true'
-        run: node --test tests/e2e/play-session.test.mjs tests/e2e/faults.unit.test.mjs
+        run: node --test tests/e2e/play-session.test.mjs tests/e2e/chat-session.test.mjs tests/e2e/faults.unit.test.mjs
 
   # Prueba de humo de punta a punta (CP-01-lite) con el plan B: construye
   # todas las imágenes, levanta deploy/compose.yml y suelta una gota por
@@ -575,11 +641,11 @@ jobs:
 
   # Publicación de imágenes en GitHub Container Registry (ghcr.io).
   # Corre en push a la rama dev (tras fusionar) y en etiquetas de versión v* sobre main.
-  # Construye para linux/amd64 y publica las 6 imágenes: api, hub, world, persistence, proxy y bots.
+  # Construye para linux/amd64 y publica las imágenes: api, hub, chat, world, persistence, proxy y bots.
   publish:
     name: publish
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [proto, codegen, persistence, world, hub, bots, api, frontend]
+    needs: [proto, codegen, persistence, world, hub, chat, bots, api, frontend]
     runs-on: ubuntu-latest
     permissions:
       contents: read
