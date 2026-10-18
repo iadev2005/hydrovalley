@@ -586,7 +586,7 @@ jobs:
 
       - name: Pruebas unitarias del arnés (tests/e2e)
         if: steps.changes.outputs.frontend == 'true'
-        run: node --test tests/e2e/play-session.test.mjs tests/e2e/faults.unit.test.mjs
+        run: node --test tests/e2e/play-session.test.mjs tests/e2e/chat-session.test.mjs tests/e2e/faults.unit.test.mjs
 
   # Prueba de humo de punta a punta (CP-01-lite) con el plan B: construye
   # todas las imágenes, levanta deploy/compose.yml y suelta una gota por
