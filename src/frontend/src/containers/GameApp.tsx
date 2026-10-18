@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { AdminPanel } from "../components/AdminPanel.tsx";
 import { AuthPanel } from "../components/AuthPanel.tsx";
+import { ChatPanel } from "../components/ChatPanel.tsx";
 import { LogConsole } from "../components/LogConsole.tsx";
 import { RankingTable } from "../components/RankingTable.tsx";
 import { ReportPanel } from "../components/ReportPanel.tsx";
@@ -8,6 +9,7 @@ import { SessionBar } from "../components/SessionBar.tsx";
 import { ValleyCanvas } from "../components/ValleyCanvas.tsx";
 import { ValleyPhaser, type ValleyPhaserHandle } from "../components/ValleyPhaser.tsx";
 import { ValleyControls } from "../components/ValleyControls.tsx";
+import { useChatSocket, type UseChatSocketOptions } from "../hooks/useChatSocket.ts";
 import { useGameSocket, type UseGameSocketOptions } from "../hooks/useGameSocket.ts";
 import { useReports, type UseReportsOptions } from "../hooks/useReports.ts";
 import { useSession, type UseSessionOptions } from "../hooks/useSession.ts";
@@ -17,6 +19,7 @@ import { describeFrame } from "../logic/play.ts";
 export interface GameAppProps {
   sessionOptions?: UseSessionOptions;
   socketOptions?: Omit<UseGameSocketOptions, "session" | "onSessionExpired">;
+  chatOptions?: Omit<UseChatSocketOptions, "session" | "onSessionExpired">;
   reportsOptions?: Omit<UseReportsOptions, "session" | "onSessionExpired">;
   valleyViewOptions?: UseValleyViewOptions;
 }
@@ -24,6 +27,7 @@ export interface GameAppProps {
 export function GameApp({
   sessionOptions,
   socketOptions,
+  chatOptions,
   reportsOptions,
   valleyViewOptions,
 }: GameAppProps = {}) {
@@ -79,6 +83,12 @@ export function GameApp({
 
   const reportsHook = useReports({
     ...reportsOptions,
+    session,
+    onSessionExpired: handleSessionExpired,
+  });
+
+  const chatHook = useChatSocket({
+    ...chatOptions,
     session,
     onSessionExpired: handleSessionExpired,
   });
@@ -267,6 +277,14 @@ export function GameApp({
         statusText={reportsHook.rankingStatus}
         onRefresh={reportsHook.refresh}
         isRetryLocked={reportsHook.isRetryLocked}
+      />
+
+      <ChatPanel
+        hidden={!session}
+        messages={chatHook.messages}
+        status={chatHook.status}
+        statusText={chatHook.statusText}
+        onSendMessage={chatHook.sendMessage}
       />
 
       <ReportPanel
