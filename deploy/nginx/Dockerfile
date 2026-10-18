@@ -28,10 +28,11 @@ FROM nginxinc/nginx-unprivileged:1.30-alpine@sha256:ed04ec1ff34502c339ee5c3ae3f8
 # entorno sin reconstruir la imagen.
 ENV API_ADDR=api:3000 \
     HUB_ADDR=hub:8081 \
+    CHAT_ADDR=chat:8082 \
     NGINX_RESOLVER=127.0.0.11 \
     TLS_CERT_FILE=/etc/nginx/tls/tls.crt \
     TLS_KEY_FILE=/etc/nginx/tls/tls.key \
-    NGINX_ENVSUBST_FILTER="^(API_ADDR|HUB_ADDR|NGINX_RESOLVER|TLS_CERT_FILE|TLS_KEY_FILE)$"
+    NGINX_ENVSUBST_FILTER="^(API_ADDR|HUB_ADDR|CHAT_ADDR|NGINX_RESOLVER|TLS_CERT_FILE|TLS_KEY_FILE)$"
 
 # TLS (RNF-12): openssl solo para generar, al arrancar el contenedor, un
 # certificado autofirmado si no se monta uno. La clave nunca se genera al
