@@ -4,9 +4,8 @@
 #   docker compose -p hv-hub -f deploy/nodes/hub.yml \
 #     --env-file lab-addresses.local --env-file secrets.local up -d
 #
-# Publica HV_HUB_PORT (8081): lo usan nginx (/play) y la API (/stats, solo red
-# del laboratorio). Solo recibe la clave pública del token.
-# El chat (8082) es del nivel 2 y todavía no existe.
+# Publica HV_HUB_PORT (8081) y el chat HV_CHAT_PORT (8082) y HV_CHAT_GRPC_PORT (50051).
+# Solo reciben la clave pública del token.
 #
 # Bots (a demanda, perfil «bots»), contra el proxy del laboratorio:
 #   docker compose -p hv-hub -f deploy/nodes/hub.yml --env-file lab-addresses.local \
@@ -25,6 +24,18 @@ services:
       TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?definir TOKEN_PUBLIC_KEY en secrets.local}
     ports:
       - "${HV_HUB_PORT:-8081}:8081"
+
+  chat:
+    restart: unless-stopped
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-chat:${HV_TAG:-dev}
+    environment:
+      CHAT_HTTP_LISTEN: :8082
+      CHAT_GRPC_LISTEN: :50051
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?definir TOKEN_PUBLIC_KEY en secrets.local}
+    ports:
+      - "${HV_CHAT_PORT:-8082}:8082"
+      - "${HV_CHAT_GRPC_PORT:-50051}:50051"
 
   # Bots (Go): entran por el proxy como un navegador. No arrancan con `up`.
   # Sin restart (corren y terminan) y sin depends_on (regla 5).

@@ -136,7 +136,7 @@ describe("walking skeleton (CP-01-lite)", () => {
 
   after(() => session?.close());
 
-  it("serves the static page, the Swagger page and a 503 for /chat", async () => {
+  it("serves the static page, the Swagger page and routes /chat to the chat service", async () => {
     const page = await fetch(`${BASE_URL}/`);
     assert.equal(page.status, 200);
     assert.match(await page.text(), /Soltar gota/);
@@ -146,7 +146,17 @@ describe("walking skeleton (CP-01-lite)", () => {
     assert.match(docs.headers.get("content-type") ?? "", /text\/html/);
 
     const chat = await fetch(`${BASE_URL}/chat`);
-    assert.equal(chat.status, 503);
+    assert.notEqual(chat.status, 503);
+
+    const unauthenticated = new PlaySession(`${WS_BASE}/chat`);
+    const closed = await Promise.race([
+      unauthenticated.closed,
+      sleep(5000).then(() => {
+        unauthenticated.close();
+        return { code: "timeout" };
+      }),
+    ]);
+    assert.equal(closed.code, 4401);
   });
 
   it("closes /play with 4401 when the token is missing or not valid", async () => {
