@@ -9,6 +9,6 @@
   "go": "go version go1.26.5 darwin/arm64",
   "rust": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
   "rust_profile": "release (el de Cargo por defecto, sin LTO)",
-  "runs": 3,
+  "runs": 4,
   "sizes": "32 64 128 256 512"
 }

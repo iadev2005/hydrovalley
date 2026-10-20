@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 520" width="860" height="520" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
 <title id="t">Tiempo por paso del valle: Go frente a Rust</title>
-<desc id="d">Mediana de microsegundos por paso según el tamaño del valle. Rust: 32×32 11,7 µs, 64×64 54,6 µs, 128×128 249 µs, 256×256 1,3 ms, 512×512 6,3 ms; Go: 32×32 8,6 µs, 64×64 41,6 µs, 128×128 197 µs, 256×256 1,0 ms, 512×512 4,6 ms.</desc>
+<desc id="d">Mediana de microsegundos por paso según el tamaño del valle. Rust: 32×32 11,5 µs, 64×64 54,5 µs, 128×128 249 µs, 256×256 1,3 ms, 512×512 6,3 ms; Go: 32×32 8,6 µs, 64×64 41,7 µs, 128×128 197 µs, 256×256 1,0 ms, 512×512 4,6 ms.</desc>
 <style>
 :root{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--grid:#e4e3df;--rust:#2a78d6;--go:#eb6834}
 @media (prefers-color-scheme: dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink2:#c3c2b7;--grid:#383835;--rust:#3987e5;--go:#d95926}}
@@ -8,7 +8,7 @@
 </style>
 <rect width="860" height="520" fill="var(--surface)"/>
 <text class="t" x="78" y="30" font-size="17" font-weight="600">Tiempo de un paso del valle, Go frente a Rust</text>
-<text class="t2" x="78" y="50" font-size="12">Microsegundos por paso (<tspan font-family="monospace">World::step</tspan> / <tspan font-family="monospace">World.Step</tspan>), mediana de 3 ejecuciones; menor es mejor</text>
+<text class="t2" x="78" y="50" font-size="12">Microsegundos por paso (<tspan font-family="monospace">World::step</tspan> / <tspan font-family="monospace">World.Step</tspan>), mediana de 4 ejecuciones; menor es mejor</text>
 <text class="t2" x="78" y="67" font-size="12">Máquina: Apple M4 (10 núcleos, 16 GB), macOS 26.5.2, arm64</text>
 <line class="ln rust" x1="78" y1="86" x2="104" y2="86"/>
 <text class="t2" x="110" y="90" font-size="12">Rust, mediana</text>
@@ -45,20 +45,20 @@
 <text class="t2" x="710.0" y="472" font-size="11" text-anchor="middle">262.144</text>
 <line class="ax" x1="78" y1="440" x2="710" y2="440"/>
 <text class="t2" x="394" y="504" font-size="12" text-anchor="middle">Tamaño del valle (casillas; ejes logarítmicos). El del juego es 32×32.</text>
-<polyline class="ln rust p95" points="78.0,333.6 236.0,277.2 394.0,221.1 552.0,161.7 710.0,103.9"/>
-<polyline class="ln rust" points="78.0,348.2 236.0,290.6 394.0,234.0 552.0,171.9 710.0,113.1"/>
-<polyline class="ln go p95" points="78.0,346.5 236.0,291.5 394.0,232.8 552.0,173.9 710.0,118.4"/>
-<polyline class="ln go" points="78.0,359.5 236.0,300.7 394.0,242.8 552.0,182.0 710.0,124.9"/>
-<circle class="mrust ring" cx="78.0" cy="348.2" r="4.5"/>
-<circle class="mrust ring" cx="236.0" cy="290.6" r="4.5"/>
+<polyline class="ln rust p95" points="78.0,334.1 236.0,277.7 394.0,221.1 552.0,161.5 710.0,102.5"/>
+<polyline class="ln rust" points="78.0,348.8 236.0,290.7 394.0,234.0 552.0,172.0 710.0,113.1"/>
+<polyline class="ln go p95" points="78.0,346.4 236.0,291.4 394.0,232.8 552.0,173.8 710.0,117.7"/>
+<polyline class="ln go" points="78.0,359.4 236.0,300.7 394.0,242.7 552.0,182.0 710.0,125.1"/>
+<circle class="mrust ring" cx="78.0" cy="348.8" r="4.5"/>
+<circle class="mrust ring" cx="236.0" cy="290.7" r="4.5"/>
 <circle class="mrust ring" cx="394.0" cy="234.0" r="4.5"/>
-<circle class="mrust ring" cx="552.0" cy="171.9" r="4.5"/>
+<circle class="mrust ring" cx="552.0" cy="172.0" r="4.5"/>
 <circle class="mrust ring" cx="710.0" cy="113.1" r="4.5"/>
-<circle class="mgo ring" cx="78.0" cy="359.5" r="4.5"/>
+<circle class="mgo ring" cx="78.0" cy="359.4" r="4.5"/>
 <circle class="mgo ring" cx="236.0" cy="300.7" r="4.5"/>
-<circle class="mgo ring" cx="394.0" cy="242.8" r="4.5"/>
+<circle class="mgo ring" cx="394.0" cy="242.7" r="4.5"/>
 <circle class="mgo ring" cx="552.0" cy="182.0" r="4.5"/>
-<circle class="mgo ring" cx="710.0" cy="124.9" r="4.5"/>
+<circle class="mgo ring" cx="710.0" cy="125.1" r="4.5"/>
 <text class="t" x="720" y="117.1" font-size="12" font-weight="600">Rust 6,3 ms</text>
 <text class="t" x="720" y="132.1" font-size="12" font-weight="600">Go 4,6 ms</text>
 </svg>
