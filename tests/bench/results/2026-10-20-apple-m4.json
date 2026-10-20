@@ -1,0 +1,14 @@
+{
+  "date_utc": "2026-10-20",
+  "machine": "apple-m4",
+  "cpu": "Apple M4",
+  "logical_cores": 10,
+  "memory_bytes": 17179869184,
+  "os": "macOS 26.5.2",
+  "arch": "arm64",
+  "go": "go version go1.26.5 darwin/arm64",
+  "rust": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)",
+  "rust_profile": "release (el de Cargo por defecto, sin LTO)",
+  "runs": 3,
+  "sizes": "32 64 128 256 512"
+}
