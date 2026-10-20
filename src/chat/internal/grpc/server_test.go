@@ -15,8 +15,12 @@ type mockBroadcaster struct {
 	messages []*chatv1.ChatMessage
 }
 
-func (m *mockBroadcaster) Broadcast(msg *chatv1.ChatMessage) {
-	m.messages = append(m.messages, msg)
+func (m *mockBroadcaster) Publish(appendFn func() (*chatv1.ChatMessage, bool, error)) (*chatv1.ChatMessage, bool, error) {
+	msg, isNew, err := appendFn()
+	if err == nil && isNew {
+		m.messages = append(m.messages, msg)
+	}
+	return msg, isNew, err
 }
 
 func uuidN(n int) string {
