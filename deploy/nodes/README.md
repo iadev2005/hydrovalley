@@ -6,7 +6,7 @@ Guía paso a paso para el día del laboratorio. Cada máquina corre un nodo (dia
 | --- | --- | --- | --- | --- |
 | `db` | `db.yml` | PostgreSQL | 5433 (al 5432 del contenedor) | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
 | `persistence` | `persistence.yml` | Persistencia (Python) | 50051 | los de PostgreSQL y `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` |
-| `world` | `world.yml` | Simulador (Rust) | 50051 | ninguno |
+| `world` | `world.yml` | Simulador (Rust; o `world-go` con `HV_WORLD_IMAGE`) | 50051 | ninguno |
 | `hub` | `hub.yml` | Hub (Go) y, a demanda, bots | 8081 | `TOKEN_PUBLIC_KEY` (y, para los bots, `HV_ADMIN_*`) |
 | `proxy` | `proxy.yml` | nginx (HTTPS) y API | 8080 | `TOKEN_PRIVATE_KEY` |
 
@@ -95,6 +95,16 @@ Windows 10, cuenta de dominio sin permisos de administrador, Docker Desktop con 
 ## Jugar desde cualquier PC del laboratorio
 
 Abrir `https://<IP del proxy>:8080` en el navegador. El certificado es autofirmado (la IP del nodo va en su SAN, `TLS_EXTRA_SANS`), así que el navegador avisará: *Avanzado › Continuar*. Crear una cuenta o entrar con el administrador. El panel del sistema está en `https://<IP del proxy>:8080/sistema.html`. El puerto 8080 es el único que usan los navegadores; el 8081 es interno entre nginx, la API y el hub.
+
+## Plan B del simulador: world-go en el nodo `world`
+
+Si Rust falla en la máquina del nodo `world`, `world-go` ocupa su lugar con la misma configuración (diagrama 08, D-03): mismo servicio, mismo puerto (`HV_WORLD_PORT`, 50051) y mismas variables, así que el hub y la API no cambian. Es solo configuración, nunca código. En `lab-addresses.local`, con los valores escritos (el archivo de variables no interpola):
+
+```bash
+HV_WORLD_IMAGE=ghcr.io/iadev2005/hydrovalley-world-go:dev    # o :vX.Y; la etiqueta va escrita aquí (-Tag no la cambia)
+```
+
+y se vuelve a levantar el nodo (`deploy-node.ps1 -Node world …`, que descarga la imagen indicada). Sin `HV_WORLD_IMAGE` sigue la imagen de Rust. Antes hay que bajar el nodo `world` en marcha: solo un simulador contra el hub (escritor único, regla 1). `world-go` retoma el valle de la última instantánea (la de Rust o la suya) y la persistencia no se entera. Para el resto del plan B ver `deploy/README.md` («Sustituir Rust por world-go»).
 
 ## Bots y prueba de carga
 

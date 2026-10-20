@@ -354,11 +354,12 @@ jobs:
               - 'proto/**'
               - 'catalog/**'
               - 'tests/conformance/**'
+              - 'deploy/compose.world-go.yml'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en world-go
         if: steps.changes.outputs.world_go != 'true'
-        run: echo "Sin cambios en src/world-go, proto, catalog, tests/conformance ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/world-go, proto, catalog, tests/conformance, su override de Compose ni el workflow; no hay nada que probar."
 
       - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         if: steps.changes.outputs.world_go == 'true'
@@ -399,6 +400,13 @@ jobs:
         if: steps.changes.outputs.world_go == 'true'
         working-directory: src/world-go
         run: go test -race ./...
+
+      # La imagen no está en el e2e por defecto (solo con E2E_WORLD_IMPL=go):
+      # sin este paso un error del Dockerfile no se vería hasta el `publish`
+      # tras fusionar. Solo construye; no se publica aquí.
+      - name: Construir la imagen
+        if: steps.changes.outputs.world_go == 'true'
+        run: docker build -f src/world-go/Dockerfile -t hydrovalley-world-go:ci .
 
   # Bots (Go). Mismo patrón que `hub`: el filtro de rutas va dentro del job,
   # así que sin cambios termina en verde y puede ser una comprobación
@@ -645,11 +653,12 @@ jobs:
 
   # Publicación de imágenes en GitHub Container Registry (ghcr.io).
   # Corre en push a la rama dev (tras fusionar) y en etiquetas de versión v* sobre main.
-  # Construye para linux/amd64 y publica las imágenes: api, hub, chat, world, persistence, proxy y bots.
+  # Construye para linux/amd64 y publica las imágenes: api, hub, chat, world, persistence, proxy y bots,
+  # más world-go (plan B del simulador; no está en deploy/compose.yml).
   publish:
     name: publish
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [proto, codegen, persistence, world, hub, chat, bots, api, frontend]
+    needs: [proto, codegen, persistence, world, world-go, hub, chat, bots, api, frontend]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -706,3 +715,18 @@ jobs:
             *.platform=linux/amd64
             *.cache-from=type=gha,scope=e2e
             *.cache-to=type=gha,scope=e2e,mode=max
+
+      # world-go ocupa el lugar de `world` en deploy/compose.world-go.yml: va en
+      # su propia ejecución de bake (con compose.yml se pisaría la imagen de
+      # Rust) y se publica como hydrovalley-world-go.
+      - name: Construir y publicar la imagen de world-go
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        with:
+          source: .
+          files: deploy/compose.world-go.yml
+          push: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=world-go
+            *.cache-to=type=gha,scope=world-go,mode=max

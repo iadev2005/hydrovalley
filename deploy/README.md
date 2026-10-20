@@ -37,9 +37,24 @@ Luego, https://localhost:8080 (certificado autofirmado: el navegador avisa; ver 
 - **Arranque**: no se usa `depends_on`. Cada servicio arranca aunque los demás no estén y se reconecta solo (regla 5); `restart: unless-stopped` cubre las caídas. Hasta que la persistencia conecta con PostgreSQL y el simulador carga su instantánea, el hub tiene el valle en pausa.
 - **Healthchecks**: van en cada imagen, para que el plan A los herede. Hub: `hub healthcheck` (`/healthz`). Simulador y persistencia: `grpc_health_probe` contra `grpc.health.v1` (SERVING solo con la instantánea cargada o la base conectada). API: `node dist/healthcheck.js`. nginx: `wget` a `/healthz` por HTTP en `127.0.0.1:8079` (solo bucle local, sin publicar; ver «TLS»). PostgreSQL: `pg_isready`, en `compose.yml`.
 
+### Sustituir Rust por world-go (plan B de D-03)
+
+Si el simulador en Rust falla, `world-go` (Go) ocupa su lugar sin tocar el hub ni la API: el mismo servicio `world`, el mismo puerto y las mismas variables. Es solo configuración (reglas 1 y 6 de portabilidad); no se despliega por defecto.
+
+```bash
+docker compose -f deploy/compose.yml -f deploy/compose.world-go.yml up -d --build   # o sin --build, con las imágenes del pipeline
+```
+
+`deploy/compose.world-go.yml` cambia solo `image` y `build` del servicio `world`. Con las imágenes del pipeline: `HV_TAG=dev docker compose -f deploy/compose.yml -f deploy/compose.world-go.yml pull world`. Reglas:
+
+- **Escritor único (regla 1).** Un solo simulador contra el hub: `world-go` sustituye a Rust, nunca corre a la vez. Para volver a Rust, se levanta otra vez sin el segundo archivo (`docker compose -f deploy/compose.yml up -d world`).
+- **El valle sigue donde estaba.** `world-go` carga la última instantánea que guardó Rust (y al revés): los dos escriben el mismo formato, byte a byte (prueba de conformidad, `src/world-go/README.md`). El tick no retrocede; lo único que se pierde son los ticks posteriores a esa instantánea (≤ 50, 5 s), como en cualquier reinicio de Rust.
+- **Mismo contrato.** Variables `WORLD_LISTEN`, `PERSISTENCE_ADDR`, `WORLD_SEED` y `LOG_LEVEL`; salud con `grpc_health_probe` (SERVING solo con el mundo cargado); `boot_id` y `restored_tick` en cada `Step`; instantánea cada 50 ticks y una final al parar.
+- **Pruebas.** `E2E_WORLD_IMPL=go tests/e2e/run.sh` corre toda la suite de punta a punta contra `world-go` (ver «Prueba de humo»).
+
 ## Imágenes en ghcr.io (pipeline de CI)
 
-El job `publish` de `.github/workflows/ci.yml` construye con `docker buildx bake` para la plataforma `linux/amd64` y publica automáticamente las seis imágenes del sistema:
+El job `publish` de `.github/workflows/ci.yml` construye con `docker buildx bake` para la plataforma `linux/amd64` y publica automáticamente las seis imágenes del sistema, más la de `world-go` (el plan B del simulador, que no está en `compose.yml`):
 
 | Servicio Compose | Imagen publicada | Descripción |
 | --- | --- | --- |
@@ -49,6 +64,7 @@ El job `publish` de `.github/workflows/ci.yml` construye con `docker buildx bake
 | `api` | `ghcr.io/iadev2005/hydrovalley-api:${HV_TAG}` | API REST de autenticación y catálogo (TypeScript) |
 | `nginx` | `ghcr.io/iadev2005/hydrovalley-proxy:${HV_TAG}` | Proxy inverso y frontend compilado (nginx) |
 | `bots` | `ghcr.io/iadev2005/hydrovalley-bots:${HV_TAG}` | Bots simuladores y pruebas de carga (Go, perfil `bots`) |
+| `world` (con `compose.world-go.yml`) | `ghcr.io/iadev2005/hydrovalley-world-go:${HV_TAG}` | Simulador del valle en Go, plan B de D-03: sustituye a la imagen de Rust |
 
 > Nota: PostgreSQL no se compila en el repositorio; usa la imagen oficial `postgres:16` de Docker Hub.
 

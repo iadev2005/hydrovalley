@@ -34,6 +34,9 @@ HV_PROXY_PORT=8080
 # main). Nada se construye en el laboratorio.
 HV_REGISTRY=ghcr.io/iadev2005
 HV_TAG=dev
+# Plan B del simulador (D-03): imagen de world-go en lugar de la de Rust en el
+# nodo world. Con los valores escritos (este archivo no interpola variables).
+# HV_WORLD_IMAGE=ghcr.io/iadev2005/hydrovalley-world-go:dev
 
 # Nombres o IP adicionales para el certificado autofirmado del proxy (separados
 # por comas). La IP del nodo proxy ya se añade sola.

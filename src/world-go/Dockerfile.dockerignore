@@ -1,0 +1,9 @@
+# Filtro del contexto para src/world-go/Dockerfile (BuildKit lo toma por su
+# nombre, <Dockerfile>.dockerignore). El contexto es la raíz del repo: solo
+# entran proto/ y los archivos de world-go.
+*
+!proto/
+!src/world-go/go.mod
+!src/world-go/go.sum
+!src/world-go/cmd/
+!src/world-go/internal/
