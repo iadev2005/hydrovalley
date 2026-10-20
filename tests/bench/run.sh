@@ -75,10 +75,15 @@ for run in $(seq 1 "$RUNS"); do
   for size in $SIZES; do
     workload="$ROOT/tests/bench/workloads/valley-$size.json"
     echo "Ejecución $run/$RUNS, valle de ${size}x${size}..." >&2
-    # Se alternan los lenguajes en cada configuración para repartir la deriva
-    # térmica y de carga de la máquina.
-    rust_row="$("$rust_bin" "$workload")"
-    go_row="$(BENCH_ROOT="$ROOT" "$go_bin" "$workload" 2>/dev/null)"
+    # Se alterna qué lenguaje corre primero (Rust en las ejecuciones impares, Go
+    # en las pares) para repartir la deriva térmica y de carga de la máquina.
+    if [ $((run % 2)) -eq 1 ]; then
+      rust_row="$("$rust_bin" "$workload")"
+      go_row="$(BENCH_ROOT="$ROOT" "$go_bin" "$workload")"
+    else
+      go_row="$(BENCH_ROOT="$ROOT" "$go_bin" "$workload")"
+      rust_row="$("$rust_bin" "$workload")"
+    fi
     echo "$run,$rust_row" >>"$csv"
     echo "$run,$go_row" >>"$csv"
     # La huella del estado final tiene que ser la misma: señal de que los dos

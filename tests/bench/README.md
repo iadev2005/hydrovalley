@@ -32,7 +32,7 @@ tests/bench/run.sh
 python3 tests/bench/plot.py tests/bench/results/<fecha>-<máquina>.csv docs/informe/comparativa-go-rust.svg
 ```
 
-`run.sh` compila los dos ejecutores (Rust en `--release`, perfil por defecto de Cargo; Go con `go build`), ejecuta cada configuración 3 veces alternando los lenguajes y escribe `results/<fecha>-<máquina>.csv` y, al lado, un `.json` con la CPU, los núcleos, el sistema operativo y las versiones de Go y Rust. Variables: `RUNS`, `SIZES` (por ejemplo `SIZES="32 256"`), `BENCH_MACHINE` y `BENCH_CPU`. `plot.py` solo usa la biblioteca estándar de Python.
+`run.sh` compila los dos ejecutores (Rust en `--release`, perfil por defecto de Cargo; Go con `go build`), ejecuta cada configuración `RUNS` veces (3 por defecto; las cifras publicadas usan 4), alternando qué lenguaje corre primero, y escribe `results/<fecha>-<máquina>.csv` y, al lado, un `.json` con la CPU, los núcleos, el sistema operativo y las versiones de Go y Rust. Variables: `RUNS`, `SIZES` (por ejemplo `SIZES="32 256"`), `BENCH_MACHINE` y `BENCH_CPU`. `plot.py` solo usa la biblioteca estándar de Python.
 
 Un ejecutor suelto:
 
