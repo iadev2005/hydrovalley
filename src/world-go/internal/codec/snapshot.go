@@ -58,7 +58,13 @@ func playerState(w *domain.World, player *domain.Player) *worldv1.PlayerState {
 // serializado dentro (encode_snapshot de Rust). Las filas de jugador son los
 // contadores tipados que la persistencia guarda en columnas.
 func EncodeSnapshot(w *domain.World) (*persistencev1.Snapshot, error) {
-	parts := w.Parts()
+	return EncodeParts(w.Parts())
+}
+
+// EncodeParts codifica una copia del estado (World.Parts). El simulador toma
+// la copia con el bloqueo del mundo y la codifica fuera de él, en segundo
+// plano: Step no espera ni a la serialización ni a la persistencia.
+func EncodeParts(parts domain.WorldParts) (*persistencev1.Snapshot, error) {
 	rows := make([]*persistencev1.SnapshotPlayer, len(parts.Players))
 	records := make([]*worldv1.PlayerRecord, len(parts.Players))
 	for i := range parts.Players {

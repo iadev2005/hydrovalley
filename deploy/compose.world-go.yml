@@ -1,0 +1,18 @@
+# Plan B de D-03: sustituir el simulador en Rust por world-go (Go).
+#
+#   docker compose -f deploy/compose.yml -f deploy/compose.world-go.yml up --build
+#
+# Solo cambia la imagen del servicio `world`: el nombre del servicio, el puerto
+# (50051), las variables de entorno y el healthcheck (`grpc_health_probe`, que
+# trae la imagen) son los mismos, así que el hub y la API no se tocan (reglas 1
+# y 6 de portabilidad: es configuración, no código). Es un reemplazo, no un
+# añadido: solo uno de los dos corre contra el hub (escritor único, regla 1).
+# El valle se retoma de la última instantánea que dejó Rust (y al revés).
+#
+# No es el despliegue por defecto: deploy/compose.yml sigue con Rust.
+services:
+  world:
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-world-go:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/world-go/Dockerfile

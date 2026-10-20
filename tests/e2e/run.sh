@@ -23,6 +23,11 @@
 #                       pausan servicios del stack; tardan unos minutos)
 #   ADMIN_USERNAME, ADMIN_PASSWORD_HASH, E2E_ADMIN_PASSWORD  administrador
 #                       propio; sin ellas se genera uno efímero
+#   E2E_WORLD_IMPL      simulador contra el que corre toda la suite: `rust`
+#                       (por defecto) o `go` (plan B de D-03: suma
+#                       deploy/compose.world-go.yml, que sustituye la imagen del
+#                       servicio `world` por la de world-go; el hub y la API no
+#                       cambian). Incluye los casos de fallos y CP-04.
 # request-id.test.mjs sigue un identificador de petición en los registros.
 #   E2E_SKIP_CP04=1     no correr la fase de CP-04 (la del catálogo de prueba)
 # smoke.test.mjs también corre el bot tramposo (imagen de los bots, perfil
@@ -37,6 +42,17 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export COMPOSE_PROJECT_NAME=hydrovalley-e2e
 # compose.tls.yml monta el certificado efímero (E2E_TLS_DIR) en nginx.
 export COMPOSE_FILE="${repo_root}/deploy/compose.yml:${repo_root}/tests/e2e/compose.tls.yml"
+# Simulador bajo prueba: Rust (por defecto) o world-go, el plan B de D-03.
+world_impl="${E2E_WORLD_IMPL:-rust}"
+case "${world_impl}" in
+  rust) ;;
+  go) COMPOSE_FILE="${COMPOSE_FILE}:${repo_root}/deploy/compose.world-go.yml" ;;
+  *)
+    echo "run.sh: E2E_WORLD_IMPL debe ser rust o go (recibido: ${world_impl})" >&2
+    exit 1
+    ;;
+esac
+echo "run.sh: simulador bajo prueba: ${world_impl}"
 # Valores de ejemplo con una base desechable: nunca el deploy/.env real.
 export COMPOSE_ENV_FILES="${repo_root}/deploy/.env.example"
 export HV_HTTP_PORT="${HV_HTTP_PORT:-8080}"

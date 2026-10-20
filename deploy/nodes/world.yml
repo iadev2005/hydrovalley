@@ -1,5 +1,8 @@
 # Nodo world (plan A): simulador del valle en Rust, único escritor (regla 1).
-# Con el plan B de D-03, la imagen de world-go ocuparía su lugar aquí.
+# Con el plan B de D-03, la imagen de world-go ocupa su lugar aquí: en el
+# archivo de direcciones, HV_WORLD_IMAGE=${HV_REGISTRY}/hydrovalley-world-go:${HV_TAG}
+# (con los valores escritos, sin variables). Es solo configuración: mismo
+# servicio, mismo puerto y mismas variables.
 #
 #   docker compose -p hv-world -f deploy/nodes/world.yml \
 #     --env-file lab-addresses.local --env-file secrets.local up -d
@@ -13,7 +16,7 @@ name: hv-world
 services:
   world:
     restart: unless-stopped
-    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-world:${HV_TAG:-dev}
+    image: ${HV_WORLD_IMAGE:-${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-world:${HV_TAG:-dev}}
     environment:
       PERSISTENCE_ADDR: ${LAB_PERSISTENCE_HOST:?definir LAB_PERSISTENCE_HOST en lab-addresses.local}:${HV_PERSISTENCE_PORT:-50051}
       WORLD_LISTEN: 0.0.0.0:50051

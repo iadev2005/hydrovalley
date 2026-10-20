@@ -9,15 +9,42 @@ Simulador del valle en Go: un port fiel del simulador en Rust (`src/world/`), co
 
 No se despliega por defecto: el simulador sigue siendo Rust.
 
+## Servidor y reemplazo de Rust
+
+El proceso (`cmd/world-go`) es un reemplazo directo de `src/world`: los mismos nombres de servicio gRPC (`hydrovalley.world.v1.WorldService` y `grpc.health.v1`), el mismo puerto y las mismas variables.
+
+| Variable | Obligatoria | Por defecto | Uso |
+| --- | --- | --- | --- |
+| `PERSISTENCE_ADDR` | sí | | `host:puerto` de `PersistenceService` y `CatalogService` |
+| `WORLD_LISTEN` | no | `0.0.0.0:50051` | dirección y puerto del gRPC (una IP, no un nombre) |
+| `WORLD_SEED` | no | hora de arranque | semilla del azar (u64); solo cuenta si el valle empieza de cero |
+| `LOG_LEVEL` | no | `info` | `trace`, `debug`, `info`, `warn` o `error`; un valor que no se entiende deja `info`, como en Rust |
+
+- **Arranque.** Atiende desde el principio; la salud está en `NOT_SERVING` y `Step` y `GetRanking` responden `UNAVAILABLE` hasta cargar el catálogo (`GetCatalog`) y la última instantánea (`LoadSnapshot`). Solo con `NOT_FOUND` empieza en el tick 0; con `UNAVAILABLE` o cualquier otro fallo reintenta con esperas de 1 s a 5 s, así el tick nunca retrocede.
+- **`Step`.** Un solo paso a la vez (un bloqueo sobre el mundo). Cada respuesta lleva `boot_id` (UUID v4 del proceso) y `restored_tick`. Con un `ResetValley` vuelve a pedir el catálogo con un plazo de 100 ms; si falla, el reinicio usa el vigente.
+- **Instantáneas.** Cada 50 ticks, desde una goroutine con una copia del mundo; como mucho un guardado en curso (si el anterior sigue, esa instantánea se salta y la siguiente reintenta). Un fallo de la persistencia se registra y el juego sigue. Al parar con SIGTERM deja de aceptar llamadas, espera a las que están en curso, al guardado en curso y guarda una instantánea final.
+- **Llamadas a la persistencia.** Plazo de 2 s y, solo ante `UNAVAILABLE` o `DEADLINE_EXCEEDED`, hasta 3 reintentos (100, 200 y 400 ms), con un `x-request-id` `world-<uuid>` por llamada.
+- **Registro** (`slog`, texto): `request_id` en cada línea de una llamada; el camino caliente de `Step` solo escribe a `debug`.
+
+Para usarlo en lugar de Rust, `deploy/compose.world-go.yml` (ver `deploy/README.md`, «Sustituir Rust por world-go»); `E2E_WORLD_IMPL=go tests/e2e/run.sh` corre toda la suite de punta a punta contra él.
+
 ## Estructura
 
 ```
 src/world-go/
   go.mod                  módulo; replace a ../../gen/go (código generado, no versionado)
-  cmd/world-go/           servidor (T8)
+  cmd/world-go/           proceso: configuración del entorno, puerto y parada con SIGINT o SIGTERM
   internal/domain/        reglas puras, sin gRPC ni red (espejo de src/world/src/domain)
   internal/conformance/   prueba de conformidad con Rust (guiones en tests/conformance)
   internal/codec/         traducción entre el contrato (proto/) y el dominio (espejo de src/world/src/codec.rs)
+  internal/store/         puerto y adaptador gRPC hacia la persistencia: SaveSnapshot, LoadSnapshot y GetCatalog (espejo de store.rs)
+  internal/simulator/     carga, boot_id, instantáneas en segundo plano y parada (espejo de simulator.rs)
+  internal/server/        WorldService (Step, GetRanking) y grpc.health.v1 (espejo de grpc.rs y server.rs)
+  internal/config/        variables de entorno (espejo de config.rs)
+  internal/requestid/     x-request-id de punta a punta (espejo de request_id.rs)
+  internal/uuid/          UUID v4 para boot_id y los ids de las llamadas salientes
+  internal/fakepersist/   persistencia falsa con gRPC de verdad, solo para pruebas
+  Dockerfile              imagen distroless (build con buf + Go), con grpc_health_probe
 ```
 
 El dominio no depende de los tipos generados desde `proto/`; la traducción vive en `internal/codec`: catálogo, comandos, resultados, `WorldState` y la instantánea (`EncodeSnapshot` y `DecodeSnapshot`).
@@ -46,7 +73,7 @@ test -z "$(gofmt -l .)"
 go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 ```
 
-El codec usa el código generado: antes de probar, `scripts/gen-proto.sh` (que ya copia `proto/go.mod.tmpl` a `gen/go/go.mod`), igual que el job `world-go` del CI.
+El codec, el almacén y el servidor usan el código generado: antes de probar, `scripts/gen-proto.sh` (que ya copia `proto/go.mod.tmpl` a `gen/go/go.mod`), igual que el job `world-go` del CI.
 
 ## Estado por tarea
 
@@ -61,5 +88,5 @@ Plan y evidencia en `odd/tasks/b5-world-go.md`.
 | T5 | Modo demo, reinicio y épocas, ventana de `action_id`, ranking | hecho |
 | T6 | Codificación de proto y de instantáneas (`internal/codec`, `Restore`/`Parts`) | hecho |
 | T7 | Prueba de conformidad Rust ↔ Go (`internal/conformance`, `tests/conformance`) | hecho |
-| T8 | Almacén, simulador, servidor gRPC, imagen y Compose | pendiente |
+| T8 | Almacén, simulador, servidor gRPC, imagen y Compose | hecho |
 | T9 | Comparativa y gráfico | pendiente |
