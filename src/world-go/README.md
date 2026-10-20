@@ -5,7 +5,7 @@ Simulador del valle en Go: un port fiel del simulador en Rust (`src/world/`), co
 ## Para qué sirve
 
 - **Plan B del simulador (D-03).** Si Rust falla, `world-go` retoma el valle desde la última instantánea y sustituye a Rust en Compose, sin tocar el hub. Escritor único (regla 1): nunca corre a la vez que Rust contra el mismo hub.
-- **Comparativa Go vs. Rust.** Mide el mismo paso de simulación en los dos (`tests/bench`).
+- **Comparativa Go vs. Rust.** Mide el mismo paso de simulación en los dos (`tests/bench`; resultados en la sección «Resultados de la comparativa» de D-03).
 
 No se despliega por defecto: el simulador sigue siendo Rust.
 
@@ -63,6 +63,15 @@ Los bytes de la fila de instantánea y del `WorldState` son idénticos a los de 
 
 `internal/conformance` ejecuta con el dominio y el codec de Go los guiones de `tests/conformance/scenarios/` y los compara con `tests/conformance/expected/`, que escribe el simulador en Rust. Comprueba, tick a tick, los resultados de los comandos, `humidity_contributed`, los fuegos y las huellas de las instantáneas; que las instantáneas finales son idénticas byte a byte; y que Go retoma el valle desde las instantáneas que escribió Rust y llega al mismo estado final (plan B de D-03). No necesita Rust: los esperados están versionados. Si Rust cambia a propósito, se regeneran (ver `tests/conformance/README.md`). La caché de `go test` no vigila `tests/conformance` (queda fuera del módulo): para repetir una prueba sin cambios en Go, `go test -count=1 ./...`.
 
+## Comparativa
+
+`cmd/world-bench` ejecuta una carga de `tests/bench/workloads/` y mide `World.Step`; `internal/bench` tiene la carga, el generador de comandos y las estadísticas. Para el tamaño del valle usa `domain.NewWorldWithSize`, que solo sirve para esto: el juego sigue siendo de 32 × 32 y `Restore` no acepta otro tamaño. Todo se orquesta con `tests/bench/run.sh` (ver `tests/bench/README.md`); a mano:
+
+```sh
+cd src/world-go
+go run ./cmd/world-bench ../../tests/bench/workloads/valley-256.json
+```
+
 ## Cómo probar
 
 ```sh
@@ -89,4 +98,4 @@ Plan y evidencia en `odd/tasks/b5-world-go.md`.
 | T6 | Codificación de proto y de instantáneas (`internal/codec`, `Restore`/`Parts`) | hecho |
 | T7 | Prueba de conformidad Rust ↔ Go (`internal/conformance`, `tests/conformance`) | hecho |
 | T8 | Almacén, simulador, servidor gRPC, imagen y Compose | hecho |
-| T9 | Comparativa y gráfico | pendiente |
+| T9 | Comparativa y gráfico (`internal/bench`, `cmd/world-bench`, `tests/bench`) | hecho |
