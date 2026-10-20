@@ -37,8 +37,11 @@ type World struct {
 	epoch               uint32
 	demoMode            bool
 	humidityContributed uint64
-	tiles               []Tile
-	players             map[string]*playerSlot
+	// width y height son las dimensiones del valle: las del juego salvo en la
+	// comparativa (NewWorldWithSize).
+	width, height uint32
+	tiles         []Tile
+	players       map[string]*playerSlot
 	// rng es el único azar del mundo (regla 6): decide la ignición; su
 	// estado viaja en la instantánea (world.rs:104).
 	rng SplitMix64
@@ -52,10 +55,20 @@ type World struct {
 // LoadSnapshot devolvió NOT_FOUND). La semilla fija toda la secuencia de
 // incendios (regla 6): quien arranca el servicio la elige y la registra.
 func NewWorld(catalog Catalog, seed uint64) *World {
+	return NewWorldWithSize(catalog, seed, ValleyWidth, ValleyHeight)
+}
+
+// NewWorldWithSize crea un valle vacío de width x height casillas, solo para
+// la comparativa de rendimiento (tests/bench): el juego usa siempre 32 x 32
+// (NewWorld). Un valle de otro tamaño no se puede restaurar con Restore, que
+// exige el tamaño del juego.
+func NewWorldWithSize(catalog Catalog, seed uint64, width, height uint32) *World {
 	return &World{
 		catalog: catalog,
 		rng:     NewSplitMix64(seed),
-		tiles:   make([]Tile, tileCount(ValleyWidth, ValleyHeight)),
+		width:   width,
+		height:  height,
+		tiles:   make([]Tile, tileCount(width, height)),
 		players: make(map[string]*playerSlot),
 	}
 }
@@ -233,7 +246,7 @@ func (w *World) drop(playerID string, x, y uint32) CommandOutcome {
 	}
 
 	// Solo aquí, con la gota ya aceptada, entra un jugador nuevo.
-	area := areaIndices(x, y, side)
+	area := areaIndices(x, y, side, w.width, w.height)
 	var leaves uint64
 	for _, index := range area {
 		tile := &w.tiles[index]
@@ -403,10 +416,10 @@ func (w *World) playerSlot(playerID string) *playerSlot {
 // tileIndex es el índice por filas de (x, y); ok es false fuera del valle
 // (world.rs:705).
 func (w *World) tileIndex(x, y uint32) (index int, ok bool) {
-	if x >= ValleyWidth || y >= ValleyHeight {
+	if x >= w.width || y >= w.height {
 		return 0, false
 	}
-	return int(y)*int(ValleyWidth) + int(x), true
+	return int(y)*int(w.width) + int(x), true
 }
 
 // Tick es el último tick calculado.
@@ -422,10 +435,10 @@ func (w *World) DemoMode() bool { return w.demoMode }
 func (w *World) HumidityContributed() uint64 { return w.humidityContributed }
 
 // Width es el ancho del valle en casillas.
-func (w *World) Width() uint32 { return ValleyWidth }
+func (w *World) Width() uint32 { return w.width }
 
 // Height es el alto del valle en casillas.
-func (w *World) Height() uint32 { return ValleyHeight }
+func (w *World) Height() uint32 { return w.height }
 
 // CatalogVersion es la versión del catálogo vigente.
 func (w *World) CatalogVersion() string { return w.catalog.Version }
@@ -474,18 +487,18 @@ func (w *World) Players() []*Player {
 // side / 2 después (lado 3 -> 1 y 1; lado 4 -> 1 y 2). Un lado 0 equivale a
 // uno: Rust usa saturating_sub(1) / 2 = 0 antes y 0 / 2 = 0 después, y el
 // rango incluye siempre el centro.
-func areaIndices(x, y, side uint32) []int {
+func areaIndices(x, y, side, width, height uint32) []int {
 	before := satSub32(side, 1) / 2
 	after := side / 2
 	firstColumn := satSub32(x, before)
-	lastColumn := min(satAdd32(x, after), ValleyWidth-1)
+	lastColumn := min(satAdd32(x, after), width-1)
 	firstRow := satSub32(y, before)
-	lastRow := min(satAdd32(y, after), ValleyHeight-1)
+	lastRow := min(satAdd32(y, after), height-1)
 
 	indices := make([]int, 0, int(lastColumn-firstColumn+1)*int(lastRow-firstRow+1))
 	for row := firstRow; row <= lastRow; row++ {
 		for column := firstColumn; column <= lastColumn; column++ {
-			indices = append(indices, int(row)*int(ValleyWidth)+int(column))
+			indices = append(indices, int(row)*int(width)+int(column))
 		}
 	}
 	return indices

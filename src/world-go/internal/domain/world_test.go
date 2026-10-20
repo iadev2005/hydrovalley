@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -699,4 +700,42 @@ func TestTheThirdDropOnABurningTileResolvesTheGrowthAndPaysTheBonus(t *testing.T
 		t.Errorf("leaves/earned = %d/%d, want 7/7", p.Leaves, p.LeavesEarned)
 	}
 	assertRF27(t, w)
+}
+
+func TestNewWorldWithSizeBuildsAValleyOfTheRequestedSize(t *testing.T) {
+	w := NewWorldWithSize(d01(), 0, 64, 48)
+	if w.Width() != 64 || w.Height() != 48 || len(w.Tiles()) != 64*48 {
+		t.Fatalf("got %dx%d with %d tiles", w.Width(), w.Height(), len(w.Tiles()))
+	}
+	if _, ok := w.Tile(63, 47); !ok {
+		t.Error("(63, 47) should be inside")
+	}
+	if _, ok := w.Tile(64, 0); ok {
+		t.Error("(64, 0) should be outside")
+	}
+	if _, ok := w.Tile(0, 48); ok {
+		t.Error("(0, 48) should be outside")
+	}
+	w.Step([]Command{dropCmd(action(1), ana, 63, 47)})
+	if got := w.Tiles()[47*64+63].Humidity; got != 25 {
+		t.Errorf("humidity = %d, want 25", got)
+	}
+	if p := w.Parts(); p.Width != 64 || p.Height != 48 {
+		t.Errorf("parts size = %dx%d, want 64x48", p.Width, p.Height)
+	}
+}
+
+func TestNewWorldWithSizeAtTheGameSizeIsTheSameValleyAsNewWorld(t *testing.T) {
+	a := NewWorld(d01(), 9)
+	b := NewWorldWithSize(d01(), 9, ValleyWidth, ValleyHeight)
+	if !reflect.DeepEqual(a.Parts(), b.Parts()) {
+		t.Error("the two valleys differ")
+	}
+}
+
+func TestASnapshotOfACustomSizeValleyIsNotRestorableInTheGame(t *testing.T) {
+	w := NewWorldWithSize(d01(), 0, 64, 64)
+	if _, err := Restore(d01(), w.Parts()); err == nil {
+		t.Error("Restore accepted a 64x64 valley")
+	}
 }
