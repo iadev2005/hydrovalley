@@ -348,7 +348,7 @@ Lo que no hay que hacer es dejar a Rust ordenando una lista.
 Medición del paso del dominio (`World::step` en Rust, `World.Step` en Go; sin gRPC ni red), con la misma carga, el mismo catálogo y la misma semilla en los dos lados; ambos terminaron cada ejecución en el mismo estado (misma huella de la instantánea final). Método, carga y cautelas: `tests/bench/README.md`. Datos: `tests/bench/results/2026-10-20-apple-m4.csv`.
 
 - **Máquina:** Apple M4 (10 núcleos, 16 GB), macOS 26.5.2, arm64 (no es la del laboratorio). Go 1.26.5; Rust 1.97.1 en `--release` con el perfil por defecto de Cargo.
-- **Método:** 400 ticks de calentamiento y luego 500 a 5.000 ticks medidos según el tamaño; 4 ejecuciones por configuración, alternando qué lenguaje corre primero; la tabla da la mediana de las ejecuciones. El orden de ejecución no cambió el resultado (la variación entre ejecuciones fue menor del 2 %). Tiempos en microsegundos por paso.
+- **Método:** 400 ticks de calentamiento y luego 500 a 5.000 ticks medidos según el tamaño; 4 ejecuciones por configuración, alternando qué lenguaje corre primero; la tabla da la mediana de las ejecuciones. El orden de ejecución no cambió el resultado: la mediana de una misma configuración varió como mucho un 4,1 % entre ejecuciones (Rust en 32 × 32), mucho menos que la diferencia entre lenguajes. Tiempos en microsegundos por paso.
 
 | Valle | Casillas | Rust, mediana | Go, mediana | Rust / Go (mediana) | Rust, p95 | Go, p95 | Rust / Go (p95) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
