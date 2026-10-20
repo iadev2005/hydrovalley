@@ -178,8 +178,40 @@ services:
       BOTS_FIREFIGHTER_BONUS: ${BOTS_FIREFIGHTER_BONUS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
+  # Monitorización profesional (nivel 2, B7): Prometheus y Grafana con
+  # aprovisionamiento automático y tablero versionado.
+  # No arrancan con `up`: viven bajo el perfil «monitoring» y se lanzan con:
+  #   docker compose --profile monitoring up -d
+  prometheus:
+    profiles: ["monitoring"]
+    networks: [backend]
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${HV_PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    profiles: ["monitoring"]
+    networks: [backend]
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${HV_GRAFANA_PORT:-3001}:3000"
+
 networks:
   backend: {}
 
 volumes:
   pgdata: {}
+

@@ -358,6 +358,8 @@ Cada uno es un PR pequeño:
 - **Archivos:** `deploy/` (servicios bajo un perfil, como `bots`), métricas en el hub (ya existen en `/stats`), API y persistencia.
 - **Qué hacer:** exponer `/metrics` (el hub ya calcula las cifras en `internal/metrics`), Prometheus que las recoge y un tablero de Grafana versionado como archivo.
 - **Aceptación:** el tablero muestra lo mismo que `/sistema.html` y más historia.
+- **Estado:** completada en `feature/b7-prometheus-grafana`. Hub expone `GET /metrics` (`metrics.go`), API expone `GET /metrics` con sondas de estado de servicios, `compose.yml` añade `prometheus` y `grafana` bajo el perfil `monitoring`, y `hydrovalley-overview.json` aprovisiona el tablero idéntico al panel con perspectiva temporal. Ficha: `odd/tasks/b7-prometheus-grafana.md`.
+
 
 #### B8 · Mantener el juego con una máquina apagada (orquestación)
 
