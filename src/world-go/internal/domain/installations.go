@@ -141,7 +141,7 @@ func (w *World) runSprinklers(tick uint64) {
 	}
 	for _, sprinkler := range w.activeInstallations(Sprinkler, tick) {
 		x, y := w.tileXY(sprinkler.index)
-		area := areaIndices(x, y, rules.AreaSide)
+		area := areaIndices(x, y, rules.AreaSide, w.width, w.height)
 		var leaves uint64
 		for _, index := range area {
 			tile := &w.tiles[index]
@@ -180,7 +180,7 @@ func (w *World) evaporateValley(tick uint64) {
 	}
 	for n, drip := range drips {
 		x, y := w.tileXY(drip.index)
-		for _, index := range areaIndices(x, y, side) {
+		for _, index := range areaIndices(x, y, side, w.width, w.height) {
 			if cover[index] < 0 {
 				cover[index] = n
 			}
@@ -207,6 +207,6 @@ func (w *World) evaporateValley(tick uint64) {
 // tileXY son las coordenadas de la casilla de índice index (por filas)
 // (world.rs:712).
 func (w *World) tileXY(index int) (x, y uint32) {
-	width := int(ValleyWidth)
+	width := int(w.width)
 	return uint32(index % width), uint32(index / width)
 }

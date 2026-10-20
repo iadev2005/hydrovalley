@@ -31,7 +31,7 @@ func TestAreaIndices(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := areaIndices(c.x, c.y, c.side); !slices.Equal(got, c.want) {
+			if got := areaIndices(c.x, c.y, c.side, 32, 32); !slices.Equal(got, c.want) {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
 		})
@@ -39,7 +39,15 @@ func TestAreaIndices(t *testing.T) {
 }
 
 func TestAHugeSideCoversTheWholeValleyWithoutOverflowing(t *testing.T) {
-	if got := len(areaIndices(10, 10, ^uint32(0))); got != 32*32 {
+	if got := len(areaIndices(10, 10, ^uint32(0), 32, 32)); got != 32*32 {
 		t.Errorf("got %d tiles, want 1024", got)
+	}
+}
+
+func TestAreaIndicesAreClippedByTheGivenValleySize(t *testing.T) {
+	got := areaIndices(63, 47, 3, 64, 48)
+	want := []int{46*64 + 62, 46*64 + 63, 47*64 + 62, 47*64 + 63}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

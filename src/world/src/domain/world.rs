@@ -105,6 +105,10 @@ pub struct World {
     rng: SplitMix64,
     demo_mode: bool,
     humidity_contributed: u64,
+    /// Dimensiones del valle: siempre las del juego salvo en la comparativa
+    /// (`with_size`).
+    width: u32,
+    height: u32,
     tiles: Vec<Tile>,
     players: BTreeMap<String, PlayerSlot>,
     /// Catálogo ofrecido a los reinicios del tick en curso; solo existe
@@ -123,7 +127,15 @@ impl World {
     /// semilla fija toda la secuencia de incendios (regla 6): quien arranca
     /// el servicio la elige y la registra.
     pub fn with_seed(catalog: Catalog, seed: u64) -> Self {
-        let tile_count = tile_count(VALLEY_WIDTH, VALLEY_HEIGHT);
+        Self::with_size(catalog, seed, VALLEY_WIDTH, VALLEY_HEIGHT)
+    }
+
+    /// Valle vacío de `width` × `height` casillas, **solo para la
+    /// comparativa de rendimiento** (`examples/bench.rs`): el juego usa
+    /// siempre 32 × 32 (`with_seed`). Un valle de otro tamaño no se puede
+    /// restaurar con [`restore`](Self::restore), que exige el tamaño del juego.
+    pub fn with_size(catalog: Catalog, seed: u64, width: u32, height: u32) -> Self {
+        let tile_count = tile_count(width, height);
         Self {
             catalog,
             tick: 0,
@@ -131,6 +143,8 @@ impl World {
             rng: SplitMix64::new(seed),
             demo_mode: false,
             humidity_contributed: 0,
+            width,
+            height,
             tiles: vec![Tile::default(); tile_count],
             players: BTreeMap::new(),
             reset_catalog: None,
@@ -189,6 +203,8 @@ impl World {
             rng,
             demo_mode: parts.demo_mode,
             humidity_contributed: parts.humidity_contributed,
+            width: VALLEY_WIDTH,
+            height: VALLEY_HEIGHT,
             tiles: parts.tiles,
             players,
             reset_catalog: None,
@@ -204,8 +220,8 @@ impl World {
             rng_state: self.rng.to_bytes(),
             demo_mode: self.demo_mode,
             humidity_contributed: self.humidity_contributed,
-            width: VALLEY_WIDTH,
-            height: VALLEY_HEIGHT,
+            width: self.width,
+            height: self.height,
             tiles: self.tiles.clone(),
             players: self.players().cloned().collect(),
         }
@@ -370,7 +386,7 @@ impl World {
                 1
             };
         // Solo aquí, con la gota ya aceptada, entra un jugador nuevo.
-        let area = area_indices(x, y, side);
+        let area = area_indices(x, y, side, self.width, self.height);
         let mut leaves = 0u64;
         for &index in &area {
             let tile = &mut self.tiles[index];
@@ -543,7 +559,7 @@ impl World {
         let (side, humidity) = (rules.area_side, rules.humidity);
         for (index, owner) in self.active_installations(InstallationKind::Sprinkler, tick) {
             let (x, y) = self.tile_xy(index);
-            let area = area_indices(x, y, side);
+            let area = area_indices(x, y, side, self.width, self.height);
             let mut leaves = 0u64;
             for &index in &area {
                 let tile = &mut self.tiles[index];
@@ -585,7 +601,7 @@ impl World {
         let mut cover: Vec<Option<usize>> = vec![None; self.tiles.len()];
         for (n, (index, _)) in drips.iter().enumerate() {
             let (x, y) = self.tile_xy(*index);
-            for tile in area_indices(x, y, side) {
+            for tile in area_indices(x, y, side, self.width, self.height) {
                 cover[tile].get_or_insert(n);
             }
         }
@@ -703,13 +719,12 @@ impl World {
     }
 
     fn tile_index(&self, x: u32, y: u32) -> Option<usize> {
-        (x < VALLEY_WIDTH && y < VALLEY_HEIGHT)
-            .then(|| y as usize * VALLEY_WIDTH as usize + x as usize)
+        (x < self.width && y < self.height).then(|| y as usize * self.width as usize + x as usize)
     }
 
     /// Coordenadas de la casilla de índice `index` (por filas).
     fn tile_xy(&self, index: usize) -> (u32, u32) {
-        let width = VALLEY_WIDTH as usize;
+        let width = self.width as usize;
         ((index % width) as u32, (index / width) as u32)
     }
 
@@ -737,11 +752,11 @@ impl World {
     }
 
     pub fn width(&self) -> u32 {
-        VALLEY_WIDTH
+        self.width
     }
 
     pub fn height(&self) -> u32 {
-        VALLEY_HEIGHT
+        self.height
     }
 
     /// Precio de la siguiente instalación de `kind` para `player` (RF-07):
@@ -790,15 +805,15 @@ impl World {
 /// par el centro queda una casilla más cerca del extremo de arriba y de la
 /// izquierda: `(side - 1) / 2` casillas antes y `side / 2` después (lado 3 →
 /// 1 y 1; lado 4 → 1 y 2).
-fn area_indices(x: u32, y: u32, side: u32) -> Vec<usize> {
+fn area_indices(x: u32, y: u32, side: u32, width: u32, height: u32) -> Vec<usize> {
     let before = side.saturating_sub(1) / 2;
     let after = side / 2;
-    let columns = x.saturating_sub(before)..=x.saturating_add(after).min(VALLEY_WIDTH - 1);
-    let rows = y.saturating_sub(before)..=y.saturating_add(after).min(VALLEY_HEIGHT - 1);
+    let columns = x.saturating_sub(before)..=x.saturating_add(after).min(width - 1);
+    let rows = y.saturating_sub(before)..=y.saturating_add(after).min(height - 1);
     rows.flat_map(|row| {
         columns
             .clone()
-            .map(move |column| row as usize * VALLEY_WIDTH as usize + column as usize)
+            .map(move |column| row as usize * width as usize + column as usize)
     })
     .collect()
 }
@@ -854,6 +869,41 @@ mod tests {
         assert_eq!(w.players().count(), 0);
         assert_eq!(w.humidity_contributed(), 0);
         assert!(!w.demo_mode());
+    }
+
+    #[test]
+    fn with_size_builds_a_valley_of_the_requested_size() {
+        let mut w = World::with_size(Catalog::d01(), 0, 64, 48);
+        assert_eq!((w.width(), w.height()), (64, 48));
+        assert_eq!(w.tiles().len(), 64 * 48);
+        assert!(w.tile(63, 47).is_some());
+        assert!(w.tile(64, 0).is_none());
+        assert!(w.tile(0, 48).is_none());
+        w.step(&[drop_cmd(&action(1), ANA, 63, 47)]);
+        assert_eq!(w.tiles()[47 * 64 + 63].humidity, 25);
+        assert_eq!((w.parts().width, w.parts().height), (64, 48));
+    }
+
+    #[test]
+    fn with_size_at_the_game_size_is_the_same_valley_as_with_seed() {
+        let a = World::with_seed(Catalog::d01(), 9);
+        let b = World::with_size(Catalog::d01(), 9, 32, 32);
+        assert_eq!(a.parts(), b.parts());
+    }
+
+    #[test]
+    fn a_snapshot_of_a_custom_size_valley_is_not_restorable_in_the_game() {
+        let w = World::with_size(Catalog::d01(), 0, 64, 64);
+        let err = World::restore(Catalog::d01(), w.parts()).unwrap_err();
+        assert!(matches!(err, RestoreError::Dimensions { .. }));
+    }
+
+    #[test]
+    fn area_indices_are_clipped_by_the_given_valley_size() {
+        assert_eq!(
+            area_indices(63, 47, 3, 64, 48),
+            vec![46 * 64 + 62, 46 * 64 + 63, 47 * 64 + 62, 47 * 64 + 63]
+        );
     }
 
     #[test]
