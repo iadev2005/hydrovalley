@@ -348,17 +348,17 @@ Lo que no hay que hacer es dejar a Rust ordenando una lista.
 Medición del paso del dominio (`World::step` en Rust, `World.Step` en Go; sin gRPC ni red), con la misma carga, el mismo catálogo y la misma semilla en los dos lados; ambos terminaron cada ejecución en el mismo estado (misma huella de la instantánea final). Método, carga y cautelas: `tests/bench/README.md`. Datos: `tests/bench/results/2026-10-20-apple-m4.csv`.
 
 - **Máquina:** Apple M4 (10 núcleos, 16 GB), macOS 26.5.2, arm64 (no es la del laboratorio). Go 1.26.5; Rust 1.97.1 en `--release` con el perfil por defecto de Cargo.
-- **Método:** 400 ticks de calentamiento y luego 500 a 5.000 ticks medidos según el tamaño; 3 ejecuciones por configuración; la tabla da la mediana de las ejecuciones. Tiempos en microsegundos por paso.
+- **Método:** 400 ticks de calentamiento y luego 500 a 5.000 ticks medidos según el tamaño; 4 ejecuciones por configuración, alternando qué lenguaje corre primero; la tabla da la mediana de las ejecuciones. El orden de ejecución no cambió el resultado (la variación entre ejecuciones fue menor del 2 %). Tiempos en microsegundos por paso.
 
 | Valle | Casillas | Rust, mediana | Go, mediana | Rust / Go (mediana) | Rust, p95 | Go, p95 | Rust / Go (p95) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 32 × 32 (el del juego) | 1.024 | 11,7 | 8,6 | 1,35 | 17,2 | 12,2 | 1,41 |
-| 64 × 64 | 4.096 | 54,6 | 41,6 | 1,31 | 78,2 | 53,3 | 1,47 |
-| 128 × 128 | 16.384 | 248,7 | 196,5 | 1,27 | 351,2 | 256,5 | 1,37 |
-| 256 × 256 | 65.536 | 1.308,8 | 1.000,8 | 1,31 | 1.724,2 | 1.243,8 | 1,39 |
-| 512 × 512 | 262.144 | 6.328,9 | 4.607,4 | 1,37 | 8.092,3 | 5.485,0 | 1,48 |
+| 32 × 32 (el del juego) | 1.024 | 11,5 | 8,6 | 1,33 | 17,0 | 12,2 | 1,39 |
+| 64 × 64 | 4.096 | 54,5 | 41,7 | 1,31 | 77,1 | 53,5 | 1,44 |
+| 128 × 128 | 16.384 | 248,8 | 196,7 | 1,26 | 351,3 | 256,6 | 1,37 |
+| 256 × 256 | 65.536 | 1.306,4 | 1.000,3 | 1,31 | 1.731,4 | 1.245,2 | 1,39 |
+| 512 × 512 | 262.144 | 6.331,4 | 4.589,6 | 1,38 | 8.396,2 | 5.588,4 | 1,50 |
 
-Lo que muestran los datos: en esta máquina y con esta carga, **el paso en Go tardó menos que el de Rust en todos los tamaños**; el cociente entre los dos fue de 1,27 a 1,37 en la mediana y de 1,37 a 1,48 en el p95, y casi no cambió con el tamaño. En el valle del juego (32 × 32) los dos están por debajo de 12 µs de mediana, y el tick dura 100 ms. Una comprobación puntual con `lto = "fat"` y `codegen-units = 1` en Rust (una ejecución, fuera del CSV) dio 10,3 µs en 32 × 32, 1.167 µs en 256 × 256 y 5.679 µs en 512 × 512 de mediana: más rápido que el perfil por defecto, aún por encima de Go. La frase «en esta carga concreta es N veces más rápido» de la sección anterior queda, por tanto, sin un N a favor de Rust con estos datos: lo que se puede afirmar es lo de la tabla. La respuesta a «¿por qué Rust?» sigue siendo la del reparto de papeles, no la de una ventaja de velocidad medida aquí.
+Lo que muestran los datos: en esta máquina y con esta carga, **el paso en Go tardó menos que el de Rust en todos los tamaños**; el cociente entre los dos fue de 1,26 a 1,38 en la mediana y de 1,37 a 1,50 en el p95, y casi no cambió con el tamaño. En el valle del juego (32 × 32) los dos están por debajo de 12 µs de mediana, y el tick dura 100 ms. Una comprobación puntual con `lto = "fat"` y `codegen-units = 1` en Rust (una ejecución, fuera del CSV) dio 10,3 µs en 32 × 32, 1.167 µs en 256 × 256 y 5.679 µs en 512 × 512 de mediana: más rápido que el perfil por defecto, aún por encima de Go. La frase «en esta carga concreta es N veces más rápido» de la sección anterior queda, por tanto, sin un N a favor de Rust con estos datos: lo que se puede afirmar es lo de la tabla. La respuesta a «¿por qué Rust?» sigue siendo la del reparto de papeles, no la de una ventaja de velocidad medida aquí.
 
 Qué no se ha probado: otros perfiles de compilación más allá de la comprobación anterior, otras cargas, el efecto del recolector de basura de Go aislado (no se discute, ver la advertencia de arriba) ni el sistema completo.
 
