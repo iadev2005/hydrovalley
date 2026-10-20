@@ -4,5 +4,5 @@
 // del tick y misma aritmética de enteros sin signo.
 //
 // El dominio no depende de los tipos generados desde proto/; la traducción
-// vive aparte (T6).
+// vive en internal/codec.
 package domain

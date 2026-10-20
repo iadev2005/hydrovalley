@@ -17,6 +17,7 @@ Servicio en Rust que es el escritor único del estado del mundo (regla 1 de `CLA
 | `src/main.rs` | Proceso: configuración, puerto y parada con SIGINT o SIGTERM |
 | `build.rs` | Genera el código de Rust desde `../../proto` con `tonic-prost-build` |
 | `tests/` | Pruebas de integración: el servidor y el adaptador gRPC contra una persistencia falsa (con `CatalogService`) servida con tonic en el mismo proceso |
+| `tests/conformance.rs` | Prueba de conformidad con `world-go`: ejecuta los guiones de `../../tests/conformance/scenarios` y exige que `../../tests/conformance/expected` sea lo que da Rust (ver [Conformidad con Go](#conformidad-con-go)) |
 | `benches/` | Vacía por ahora (solo `.gitkeep`): reservada para la comparativa Go vs. Rust (D-03, nivel 2). Ya entra en el contexto de la imagen para cuando tenga pruebas de rendimiento |
 
 ## Requisitos
@@ -44,6 +45,16 @@ cargo test
 ```
 
 `cargo test` ejecuta las pruebas unitarias (dominio, traducción y validación del catálogo, reintentos, arranque e instantáneas) y la de integración de `tests/`, que levanta el servidor y una persistencia falsa en puertos locales efímeros. No necesitan Docker ni base de datos.
+
+### Conformidad con Go
+
+`tests/conformance.rs` ejecuta con el dominio y el codec los guiones de `tests/conformance/scenarios/` (semilla, catálogo y comandos por tick) y compara el resultado con los archivos de `tests/conformance/expected/`. `src/world-go` lee los mismos archivos: es la prueba de que los dos simuladores dan el mismo estado y de que una instantánea de Rust la retoma Go (plan B de D-03). Si cambias el comportamiento de Rust a propósito, esta prueba falla hasta que regeneres los esperados:
+
+```
+CONFORMANCE_REGENERATE=1 cargo test --locked --test conformance
+```
+
+Revisa el diff de `tests/conformance/expected/` antes de confirmarlo. Los guiones, lo que se compara y cuándo regenerar están en `tests/conformance/README.md`. No añade dependencias: el JSON se lee con un analizador mínimo dentro de la prueba.
 
 ## Ejecutar en local
 
