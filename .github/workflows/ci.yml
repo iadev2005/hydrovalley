@@ -166,11 +166,12 @@ jobs:
               - 'proto/**'
               - 'catalog/**'
               - 'tests/conformance/**'
+              - 'tests/bench/**'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en el simulador
         if: steps.changes.outputs.world != 'true'
-        run: echo "Sin cambios en src/world, proto, catalog, tests/conformance ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/world, proto, catalog, tests/conformance, tests/bench ni el workflow; no hay nada que probar."
 
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1 (sin versiones semánticas; mismo commit que master)
         if: steps.changes.outputs.world == 'true'
@@ -354,12 +355,13 @@ jobs:
               - 'proto/**'
               - 'catalog/**'
               - 'tests/conformance/**'
+              - 'tests/bench/**'
               - 'deploy/compose.world-go.yml'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en world-go
         if: steps.changes.outputs.world_go != 'true'
-        run: echo "Sin cambios en src/world-go, proto, catalog, tests/conformance, su override de Compose ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/world-go, proto, catalog, tests/conformance, tests/bench, su override de Compose ni el workflow; no hay nada que probar."
 
       - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
         if: steps.changes.outputs.world_go == 'true'
