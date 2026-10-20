@@ -12,9 +12,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Broadcaster define la interfaz para difundir mensajes nuevos a los clientes WebSocket.
+// Broadcaster publica mensajes nuevos a los clientes WebSocket. Publish ejecuta
+// append (asignación de seq) y la difusión de forma atómica y ordenada.
 type Broadcaster interface {
-	Broadcast(msg *chatv1.ChatMessage)
+	Publish(append func() (*chatv1.ChatMessage, bool, error)) (*chatv1.ChatMessage, bool, error)
 }
 
 // Server implementa ChatServiceServer.
@@ -45,13 +46,18 @@ func (s *Server) SendMessage(ctx context.Context, req *chatv1.SendMessageRequest
 		return nil, status.Error(codes.InvalidArgument, "text cannot be empty")
 	}
 
-	msg, isNew, err := s.store.Append(req, nil)
+	appendFn := func() (*chatv1.ChatMessage, bool, error) {
+		return s.store.Append(req, nil)
+	}
+	var msg *chatv1.ChatMessage
+	var err error
+	if s.broadcaster != nil {
+		msg, _, err = s.broadcaster.Publish(appendFn)
+	} else {
+		msg, _, err = appendFn()
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "append message: %v", err)
-	}
-
-	if isNew && s.broadcaster != nil {
-		s.broadcaster.Broadcast(msg)
 	}
 
 	return &chatv1.SendMessageResponse{

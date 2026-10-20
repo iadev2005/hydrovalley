@@ -101,6 +101,10 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer close(done)
 		h.writeLoop(ctx, conn, sub)
+		// Si el hub expulsó al suscriptor por lento (o falló la escritura), se
+		// cierra la conexión para que el cliente reconecte y envíe sync.
+		_ = conn.Close(websocket.StatusTryAgainLater, "slow consumer")
+		cancel()
 	}()
 
 	// Bucle de lectura de frames del cliente
@@ -159,13 +163,9 @@ func (h *Handler) readLoop(ctx context.Context, conn *websocket.Conn, id auth.Id
 				Text:      sendFrame.GetText(),
 				Kind:      chatv1.MessageKind_MESSAGE_KIND_PLAYER,
 			}
-			msg, isNew, err := h.store.Append(req, nil)
-			if err != nil {
-				continue
-			}
-			if isNew {
-				h.hub.Broadcast(msg)
-			}
+			_, _, _ = h.hub.Publish(func() (*chatv1.ChatMessage, bool, error) {
+				return h.store.Append(req, nil)
+			})
 
 		case "sync":
 			var syncFrame chatv1.SyncFrame

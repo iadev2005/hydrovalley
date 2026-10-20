@@ -167,6 +167,13 @@ func TestHandler_Chat_SendAndBroadcast(t *testing.T) {
 	}
 	defer conn2.CloseNow()
 
+	// El suscriptor se registra tras el upgrade: esperar a ambos para que el
+	// mensaje no se difunda antes de que conn2 esté suscrito.
+	deadline := time.Now().Add(2 * time.Second)
+	for env.hub.SubscribersCount() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
 	// Conn1 envía un SendFrame
 	sendMsg := `{"type":"send","message_id":"` + uuidN(10) + `","text":"hola mundo"}`
 	if err := conn1.Write(ctx, websocket.MessageText, []byte(sendMsg)); err != nil {

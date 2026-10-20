@@ -15,6 +15,9 @@ type Options struct {
 	OriginPatterns []string
 }
 
+// subscriberBuffer es la capacidad del canal de cada suscriptor.
+const subscriberBuffer = 128
+
 // Subscriber representa una sesión WebSocket activa que recibe mensajes.
 type Subscriber struct {
 	send chan []byte
@@ -22,9 +25,15 @@ type Subscriber struct {
 
 // Hub gestiona los suscriptores conectados para la entrega en tiempo real.
 type Hub struct {
+	// publishMu serializa "asignar seq + encolar a los suscriptores" para que
+	// todos reciban los mensajes en orden estrictamente creciente de seq.
+	// Nunca se mantiene durante una escritura de red: solo cubre el Append en
+	// memoria y envíos no bloqueantes a canales amortiguados.
+	publishMu   sync.Mutex
 	mu          sync.RWMutex
 	subscribers map[*Subscriber]struct{}
 	serverEpoch string
+	bufferSize  int
 }
 
 // NewHub inicializa el despachador Pub/Sub.
@@ -32,13 +41,14 @@ func NewHub(serverEpoch string) *Hub {
 	return &Hub{
 		subscribers: make(map[*Subscriber]struct{}),
 		serverEpoch: serverEpoch,
+		bufferSize:  subscriberBuffer,
 	}
 }
 
 // Subscribe registra un suscriptor y devuelve un canal con capacidad amortiguada.
 func (h *Hub) Subscribe() *Subscriber {
 	sub := &Subscriber{
-		send: make(chan []byte, 128),
+		send: make(chan []byte, h.bufferSize),
 	}
 	h.mu.Lock()
 	h.subscribers[sub] = struct{}{}
@@ -54,6 +64,21 @@ func (h *Hub) Unsubscribe(sub *Subscriber) {
 		delete(h.subscribers, sub)
 		close(sub.send)
 	}
+}
+
+// Publish ejecuta append (que asigna el seq) y difunde el mensaje nuevo bajo un
+// mismo candado, de modo que el orden de entrega a cada suscriptor coincide con
+// el orden de seq. Es el único camino de publicación para WebSocket y gRPC.
+func (h *Hub) Publish(append func() (*chatv1.ChatMessage, bool, error)) (*chatv1.ChatMessage, bool, error) {
+	h.publishMu.Lock()
+	defer h.publishMu.Unlock()
+
+	msg, isNew, err := append()
+	if err != nil || !isNew {
+		return msg, isNew, err
+	}
+	h.Broadcast(msg)
+	return msg, isNew, nil
 }
 
 // Broadcast serializa un ChatMessage a MessageFrame y lo difunde a todos los clientes.
@@ -88,17 +113,24 @@ func (h *Hub) Broadcast(msg *chatv1.ChatMessage) {
 }
 
 // BroadcastRaw envía datos JSON serializados a todos los suscriptores activos.
+// El envío no bloquea: un suscriptor con el búfer lleno se expulsa (se cierra su
+// canal) para que su cliente reconecte y se resincronice con after_seq, en lugar
+// de perder mensajes en silencio y dejar un hueco de seq sin detectar.
 func (h *Hub) BroadcastRaw(data []byte) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	var slow []*Subscriber
 
+	h.mu.RLock()
 	for sub := range h.subscribers {
 		select {
 		case sub.send <- data:
 		default:
-			// Si el cliente no lee a tiempo su buffer, se descarta el mensaje
-			// para no bloquear el dispatcher central.
+			slow = append(slow, sub)
 		}
+	}
+	h.mu.RUnlock()
+
+	for _, sub := range slow {
+		h.Unsubscribe(sub)
 	}
 }
 
