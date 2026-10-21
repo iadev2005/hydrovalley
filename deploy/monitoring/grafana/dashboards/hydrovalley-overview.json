@@ -67,7 +67,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
           "editorMode": "code",
-          "expr": "hydrovalley_service_status{service=\"nginx\"}",
+          "expr": "hydrovalley_service_status{service=\"nginx\"} or hydrovalley_service_status{exported_service=\"nginx\"}",
           "instant": true,
           "legendFormat": "Proxy (nginx)",
           "range": false,
@@ -116,7 +116,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
           "editorMode": "code",
-          "expr": "hydrovalley_service_status{service=\"api\"}",
+          "expr": "hydrovalley_service_status{service=\"api\"} or hydrovalley_service_status{exported_service=\"api\"} or up{job=\"api\"}",
           "instant": true,
           "legendFormat": "API (Node/Fastify)",
           "range": false,
@@ -165,7 +165,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
           "editorMode": "code",
-          "expr": "hydrovalley_service_status{service=\"hub\"}",
+          "expr": "hydrovalley_service_status{service=\"hub\"} or hydrovalley_service_status{exported_service=\"hub\"} or up{job=\"hub\"}",
           "instant": true,
           "legendFormat": "Hub (Go)",
           "range": false,
@@ -214,7 +214,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
           "editorMode": "code",
-          "expr": "hydrovalley_service_status{service=\"world\"}",
+          "expr": "hydrovalley_service_status{service=\"world\"} or hydrovalley_service_status{exported_service=\"world\"}",
           "instant": true,
           "legendFormat": "Simulador (Rust)",
           "range": false,
@@ -263,7 +263,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
           "editorMode": "code",
-          "expr": "hydrovalley_service_status{service=\"persistence\"}",
+          "expr": "hydrovalley_service_status{service=\"persistence\"} or hydrovalley_service_status{exported_service=\"persistence\"}",
           "instant": true,
           "legendFormat": "Persistencia (Python)",
           "range": false,
