@@ -119,6 +119,8 @@ class PersistenceServicer(pb_grpc.PersistenceServiceServicer):
                     water_reduced=p.water_reduced,
                     water_reused=p.water_reused,
                     water_recycled=p.water_recycled,
+                    fires_extinguished=p.fires_extinguished,
+                    tiles_grown=p.tiles_grown,
                 )
                 for p in message.players
             ),

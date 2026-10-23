@@ -13,7 +13,7 @@ pub mod world;
 
 pub use catalog::Catalog;
 pub use command::{Command, CommandKind, CommandOutcome, CommandResult, RejectReason, StepOutcome};
-pub use player::{AppliedAction, Player};
+pub use player::{AppliedAction, OfflineSummary, Player};
 pub use ranking::{MAX_RANKING_ENTRIES, RankedPlayer, Score, rank_players};
 pub use tile::{Fire, Installation, InstallationKind, Tile, TileStage, UpgradeKind};
 pub use world::{

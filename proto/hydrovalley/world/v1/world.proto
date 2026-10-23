@@ -238,6 +238,15 @@ message PlayerState {
   repeated UpgradeKind upgrades = 5;
   // Precio de la siguiente instalación de cada tipo (RF-07).
   repeated InstallationPrice next_prices = 6;
+  // Resumen de actividad offline ("Al día siguiente", nivel 2).
+  OfflineSummary offline_summary = 7;
+}
+
+message OfflineSummary {
+  uint64 leaves_earned = 1;
+  uint64 water_reused = 2;
+  uint32 fires_extinguished = 3;
+  uint32 tiles_grown = 4;
 }
 
 message InstallationPrice {
@@ -308,6 +317,8 @@ message PlayerRecord {
   uint64 last_action_tick = 14;
   // action_id aplicados en los últimos 600 ticks (Capa 3).
   repeated AppliedAction recent_actions = 15;
+  // Resumen de actividad offline para persistencia en instantánea ("Al día siguiente").
+  OfflineSummary offline_summary = 16;
 }
 
 message InstallationCount {

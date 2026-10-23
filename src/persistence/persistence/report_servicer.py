@@ -86,6 +86,8 @@ class ReportServicer(pb_grpc.ReportServiceServicer):
                     water_spent=min(totals.water_spent, U64_MAX),
                     leaves_earned=min(totals.leaves_earned, U64_MAX),
                     leaves_spent=min(totals.leaves_spent, U64_MAX),
+                    fires_extinguished=min(totals.fires_extinguished, U64_MAX),
+                    tiles_grown=min(totals.tiles_grown, U64_MAX),
                 ),
             )
         context.abort(code, _DETAIL[code])

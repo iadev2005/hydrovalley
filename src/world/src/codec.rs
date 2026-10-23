@@ -8,8 +8,8 @@ use prost::Message;
 use crate::domain::catalog as dc;
 use crate::domain::{
     self, AppliedAction, Catalog, Command, CommandKind, CommandOutcome, CommandResult, Fire,
-    Installation, InstallationKind, Player, RejectReason, Tile, TileStage, UpgradeKind, World,
-    WorldParts,
+    Installation, InstallationKind, OfflineSummary, Player, RejectReason, Tile, TileStage,
+    UpgradeKind, World, WorldParts,
 };
 use crate::proto::persistence::v1 as persistence_pb;
 use crate::proto::world::v1 as pb;
@@ -256,6 +256,7 @@ fn player_state(world: &World, player: &Player) -> pb::PlayerState {
             leaves: world.next_price(player, kind),
         })
         .collect(),
+        offline_summary: Some(offline_summary_to_proto(&player.offline_summary)),
     }
 }
 
@@ -393,6 +394,25 @@ fn player_record(player: &Player) -> pb::PlayerRecord {
                 tick: applied.tick,
             })
             .collect(),
+        offline_summary: Some(offline_summary_to_proto(&player.offline_summary)),
+    }
+}
+
+fn offline_summary_to_proto(summary: &OfflineSummary) -> pb::OfflineSummary {
+    pb::OfflineSummary {
+        leaves_earned: summary.leaves_earned,
+        water_reused: summary.water_reused,
+        fires_extinguished: summary.fires_extinguished,
+        tiles_grown: summary.tiles_grown,
+    }
+}
+
+fn offline_summary_from_proto(summary: pb::OfflineSummary) -> OfflineSummary {
+    OfflineSummary {
+        leaves_earned: summary.leaves_earned,
+        water_reused: summary.water_reused,
+        fires_extinguished: summary.fires_extinguished,
+        tiles_grown: summary.tiles_grown,
     }
 }
 
@@ -423,6 +443,10 @@ fn player_from_record(record: pb::PlayerRecord) -> Result<Player, DecodeError> {
             .map(upgrade_from_proto)
             .collect::<Result<_, _>>()?,
         last_action_tick: record.last_action_tick,
+        offline_summary: record
+            .offline_summary
+            .map(offline_summary_from_proto)
+            .unwrap_or_default(),
         recent_actions: record
             .recent_actions
             .into_iter()
