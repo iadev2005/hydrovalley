@@ -312,7 +312,50 @@ func (w *World) advanceValley(tick uint64) {
 	for i := range w.tiles {
 		Wither(&w.tiles[i], w.catalog.Evaporation)
 	}
+	w.propagateFires()
 	w.igniteFires()
+}
+
+// propagateFires es la propagación a vecinas (world.rs propagate_fires; B3):
+// recorre las casillas por filas y, por cada una elegible con al menos una
+// vecina ortogonal que ya ardiera al empezar el paso, hace un sorteo con
+// PropagationChancePPM; si sale, la enciende. Solo propagan los fuegos
+// presentes al entrar, así no hay cascadas dentro de un mismo tick.
+func (w *World) propagateFires() {
+	burningAtStart := make([]bool, len(w.tiles))
+	anyBurning := false
+	for i := range w.tiles {
+		if w.tiles[i].Fire != nil {
+			burningAtStart[i] = true
+			anyBurning = true
+		}
+	}
+	if !anyBurning {
+		return
+	}
+
+	ppm := w.catalog.Fire.PropagationChancePPM
+	for y := range w.height {
+		for x := range w.width {
+			tile := &w.tiles[int(y)*int(w.width)+int(x)]
+			// && en corto: solo una casilla elegible con vecina en llamas
+			// gasta un número.
+			if IsEligible(tile) && hasBurningNeighbor(burningAtStart, x, y, w.width, w.height) && w.rng.ChancePPM(ppm) {
+				Ignite(tile)
+			}
+		}
+	}
+}
+
+// hasBurningNeighbor dice si alguna de las vecinas ortogonales (norte, sur,
+// oeste, este) de (x, y) dentro de un valle de width x height está marcada.
+func hasBurningNeighbor(burning []bool, x, y, width, height uint32) bool {
+	stride := int(width)
+	index := int(y)*stride + int(x)
+	return (y > 0 && burning[index-stride]) ||
+		(y+1 < height && burning[index+stride]) ||
+		(x > 0 && burning[index-1]) ||
+		(x+1 < width && burning[index+1])
 }
 
 // igniteFires es la ignición al azar (world.rs:649; RF-29): recorre las
