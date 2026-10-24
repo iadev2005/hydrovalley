@@ -124,6 +124,7 @@ Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`
   | `restored_tick` (texto) | `restored_tick` de la última respuesta de `Step`: el tick del que Rust se recuperó en el arranque que identifica `boot_id` (0 sin instantánea o antes del primer `Step`) |
   | `generated_at` | Hora de la foto, ISO 8601 en UTC |
 
+- **`/metrics`**: métricas en formato texto estándar de Prometheus (OpenMetrics) para el panel profesional (nivel 2, B7). Comparte las mismas garantías que `/stats`: interno, sin autenticación, cálculo $O(1)$ sin frenar el bucle del tick. Expone contadores acumulados (`hydrovalley_hub_actions_admitted_total`, `applied_total`, `step_failures_total`, `accepted_drops_total`), tasas móviles (`actions_admitted_rate`, `actions_applied_rate`), latencias p50/p95, duración de `Step`, estado del *Circuit Breaker* (`hydrovalley_hub_breaker_code`: 0=closed, 1=open, 2=half_open y `breaker_state`), sesiones activas, goroutines, humedad y fuegos activos.
 - **Parada**: con SIGINT o SIGTERM cierra las conexiones con `StatusGoingAway`, termina el bucle y apaga el HTTP con un plazo de 5 s.
 
 ## Imagen de Docker
