@@ -80,4 +80,8 @@ message SnapshotPlayer {
   uint64 water_reduced = 8;
   uint64 water_reused = 9;
   uint64 water_recycled = 10;
+  // Resumen de actividad offline para el “día siguiente” (RF-25): fuegos
+  // apagados y casillas que crecieron mientras el jugador estuvo ausente.
+  uint32 fires_extinguished = 11;
+  uint32 tiles_grown = 12;
 }

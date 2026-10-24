@@ -9,6 +9,28 @@ pub struct AppliedAction {
     pub tick: u64,
 }
 
+/// Resumen de actividad mientras el jugador estuvo ausente ("Al día siguiente", nivel 2).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OfflineSummary {
+    pub leaves_earned: u64,
+    pub water_reused: u64,
+    pub fires_extinguished: u32,
+    pub tiles_grown: u32,
+}
+
+impl OfflineSummary {
+    pub fn is_empty(&self) -> bool {
+        self.leaves_earned == 0
+            && self.water_reused == 0
+            && self.fires_extinguished == 0
+            && self.tiles_grown == 0
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
 /// Todo lo que el simulador guarda de cada jugador (`PlayerRecord`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Player {
@@ -26,6 +48,7 @@ pub struct Player {
     pub purchases: Vec<(InstallationKind, u32)>,
     pub upgrades: Vec<UpgradeKind>,
     pub last_action_tick: u64,
+    pub offline_summary: OfflineSummary,
     /// Aplicados dentro de la ventana, en orden de tick.
     pub recent_actions: Vec<AppliedAction>,
 }

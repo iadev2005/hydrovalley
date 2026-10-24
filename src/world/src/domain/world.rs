@@ -331,6 +331,7 @@ impl World {
             // El comando aplicado ya dio de alta al jugador si era nuevo.
             let slot = self.player_slot(&command.player_id);
             slot.record.last_action_tick = tick;
+            slot.record.offline_summary.clear();
             slot.record.recent_actions.push(AppliedAction {
                 action_id: command.action_id.clone(),
                 tick,
@@ -563,24 +564,54 @@ impl World {
             let (x, y) = self.tile_xy(index);
             let area = area_indices(x, y, side, self.width, self.height);
             let mut leaves = 0u64;
+            let mut fires_extinguished = 0u32;
+            let mut tiles_grown = 0u32;
             for &index in &area {
                 let tile = &mut self.tiles[index];
+                let stage_before = tile.stage;
                 leaves = leaves.saturating_add(growth::add_humidity(
                     tile,
                     humidity,
                     &self.catalog.growth,
                 ));
+                if tile.stage != stage_before {
+                    tiles_grown = tiles_grown.saturating_add(1);
+                }
                 if fire::extinguish(tile) {
+                    fires_extinguished = fires_extinguished.saturating_add(1);
+                    let stage_after_extinguish = tile.stage;
                     leaves =
                         leaves.saturating_add(growth::add_humidity(tile, 0, &self.catalog.growth));
+                    if tile.stage != stage_after_extinguish {
+                        tiles_grown = tiles_grown.saturating_add(1);
+                    }
                 }
             }
             let player = &mut self.player_slot(&owner).record;
             player.leaves = player.leaves.saturating_add(leaves);
             player.leaves_earned = player.leaves_earned.saturating_add(leaves);
+            let reused = humidity.saturating_mul(area.len() as u64);
             player.water_reused = player
                 .water_reused
-                .saturating_add(humidity.saturating_mul(area.len() as u64));
+                .saturating_add(reused);
+            if tick > player.last_action_tick {
+                player.offline_summary.leaves_earned = player
+                    .offline_summary
+                    .leaves_earned
+                    .saturating_add(leaves);
+                player.offline_summary.water_reused = player
+                    .offline_summary
+                    .water_reused
+                    .saturating_add(reused);
+                player.offline_summary.fires_extinguished = player
+                    .offline_summary
+                    .fires_extinguished
+                    .saturating_add(fires_extinguished);
+                player.offline_summary.tiles_grown = player
+                    .offline_summary
+                    .tiles_grown
+                    .saturating_add(tiles_grown);
+            }
         }
     }
 
@@ -2707,4 +2738,42 @@ mod tests {
         run(&mut resumed, 151, 400);
         assert_eq!(resumed.parts(), straight.parts());
     }
+
+    #[test]
+    fn offline_summary_accumulates_while_player_is_away_and_clears_on_new_action() {
+        let mut w = rich(&[(ANA, 100)]);
+        // Ana coloca un aspersor en el tick 1.
+        w.step(&[place_cmd(&action(1), ANA, Sprinkler, 5, 5)]);
+        assert_eq!(w.player(ANA).unwrap().last_action_tick, 1);
+        assert!(w.player(ANA).unwrap().offline_summary.is_empty());
+
+        // Colocar pasto y un fuego dentro del área del aspersor para probar crecimiento y extinción.
+        let target_idx = w.tile_index(5, 6).unwrap();
+        w.tiles[target_idx].stage = TileStage::Grass;
+        w.tiles[target_idx].humidity = 10;
+        let fire_idx = w.tile_index(6, 5).unwrap();
+        w.tiles[fire_idx].fire = Some(crate::domain::Fire { drops_received: 0, burning_ticks: 10 });
+
+        // El aspersor activa cada 2 s (20 ticks). Para que la casilla
+        // alcance el umbral de crecimiento y genere hojas, hace falta más de
+        // dos activaciones: con humedad inicial 10, el primer crecimiento real
+        // llega al cuarto riego (20, 40, 60, 80 ticks).
+        for _ in 2..=100 {
+            w.step(&[]);
+        }
+
+        let ana = w.player(ANA).unwrap();
+        assert_eq!(ana.last_action_tick, 1);
+        assert!(ana.offline_summary.water_reused > 0);
+        assert!(ana.offline_summary.leaves_earned > 0);
+        assert_eq!(ana.offline_summary.fires_extinguished, 1);
+        assert!(ana.offline_summary.tiles_grown >= 1);
+
+        // Ana vuelve y suelta una gota: su offline_summary se limpia.
+        w.step(&[drop_cmd(&action(2), ANA, 0, 0)]);
+        let ana_after = w.player(ANA).unwrap();
+        assert_eq!(ana_after.last_action_tick, 101);
+        assert!(ana_after.offline_summary.is_empty());
+    }
 }
+

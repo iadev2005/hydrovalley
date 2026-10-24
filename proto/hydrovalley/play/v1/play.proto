@@ -185,4 +185,13 @@ message PlayerView {
   uint64 next_sprinkler_price = 5;
   uint64 next_drip_price = 6;
   uint64 next_treatment_plant_price = 7;
+  // Resumen de actividad mientras el jugador estuvo ausente ("Al día siguiente").
+  OfflineSummaryView offline_summary = 8;
+}
+
+message OfflineSummaryView {
+  uint64 leaves_earned = 1;
+  uint64 water_reused = 2;
+  uint32 fires_extinguished = 3;
+  uint32 tiles_grown = 4;
 }
