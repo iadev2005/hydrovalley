@@ -21,6 +21,7 @@ export const CATALOG: Catalog = {
     extinguishBonusLeaves: 5n,
     burnOutTicks: 300,
     ignitionChancePpm: 50,
+    propagationChancePpm: 2000,
   },
   sprinkler: { price: 10n, areaSide: 3, humidity: 26n, intervalSeconds: 4 },
   drip: { price: 25n, areaSide: 5, evaporationDivisor: 2 },
