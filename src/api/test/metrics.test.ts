@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { SNAPSHOT } from "./support/system-snapshot-fixture.js";
+import type { SystemSnapshot } from "../src/system-status.js";
+import { createAttemptLimiter } from "../src/rate-limit.js";
+import { VALID_STATS } from "./support/hub-stats-fixture.js";
+
+const SNAPSHOT: SystemSnapshot = {
+  generated_at: "2026-10-03T12:00:00.000Z",
+  services: [
+    { name: "nginx", status: "up" },
+    { name: "api", status: "up" },
+    { name: "hub", status: "up" },
+    { name: "world", status: "up" },
+    { name: "persistence", status: "up" },
+  ],
+  hub: VALID_STATS,
+};
 
 describe("GET /metrics", () => {
   it("returns prometheus text format metrics with uptime and service statuses", async () => {
@@ -8,9 +22,7 @@ describe("GET /metrics", () => {
       status: {
         get: () => Promise.resolve(SNAPSHOT),
       },
-      limiter: {
-        hit: () => ({ allowed: true, retryAfterSeconds: 0 }),
-      },
+      limiter: createAttemptLimiter({ limit: 1000, windowMs: 60_000 }),
     });
 
     const res = await app.inject({ method: "GET", url: "/metrics" });
