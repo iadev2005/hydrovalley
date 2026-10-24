@@ -10,8 +10,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SnapshotPlayer:
     """Fila de `snapshot_players` (diagrama 07): contadores de un jugador en
-    una instantánea. Todos son u64, salvo los del resumen offline que siguen
-    siendo contadores del mundo y caben sin problema en u32."""
+    una instantánea. Todos son u64. `fires_extinguished` y `tiles_grown` son
+    lo que hicieron los aspersores del jugador en la época (RF-25)."""
 
     player_id: uuid.UUID
     water: int = 0
@@ -77,7 +77,8 @@ class ConcurrentSnapshotChangeError(Exception):
 @dataclass(frozen=True)
 class ReportTotals:
     """Totales de un reporte: contadores acumulados de las 3R, saldos de
-    RF-27 y resumen offline del “día siguiente”."""
+    RF-27 y lo que hicieron los aspersores (fuegos apagados y casillas
+    crecidas, RF-25)."""
 
     water_reduced: int
     water_reused: int
