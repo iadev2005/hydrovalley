@@ -280,9 +280,12 @@ type Session struct {
 	playerID string
 	role     auth.Role
 	withMap  bool
-	out      chan proto.Message
-	kicked   chan struct{}
-	kickOnce sync.Once
+	// summaryPending: el resumen al volver (RF-25) todavía no se ha enviado
+	// por esta conexión. Lo usa broadcastLocked bajo el candado del hub.
+	summaryPending bool
+	out            chan proto.Message
+	kicked         chan struct{}
+	kickOnce       sync.Once
 }
 
 // PlayerID devuelve el jugador de la conexión.
@@ -312,11 +315,12 @@ func (s *Session) Send(m proto.Message) {
 // (map=false) omite el mapa en la difusión.
 func (h *Hub) Connect(playerID string, role auth.Role, withMap bool) *Session {
 	s := &Session{
-		playerID: playerID,
-		role:     role,
-		withMap:  withMap,
-		out:      make(chan proto.Message, h.cfg.OutboxSize),
-		kicked:   make(chan struct{}),
+		playerID:       playerID,
+		role:           role,
+		withMap:        withMap,
+		summaryPending: true,
+		out:            make(chan proto.Message, h.cfg.OutboxSize),
+		kicked:         make(chan struct{}),
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()

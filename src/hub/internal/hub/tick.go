@@ -316,7 +316,15 @@ func (h *Hub) broadcastLocked() {
 	builder := frames.NewStateBuilder(h.tick, h.paused, h.latestWorld, h.acceptedDrops)
 	for _, p := range h.players {
 		for s := range p.sessions {
-			s.Send(builder.For(s.playerID, s.withMap))
+			msg := builder.For(s.playerID, s.withMap)
+			// El resumen al volver (RF-25) solo puede ir en el primer estado
+			// que lleve la vista del jugador: si entonces está vacío, no se
+			// agrega después (el jugador ya estaba conectado).
+			if s.summaryPending && msg.GetPlayer() != nil {
+				builder.AttachOfflineSummary(msg, s.playerID)
+				s.summaryPending = false
+			}
+			s.Send(msg)
 		}
 	}
 	if h.acceptedDrops != h.loggedDrops {
