@@ -145,7 +145,7 @@ Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o m�
 
 ### Resumen
 
-Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 hecha (Claude, PR #59) y ensayada en el laboratorio el 23 de octubre (Fer y el equipo; registro en `docs/registro-despliegue-laboratorio.md`); B8 en propuesta (Fer, `docs/decisiones/b8-orquestacion.md`, con decisiones del equipo pendientes); B5 hecha (Claude, PR #60–#65; `world-go` sustituye a Rust por configuración; comparativa medida bajo D-03).
+Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 hecha (Claude, PR #59) y ensayada en el laboratorio el 23 de octubre (Fer y el equipo; registro en `docs/registro-despliegue-laboratorio.md`); B8 en propuesta (Fer, `docs/decisiones/b8-orquestacion.md`, con decisiones del equipo pendientes); B3 hecha (Cristian Baczek, integrada por Claude); B5 hecha (Claude, PR #60–#65; `world-go` sustituye a Rust por configuración; comparativa medida bajo D-03).
 
 | ID | Tarea | Nivel | Tamaño | Depende de | Perfil |
 | --- | --- | --- | --- | --- | --- |
@@ -332,7 +332,7 @@ Cada uno es un PR pequeño:
 - **Archivos:** `src/world/src/domain/` (reglas y pruebas), `catalog/catalog.json` (cifras nuevas), documento (D-01, con las cifras propuestas por el equipo).
 - **Qué hacer:** el fuego salta a vecinas con una probabilidad por tick definida en el catálogo; solo con el generador con semilla (regla 6), así la misma semilla da el mismo valle (CP-10).
 - **Aceptación:** pruebas de dominio deterministas; CP-10 sigue pasando; las cifras nuevas en D-01.
-- **Estado:** implementado. Cifra de catálogo `propagation_chance_ppm = 2000` (2.000 ppm = 0,2 %/tick = ~2 %/s). Sorteo con `SplitMix64` respetando la 4-vecindad ortogonal y ejecución síncrona por tick (sin cascadas intra-tick). Modelo de elegibilidad desacoplado y escalable en `TileStage` y `Tile` preparado para nuevos biomas y obras comunitarias (estanque RF-26). Pruebas unitarias de propagación deterministas y CP-10 pasando.
+- **Estado:** hecha (Cristian Baczek; integrada y corregida por Claude). Cifra de catálogo `fire.propagation_chance_ppm = 2000` (0,2 % por tick, unos 2 % por segundo; valor inicial elegido por el equipo). Un sorteo del generador con semilla por casilla elegible con vecina ardiendo, por filas y antes de la ignición, con la 4-vecindad ortogonal y solo desde los fuegos que ardían al empezar el paso (sin cascadas dentro de un tick). Está también en `world-go` (misma regla, conformidad byte a byte con el guion `08-propagacion`). La elegibilidad es la de siempre (planta, humedad 0, sin fuego); no se dejaron ganchos para biomas u obras (RF-26): cuando B4 los necesite, se añaden con su regla y sus pruebas.
 
 #### B4 · Obras comunitarias (RF-26)
 
