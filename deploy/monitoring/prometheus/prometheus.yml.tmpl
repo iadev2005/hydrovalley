@@ -1,0 +1,17 @@
+# Plantilla de la configuración de Prometheus. El contenedor la convierte en
+# /tmp/prometheus.yml al arrancar sustituyendo los marcadores @...@ por las
+# variables de entorno (regla 1 de portabilidad: ninguna dirección en el código).
+global:
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: 'hub'
+    honor_labels: true
+    static_configs:
+      - targets: ['@HUB_METRICS_ADDR@']
+
+  - job_name: 'api'
+    honor_labels: true
+    static_configs:
+      - targets: ['@API_METRICS_ADDR@']

@@ -91,6 +91,12 @@ func NewHandler(ctx context.Context, h *hub.Hub, log *slog.Logger, opts Options)
 			"generated_at": st.At.UTC().Format(time.RFC3339),
 		})
 	})
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+		// Métricas en formato texto de Prometheus para el panel profesional (nivel 2, B7).
+		st := h.Stats()
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		writePrometheusMetrics(w, st)
+	})
 	mux.Handle("GET /play", &playHandler{ctx: ctx, hub: h, log: log, opts: opts})
 	return mux
 }

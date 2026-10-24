@@ -88,6 +88,31 @@ export async function buildApp(
     status: "ok" as const,
   }));
 
+  app.get("/metrics", async (_req, reply) => {
+    reply.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    let out = "";
+    out += "# HELP hydrovalley_api_uptime_seconds API process uptime in seconds\n";
+    out += "# TYPE hydrovalley_api_uptime_seconds gauge\n";
+    out += `hydrovalley_api_uptime_seconds ${String(Math.floor(process.uptime()))}\n`;
+    out += "# HELP hydrovalley_api_memory_rss_bytes API process RSS memory in bytes\n";
+    out += "# TYPE hydrovalley_api_memory_rss_bytes gauge\n";
+    out += `hydrovalley_api_memory_rss_bytes ${String(process.memoryUsage().rss)}\n`;
+    out += "# HELP hydrovalley_api_memory_heap_used_bytes API process heap used memory in bytes\n";
+    out += "# TYPE hydrovalley_api_memory_heap_used_bytes gauge\n";
+    out += `hydrovalley_api_memory_heap_used_bytes ${String(process.memoryUsage().heapUsed)}\n`;
+
+    if (system) {
+      const status = await system.status.get();
+      out += "# HELP hydrovalley_service_status Status of system services according to API probes (1=up, 0=down)\n";
+      out += "# TYPE hydrovalley_service_status gauge\n";
+      for (const svc of status.services) {
+        const val = svc.status === "up" ? 1 : 0;
+        out += `hydrovalley_service_status{service="${svc.name}"} ${String(val)}\n`;
+      }
+    }
+    return reply.send(out);
+  });
+
   if (auth) {
     await app.register(authRoutes, auth);
   }
