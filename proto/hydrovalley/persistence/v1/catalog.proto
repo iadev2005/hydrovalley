@@ -94,6 +94,9 @@ message FireRules {
   // Probabilidad por tick de que arda cada casilla seca con planta, en
   // partes por millón. D-01 todavía no la fija.
   uint32 ignition_chance_ppm = 4;
+  // Probabilidad por tick de que un fuego salte a una casilla vecina elegible,
+  // en partes por millón.
+  uint32 propagation_chance_ppm = 5;
 }
 
 message SprinklerRules {

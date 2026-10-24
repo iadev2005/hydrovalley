@@ -8,9 +8,13 @@
 use super::catalog::FireRules;
 use super::tile::{Fire, Tile, TileStage};
 
-/// ¿Puede arder? Casilla con planta, sin humedad y que no arde ya.
+/// ¿Puede arder? Casilla combustible, dentro de su umbral de humedad,
+/// sin fuego previo y que no actúe como cortafuegos.
 pub fn is_eligible(tile: &Tile) -> bool {
-    tile.stage != TileStage::DrySoil && tile.humidity == 0 && tile.fire.is_none()
+    tile.fire.is_none()
+        && tile.stage.is_flammable()
+        && tile.humidity <= tile.stage.flammability_humidity_threshold()
+        && !tile.is_firebreak()
 }
 
 /// Enciende la casilla: empieza sin gotas y con la cuenta de ticks a 0.

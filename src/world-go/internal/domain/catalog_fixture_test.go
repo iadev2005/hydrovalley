@@ -18,6 +18,7 @@ func d01() Catalog {
 			ExtinguishBonusLeaves: 5,
 			BurnOutTicks:          300,
 			IgnitionChancePPM:     0,
+			PropagationChancePPM:  0,
 		},
 		Sprinkler:                        SprinklerRules{Price: 10, AreaSide: 3, Humidity: 25, IntervalSeconds: 2},
 		Drip:                             DripRules{Price: 25, AreaSide: 5, EvaporationDivisor: 2},

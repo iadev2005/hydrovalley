@@ -134,6 +134,9 @@ pub struct FireRules {
     pub burn_out_ticks: u32,
     /// Partes por millón por tick. 0 mientras D-01 no la fije.
     pub ignition_chance_ppm: u32,
+    /// Probabilidad por tick de que un fuego salte a una casilla vecina
+    /// elegible, en partes por millón.
+    pub propagation_chance_ppm: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,6 +210,7 @@ impl Catalog {
                 extinguish_bonus_leaves: 5,
                 burn_out_ticks: 300,
                 ignition_chance_ppm: 0,
+                propagation_chance_ppm: 0,
             },
             sprinkler: SprinklerRules {
                 price: 10,

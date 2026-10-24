@@ -34,6 +34,7 @@ const EXPECTED_JSON = {
     extinguish_bonus_leaves: "5",
     burn_out_ticks: 300,
     ignition_chance_ppm: 50,
+    propagation_chance_ppm: 2000,
   },
   sprinkler: { price: "10", area_side: 3, humidity: "26", interval_seconds: 4 },
   drip: { price: "25", area_side: 5, evaporation_divisor: 2 },
