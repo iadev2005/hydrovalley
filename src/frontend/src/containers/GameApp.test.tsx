@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { describe, it, expect } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { GameApp } from "./GameApp.tsx";
 import { VIEW_MODE_KEY } from "../logic/viewMode.ts";
-import type { StorageLike } from "../logic/auth.ts";
+import { SESSION_KEY, type StorageLike } from "../logic/auth.ts";
 
 function memoryStorage(initial: Record<string, string> = {}): StorageLike {
   const store = new Map<string, string>(Object.entries(initial));
@@ -81,5 +81,69 @@ describe("GameApp", () => {
     expect(document.getElementById("valley")).toBeDefined();
     expect(screen.getByText(/Salida de emergencia/)).toBeDefined();
     expect(screen.getByText("Cuadrícula 2D (vista cenital)")).toBeDefined();
+  });
+
+  describe("offline summary", () => {
+    class FakeSocket {
+      static last: FakeSocket | null = null;
+      static OPEN = 1;
+      readyState = FakeSocket.OPEN;
+      listeners: Record<string, ((event: { data?: unknown; code?: number }) => void)[]> = {};
+      constructor(url: string) {
+        // El chat también abre un WebSocket: solo interesa el de /play.
+        if (url.includes("/play")) FakeSocket.last = this;
+      }
+      addEventListener(type: string, listener: (event: { data?: unknown; code?: number }) => void) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      send() {}
+      close() {}
+      emit(type: string, event: { data?: unknown } = {}) {
+        for (const listener of this.listeners[type] ?? []) listener(event);
+      }
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("shows the summary of the first state and hides it when closed", () => {
+      vi.stubGlobal("WebSocket", FakeSocket);
+      const storage = memoryStorage({
+        [SESSION_KEY]: JSON.stringify({
+          token: "tok",
+          expiresAt: Date.now() + 100_000,
+          username: "Ana",
+        }),
+      });
+      render(
+        <GameApp
+          sessionOptions={{ storage }}
+          socketOptions={{ location: { protocol: "http:", host: "localhost:8080" } }}
+        />,
+      );
+      expect(screen.queryByText(/Mientras no estabas/)).toBeNull();
+
+      act(() => {
+        FakeSocket.last?.emit("open");
+        FakeSocket.last?.emit("message", {
+          data: JSON.stringify({
+            type: "state",
+            tick: "5",
+            width: 32,
+            height: 32,
+            player: { water: "1", offline_summary: { tiles_grown: "38", fires_extinguished: "1" } },
+          }),
+        });
+      });
+      expect(
+        screen.getByText(
+          "Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio.",
+        ),
+      ).toBeDefined();
+
+      fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+      expect(screen.queryByText(/Mientras no estabas/)).toBeNull();
+    });
   });
 });

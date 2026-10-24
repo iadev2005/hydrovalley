@@ -13,6 +13,7 @@ import {
   newUuid,
   parseFrame,
   type PlayFrame,
+  type OfflineSummary,
   type StateFrame,
 } from "../logic/play.ts";
 import {
@@ -43,6 +44,8 @@ export interface UseGameSocketReturn {
   status: ConnectionStatus;
   statusText: string;
   gameState: StateFrame | null;
+  /** Resumen al volver (RF-25) todavía sin cerrar, o null. */
+  offlineSummary: OfflineSummary | null;
   actionMessage: ActionMessage | null;
   pendingCount: number;
   logs: string[];
@@ -54,6 +57,7 @@ export interface UseGameSocketReturn {
   sendSetDemoMode: (enabled: boolean) => boolean;
   sendResetValley: () => boolean;
   clearActionMessage: () => void;
+  dismissOfflineSummary: () => void;
 }
 
 const MAX_LOG_LINES = 100;
@@ -71,6 +75,7 @@ export function useGameSocket({
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [statusText, setStatusText] = useState<string>("desconectado");
   const [gameState, setGameState] = useState<StateFrame | null>(null);
+  const [offlineSummary, setOfflineSummary] = useState<OfflineSummary | null>(null);
   const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(0);
   const [logs, setLogs] = useState<string[]>([]);
@@ -86,6 +91,7 @@ export function useGameSocket({
   }, []);
 
   const clearActionMessage = useCallback(() => setActionMessage(null), []);
+  const dismissOfflineSummary = useCallback(() => setOfflineSummary(null), []);
 
   const sendAction = useCallback(
     (label: string, build: (actionId: string) => string): boolean => {
@@ -203,6 +209,11 @@ export function useGameSocket({
 
         if (frame.type === "state") {
           setGameState(frame);
+          // El hub lo manda una sola vez, en el primer estado de la conexión:
+          // se guarda hasta que el jugador lo cierre y los estados siguientes
+          // (sin resumen) no lo borran.
+          const incoming = frame.player?.offline_summary;
+          if (incoming) setOfflineSummary(incoming);
         } else if (frame.type === "result") {
           const entry = pendingRef.current.resolve(frame);
           setPendingCount(pendingRef.current.size);
@@ -268,12 +279,14 @@ export function useGameSocket({
   const effectiveStatus = session ? status : "disconnected";
   const effectiveStatusText = session ? statusText : "desconectado";
   const effectiveGameState = session ? gameState : null;
+  const effectiveOfflineSummary = session ? offlineSummary : null;
   const effectivePendingCount = session ? pendingCount : 0;
 
   return {
     status: effectiveStatus,
     statusText: effectiveStatusText,
     gameState: effectiveGameState,
+    offlineSummary: effectiveOfflineSummary,
     actionMessage,
     pendingCount: effectivePendingCount,
     logs,
@@ -285,5 +298,6 @@ export function useGameSocket({
     sendSetDemoMode,
     sendResetValley,
     clearActionMessage,
+    dismissOfflineSummary,
   };
 }

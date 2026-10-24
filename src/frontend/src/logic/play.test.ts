@@ -180,6 +180,45 @@ describe("parseFrame of the full state", () => {
   });
 });
 
+describe("parseFrame of the offline summary", () => {
+  it("reads the counts of the summary as BigInt from their text form", () => {
+    const state = parseFrame(
+      JSON.stringify({
+        type: "state",
+        player: {
+          water: "5",
+          offline_summary: {
+            leaves_earned: "12",
+            water_reused: "1099511627776",
+            fires_extinguished: "1",
+            tiles_grown: "38",
+          },
+        },
+      }),
+    ) as StateFrame;
+    expect(state.player?.offline_summary).toEqual({
+      leaves_earned: 12n,
+      water_reused: 1099511627776n,
+      fires_extinguished: 1n,
+      tiles_grown: 38n,
+    });
+  });
+
+  it("fills the counts that are absent with zero and ignores a summary that is not an object", () => {
+    const partial = parseFrame(
+      '{"type":"state","player":{"offline_summary":{"tiles_grown":"2"}}}',
+    ) as StateFrame;
+    expect(partial.player?.offline_summary).toEqual({
+      leaves_earned: 0n,
+      water_reused: 0n,
+      fires_extinguished: 0n,
+      tiles_grown: 2n,
+    });
+    const odd = parseFrame('{"type":"state","player":{"offline_summary":"x"}}') as StateFrame;
+    expect(odd.player?.offline_summary).toBeNull();
+  });
+});
+
 describe("parseFrame", () => {
   it("reads result, state and error frames", () => {
     expect(
@@ -199,6 +238,7 @@ describe("parseFrame", () => {
       next_sprinkler_price: 0n,
       next_drip_price: 0n,
       next_treatment_plant_price: 0n,
+      offline_summary: null,
     });
     expect(parseFrame('{"type":"error","code":"invalid_message"}')).toEqual({
       type: "error",
@@ -249,6 +289,7 @@ describe("describeFrame", () => {
           next_sprinkler_price: 0n,
           next_drip_price: 0n,
           next_treatment_plant_price: 0n,
+          offline_summary: null,
         },
       }),
     ).toBe("state tick 57, agua 19/20");
