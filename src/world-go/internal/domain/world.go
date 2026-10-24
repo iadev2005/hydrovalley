@@ -42,7 +42,7 @@ type World struct {
 	width, height uint32
 	tiles         []Tile
 	players       map[string]*playerSlot
-	// rng es el único azar del mundo (regla 6): decide la ignición; su
+	// rng es el único azar del mundo (regla 6): decide la propagación y la ignición; su
 	// estado viaja en la instantánea (world.rs:104).
 	rng SplitMix64
 	// resetCatalog es el catálogo ofrecido a los reinicios del tick en curso;
@@ -93,14 +93,16 @@ func NewWorldWithSize(catalog Catalog, seed uint64, width, height uint32) *World
 //     arden.
 //  8. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
 //     modo demo y en las que arden).
-//  9. Ignición al azar (salvo en modo demo): un sorteo con el generador con
-//     semilla por cada casilla elegible, por filas.
+//  9. Propagación y luego ignición al azar (salvo en modo demo): primero, un
+//     sorteo por cada casilla elegible con alguna vecina ortogonal que ardía
+//     al empezar el paso; después, un sorteo por cada casilla elegible, por
+//     filas, con el generador con semilla.
 //  10. El tick pasa a t.
 //
 // Las instalaciones (4, 5 y el goteo de 7) solo actúan mientras su dueño no
 // lleve ausente más de OfflineInstallationSeconds (RF-25).
 //
-// Solo la ignición usa el azar, y lo toma del generador con semilla del
+// Solo la propagación y la ignición usan el azar, y lo toman del generador con semilla del
 // mundo, cuyo estado viaja en la instantánea: misma semilla y mismos comandos
 // dan el mismo valle.
 func (w *World) Step(commands []Command) StepOutcome {
