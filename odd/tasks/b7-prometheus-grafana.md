@@ -22,7 +22,8 @@ Implementar el panel profesional de observabilidad (nivel 2, RNF-08) mediante Pr
 
 - **Aislamiento por perfil:** los contenedores de monitorización solo arrancan al indicar `--profile monitoring`. No afectan el arranque regular ni la prueba de humo del CI (`tests/e2e/run.sh`).
 - **Medir no frena el tick:** secciones críticas atómicas o lecturas cortas ya preparadas en memoria por `h.Stats()`.
-- **Acceso sin fricción:** Grafana configurado con autenticación anónima con rol Admin para la demostración en el laboratorio.
+- **Acceso acotado:** puertos de Prometheus y Grafana solo en `127.0.0.1` por defecto; Grafana con acceso anónimo de solo lectura (Viewer) y contraseña admin desde `GRAFANA_ADMIN_PASSWORD`.
+- **Destinos configurables:** `HUB_METRICS_ADDR` y `API_METRICS_ADDR` se aplican a la plantilla de Prometheus al arrancar.
 
 ## Tareas
 
@@ -31,6 +32,7 @@ Implementar el panel profesional de observabilidad (nivel 2, RNF-08) mediante Pr
 - [x] T3 · Despliegue: configuración de Prometheus, datasources, dashboards y servicios en `deploy/compose.yml` bajo el perfil `monitoring`.
 - [x] T4 · Tablero Grafana: tablero completo versionado en `deploy/monitoring/grafana/dashboards/hydrovalley-overview.json`.
 - [x] T5 · Documentación: actualización de `deploy/README.md`, `deploy/.env.example` y `docs/tareas-equipo.md`.
+- [x] T6 · Revisión de integración: puertos y Grafana seguros, `uid` del datasource, destinos configurables, tick como *gauge*.
 
 ## Criterios de aceptación
 

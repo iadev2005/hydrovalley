@@ -308,10 +308,22 @@ docker compose -f deploy/compose.yml --profile monitoring up -d
 
 ### Puertos y accesos
 
-| Herramienta | URL por defecto | Variable de entorno en `.env` | Credenciales |
+Ambos puertos se publican solo en `127.0.0.1` (en el plan B, el único puerto abierto a la red sigue siendo el 8080). Para abrirlos a otra interfaz, por ejemplo en el laboratorio, se cambia el enlace con `HV_PROMETHEUS_BIND` o `HV_GRAFANA_BIND` (p. ej. `0.0.0.0`).
+
+| Herramienta | URL por defecto | Variables de entorno | Acceso |
 | --- | --- | --- | --- |
-| **Grafana** | `http://localhost:3001` | `HV_GRAFANA_PORT=3001` | **Sin contraseña** (acceso anónimo como Admin activado) |
-| **Prometheus** | `http://localhost:9090` | `HV_PROMETHEUS_PORT=9090` | Sin autenticación (red interna/laboratorio) |
+| **Grafana** | `http://127.0.0.1:3001` | `HV_GRAFANA_PORT`, `HV_GRAFANA_BIND`, `GRAFANA_ADMIN_PASSWORD` | Anónimo de solo lectura (Viewer). Para editar, usuario `admin` y la contraseña de `GRAFANA_ADMIN_PASSWORD` |
+| **Prometheus** | `http://127.0.0.1:9090` | `HV_PROMETHEUS_PORT`, `HV_PROMETHEUS_BIND` | Sin autenticación (solo local por defecto) |
+
+`GRAFANA_ADMIN_PASSWORD` no tiene valor por defecto en el repositorio y no es obligatoria (así `up` sin el perfil no la exige). Defínela antes de levantar el perfil; si queda vacía, no hay una cuenta admin utilizable.
+
+### Destinos de scrape (plan A)
+
+Prometheus no expande variables de entorno en su configuración. Por eso el contenedor arranca con un `sed` que convierte la plantilla `deploy/monitoring/prometheus/prometheus.yml.tmpl` en la configuración real (la imagen es busybox: trae `sh` y `sed`, no `envsubst`). Las variables son `HUB_METRICS_ADDR` (por defecto `hub:8081`) y `API_METRICS_ADDR` (por defecto `api:3000`); en el plan A se apuntan a las máquinas del hub y de la API, por ejemplo `HUB_METRICS_ADDR=10.68.17.x:8081`.
+
+### Cobertura
+
+El hub y la API exponen `/metrics`. El simulador (Rust) y la persistencia (Python) no tienen un exportador propio: su estado llega a Prometheus por las sondas de la API (`hydrovalley_service_status`) y por las cifras del hub (duración y fallos de `Step`, tick, humedad).
 
 ### Tablero preaprovisionado
 
