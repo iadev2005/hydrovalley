@@ -667,24 +667,18 @@ impl World {
     /// evitando cascadas instantáneas en un mismo tick.
     fn propagate_fires(&mut self) {
         let ppm = self.catalog.fire.propagation_chance_ppm;
-        let mut burning_at_start = [false; 1024];
-        let mut any_burning = false;
-        for (i, tile) in self.tiles.iter().enumerate() {
-            if tile.fire.is_some() {
-                burning_at_start[i] = true;
-                any_burning = true;
-            }
-        }
-        if !any_burning {
+        let burning_at_start: Vec<bool> = self.tiles.iter().map(|t| t.fire.is_some()).collect();
+        if !burning_at_start.contains(&true) {
             return;
         }
 
-        for y in 0..VALLEY_HEIGHT {
-            for x in 0..VALLEY_WIDTH {
-                let index = y as usize * VALLEY_WIDTH as usize + x as usize;
+        let (width, height) = (self.width, self.height);
+        for y in 0..height {
+            for x in 0..width {
+                let index = y as usize * width as usize + x as usize;
                 let tile = &mut self.tiles[index];
                 if fire::is_eligible(tile)
-                    && orthogonal_neighbor_indices(x, y).any(|n| burning_at_start[n])
+                    && orthogonal_neighbor_indices(x, y, width, height).any(|n| burning_at_start[n])
                     && self.rng.chance_ppm(ppm)
                 {
                     fire::ignite(tile);
@@ -856,25 +850,31 @@ fn area_indices(x: u32, y: u32, side: u32, width: u32, height: u32) -> Vec<usize
     .collect()
 }
 
-/// Índices de las casillas vecinas ortogonales (Norte, Sur, Este, Oeste)
-/// dentro de los límites del valle de 32 × 32.
-fn orthogonal_neighbor_indices(x: u32, y: u32) -> impl Iterator<Item = usize> {
+/// Índices de las casillas vecinas ortogonales (norte, sur, oeste, este)
+/// dentro de un valle de `width` × `height`.
+fn orthogonal_neighbor_indices(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> impl Iterator<Item = usize> {
+    let (x, y, width) = (x as usize, y as usize, width as usize);
     let mut neighbors = [0usize; 4];
     let mut count = 0;
     if y > 0 {
-        neighbors[count] = (y as usize - 1) * VALLEY_WIDTH as usize + x as usize;
+        neighbors[count] = (y - 1) * width + x;
         count += 1;
     }
-    if y + 1 < VALLEY_HEIGHT {
-        neighbors[count] = (y as usize + 1) * VALLEY_WIDTH as usize + x as usize;
+    if y + 1 < height as usize {
+        neighbors[count] = (y + 1) * width + x;
         count += 1;
     }
     if x > 0 {
-        neighbors[count] = y as usize * VALLEY_WIDTH as usize + (x as usize - 1);
+        neighbors[count] = y * width + (x - 1);
         count += 1;
     }
-    if x + 1 < VALLEY_WIDTH {
-        neighbors[count] = y as usize * VALLEY_WIDTH as usize + (x as usize + 1);
+    if x + 1 < width {
+        neighbors[count] = y * width + (x + 1);
         count += 1;
     }
     neighbors.into_iter().take(count)

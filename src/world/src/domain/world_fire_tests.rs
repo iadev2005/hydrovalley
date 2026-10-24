@@ -272,6 +272,23 @@ fn fire_does_not_propagate_in_demo_mode() {
 }
 
 #[test]
+fn fire_spreads_across_a_valley_of_another_size() {
+    // La comparativa usa valles de otros tamaños (`with_size`): la
+    // propagación debe usar las dimensiones del mundo, no las del juego.
+    let mut w = World::with_size(catalog_with_propagation_ppm(1_000_000), 1, 64, 8);
+    let at = |x: u32, y: u32| (y * 64 + x) as usize;
+    w.tiles[at(40, 2)] = burning_grass(0);
+    w.tiles[at(41, 2)] = dry_grass();
+    w.tiles[at(40, 3)] = dry_grass();
+    w.tiles[at(63, 7)] = burning_grass(0);
+    w.tiles[at(0, 0)] = dry_grass(); // no es vecina de ningún fuego
+    w.step(&[]);
+    assert_eq!(w.tile(41, 2).unwrap().fire, burning(0, 0));
+    assert_eq!(w.tile(40, 3).unwrap().fire, burning(0, 0));
+    assert_eq!(w.tile(0, 0).unwrap().fire, None);
+}
+
+#[test]
 fn propagation_draws_in_row_major_order() {
     // Dos casillas elegibles adyacentes a incendios:
     // (5, 0) adyacente a fuego en (4, 0) -> fila 0
