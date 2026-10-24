@@ -238,15 +238,18 @@ message PlayerState {
   repeated UpgradeKind upgrades = 5;
   // Precio de la siguiente instalación de cada tipo (RF-07).
   repeated InstallationPrice next_prices = 6;
-  // Resumen de actividad offline ("Al día siguiente", nivel 2).
+  // Lo que hicieron sus aspersores desde su última acción aplicada (RF-25,
+  // nivel 2). Ausente si todavía no hay nada que contar.
   OfflineSummary offline_summary = 7;
 }
 
+// Efecto de los aspersores de un jugador desde su última acción aplicada.
+// Se borra con su siguiente acción aplicada.
 message OfflineSummary {
   uint64 leaves_earned = 1;
   uint64 water_reused = 2;
-  uint32 fires_extinguished = 3;
-  uint32 tiles_grown = 4;
+  uint64 fires_extinguished = 3;
+  uint64 tiles_grown = 4;
 }
 
 message InstallationPrice {
@@ -317,8 +320,12 @@ message PlayerRecord {
   uint64 last_action_tick = 14;
   // action_id aplicados en los últimos 600 ticks (Capa 3).
   repeated AppliedAction recent_actions = 15;
-  // Resumen de actividad offline para persistencia en instantánea ("Al día siguiente").
+  // Resumen offline pendiente; solo se escribe si no está vacío, así los
+  // mundos sin resumen conservan los mismos bytes de instantánea.
   OfflineSummary offline_summary = 16;
+  // Acumulado de la época: fuegos apagados y casillas crecidas por sus aspersores.
+  uint64 fires_extinguished = 17;
+  uint64 tiles_grown = 18;
 }
 
 message InstallationCount {
