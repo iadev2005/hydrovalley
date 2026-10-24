@@ -2,7 +2,7 @@
 
 Documento de registro y guía operativa del ensayo del 23 de octubre de 2026 (semana 6). Consolida la topología de las 5 PCs del laboratorio (RES-07), el procedimiento paso a paso que se utilizó para levantar el sistema, la resolución de incidencias y las pruebas pendientes a ejecutar.
 
-> Este documento no contiene secretos reales. Las claves, el hash y las contraseñas viven únicamente en `secrets.local` (ignorado por git, RNF-13).
+> Este documento no contiene secretos: los valores reales se sustituyeron por marcadores antes de fusionar. Las claves, el hash y las contraseñas viven únicamente en `secrets.local` (ignorado por git, RNF-13).
 
 ---
 
@@ -73,22 +73,22 @@ Se generó el par de claves Ed25519 (base64 de una sola línea) y el hash Argon2
 ```ini
 # Nodo db y nodo persistence
 POSTGRES_USER=hydrovalley
-POSTGRES_PASSWORD=hydrovalley_db_2026
+POSTGRES_PASSWORD=<contraseña de la base de datos>
 POSTGRES_DB=hydrovalley
 
 # Nodo persistence
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD_HASH='$argon2id$v=19$m=19456,t=2,p=1$yPrihAGXAGRWpAuxl4023w$zJjRAcDkjMs4+uasg5E8vY91Z/mZVBkMO5CaGnxuxSU'
+ADMIN_PASSWORD_HASH='<hash Argon2id del administrador; ver deploy/README.md>'
 
 # Nodo proxy
-TOKEN_PRIVATE_KEY=LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1DNENBUUF3QlFZREsyVndCQ0lFSU13YmpNL1l5QzRBaGNDUWpnUVBrQlRpQW5ZclRUS3JBa24yWTBTeTlleGkKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=
+TOKEN_PRIVATE_KEY=<clave privada Ed25519 en base64; ver deploy/README.md>
 
 # Nodo hub
-TOKEN_PUBLIC_KEY=LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQTBlR2VudGZQNGwvR1d3S3JxSlZSTzIvaEg2ZHlEM1pOVCtFOHNOU2xLNXc9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=
+TOKEN_PUBLIC_KEY=<clave pública Ed25519 en base64>
 
 # Bots (en nodo hub)
 HV_ADMIN_USERNAME=admin
-HV_ADMIN_PASSWORD=hydrovalley2026
+HV_ADMIN_PASSWORD=<contraseña del administrador, en claro>
 ```
 
 **Distribución de secretos por máquina (principio de menor privilegio):**
