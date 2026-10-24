@@ -54,8 +54,8 @@ func writePrometheusMetrics(w io.Writer, st hub.Stats) {
 	fmt.Fprintf(w, "hydrovalley_hub_latency_ms{quantile=\"0.5\"} %s\n", strconv.FormatFloat(ms(st.Latency.P50), 'f', -1, 64))
 	fmt.Fprintf(w, "hydrovalley_hub_latency_ms{quantile=\"0.95\"} %s\n", strconv.FormatFloat(ms(st.Latency.P95), 'f', -1, 64))
 
-	fmt.Fprintf(w, "# HELP hydrovalley_hub_tick Current logical world tick\n")
-	fmt.Fprintf(w, "# TYPE hydrovalley_hub_tick counter\n")
+	fmt.Fprintf(w, "# HELP hydrovalley_hub_tick Current logical world tick (it can go back after a restore)\n")
+	fmt.Fprintf(w, "# TYPE hydrovalley_hub_tick gauge\n")
 	fmt.Fprintf(w, "hydrovalley_hub_tick %d\n", st.Tick)
 
 	fmt.Fprintf(w, "# HELP hydrovalley_hub_step_last_duration_ms Last WorldService.Step duration in milliseconds\n")

@@ -39,6 +39,7 @@ func TestMetricsExposesPrometheusText(t *testing.T) {
 		"hydrovalley_hub_actions_applied_rate",
 		"hydrovalley_hub_latency_ms{quantile=\"0.5\"}",
 		"hydrovalley_hub_latency_ms{quantile=\"0.95\"}",
+		"# TYPE hydrovalley_hub_tick gauge",
 		"hydrovalley_hub_tick 1",
 		"hydrovalley_hub_step_last_duration_ms",
 		"hydrovalley_hub_step_duration_ms{quantile=\"0.95\"}",
