@@ -533,3 +533,31 @@ fn the_scenarios_exercise_the_rules_they_claim_to() {
     assert!(put_out >= 3, "ningún guion apaga incendios: {put_out}");
     assert!(gone >= 3, "ningún guion consume incendios: {gone}");
 }
+
+/// El guion de propagación tiene que depender de la propagación: sin ella
+/// (misma semilla, mismos comandos) arden mucho menos casillas. Si dejara de
+/// ser así, la conformidad de esa regla estaría vacía.
+#[test]
+fn the_propagation_scenario_depends_on_the_spread() {
+    let path = scenario_files()
+        .into_iter()
+        .find(|p| p.file_stem().is_some_and(|n| n == "08-propagacion"))
+        .expect("falta el guion 08-propagacion");
+    let with_spread = run(&load_scenario(&path), &[]);
+    let mut without = load_scenario(&path);
+    without.catalog.fire.propagation_chance_ppm = 0;
+    let without_spread = run(&without, &[]);
+    let peak = |o: &Output| o.burning_tiles.iter().copied().max().unwrap_or(0);
+    let burned = |o: &Output| o.burning_tiles.iter().sum::<usize>();
+    assert!(
+        peak(&with_spread) >= 8,
+        "el fuego apenas se propaga: {}",
+        peak(&with_spread)
+    );
+    assert!(
+        burned(&with_spread) > 2 * burned(&without_spread),
+        "la propagación casi no cambia el resultado: {} frente a {}",
+        burned(&with_spread),
+        burned(&without_spread)
+    );
+}
