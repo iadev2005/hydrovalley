@@ -170,6 +170,7 @@ Propuesta mínima, suficiente para cumplir todo lo exigido:
 | Límite de gotas | 15 gotas por segundo por jugador. Lo que pase de ahí se rechaza |
 | Competencia | Ranking de quién más ha hecho crecer el valle, medido en hojas ganadas |
 | Modo demo | Sin evaporación ni incendios; la gota es gratis, de una sola casilla y suma 1 de humedad, para que el total se pueda verificar a ojo |
+| Resumen al volver (nivel 2) | Lo que hicieron los **aspersores** de un jugador desde su última acción aplicada: casillas que crecieron, hojas ganadas con ellas, humedad entregada (agua reutilizada) y fuegos que apagaron. Lo calcula Rust, va en la instantánea del jugador solo si no está vacío y el hub lo manda en el primer estado de cada conexión; el cliente lo muestra como «Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio». Lo borra su siguiente acción aplicada, no la conexión: si vuelve y no actúa, lo vuelve a ver. El goteo y la planta de tratamiento no cuentan: no hacen crecer casillas ni apagan fuegos, y su efecto ya está en los contadores de las 3R del reporte |
 | **Si da tiempo** | Que el fuego salte a las casillas vecinas. Las obras comunitarias. El resumen al volver. El árbol de mejoras completo. Nuevos biomas. Todo está en el nivel 2 del plan de trabajo |
 
 Estas reglas generan concurrencia real, estado compartido y necesidad de consistencia: las tres cosas que se evalúan. **Una vez acordadas, se congelan.** Cada cambio posterior arrastra requisitos, contratos y código de cuatro personas.
@@ -759,7 +760,7 @@ El modelo autoritativo trae dos preguntas que hay que responder y que el modelo 
 
 | Pregunta | Respuesta propuesta |
 | --- | --- |
-| ¿Qué pasa con el progreso de un jugador mientras está desconectado? | Sus aspersores siguen regando durante 2 horas, porque viven en el mundo y no en el navegador. Al volver ve el estado actual del valle (y, si da tiempo, un resumen de lo que pasó), y con su primera acción vuelven a arrancar |
+| ¿Qué pasa con el progreso de un jugador mientras está desconectado? | Sus aspersores siguen regando durante 2 horas, porque viven en el mundo y no en el navegador. Al volver ve el estado actual del valle y un resumen de lo que hicieron sus aspersores (D-01, nivel 2), y con su primera acción vuelven a arrancar |
 | ¿Cuántas veces por segundo avanza el mundo? | Diez pasos por segundo en el simulador; el cliente recibe actualizaciones agregadas cada segundo |
 
 Y trae una ventaja para la demo que vale la pena aprovechar: **se puede mostrar el mundo degradándose sin jugadores y recuperándose cuando entran.** Es la prueba visible de que el estado vive en el servidor y no en el navegador.

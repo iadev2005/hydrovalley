@@ -553,6 +553,10 @@ impl World {
     /// el bono es de quien suelta la tercera gota, y el aspersor no cuenta
     /// gotas. Si el fuego tenía crecimiento pendiente, se resuelve ahí y las
     /// hojas son del dueño, como con cualquier riego.
+    ///
+    /// Lo que hace cada aspersor se suma además al resumen al volver de su
+    /// dueño (RF-25) y a sus acumulados de la época. Una casilla cuenta una
+    /// vez por riego aunque suba en las dos fases (riego y apagado).
     fn run_sprinklers(&mut self, tick: u64) {
         let rules = &self.catalog.sprinkler;
         let interval = u64::from(rules.interval_seconds).saturating_mul(TICKS_PER_SECOND);
