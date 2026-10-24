@@ -293,3 +293,39 @@ Después de la prueba de humo, `run.sh` corre `tests/e2e/faults.test.mjs` (CP-05
 Cada caso imprime una línea `MEDICION …` con los tiempos y los valores medidos. Los jugadores son el administrador efímero (inicio de sesión), para no gastar los 5 registros por IP de la prueba de humo; CP-06, CP-07 y CP-12 usan el modo demo (la gota es gratis y suma exactamente 1 a la humedad aportada) y lo apagan al terminar. Se hacen solo dos accesos por caso (durante el fallo y tras volver) para no agotar el limitador de acceso.
 
 `E2E_SKIP_FAULTS=1 tests/e2e/run.sh` los omite. La lógica pura del arnés (`tests/e2e/faults.mjs`) se prueba sin el stack: `node --test tests/e2e/faults.unit.test.mjs`. Cada caso tarda entre 12 y 28 s (los fallos completos, unos 3 min); el CI no necesita más de los 45 min que ya tiene el job.
+
+## Monitorización: Prometheus y Grafana (Nivel 2, B7)
+
+Los servicios de monitorización profesional (`prometheus` y `grafana`) se encuentran en `deploy/compose.yml` bajo el perfil **`monitoring`**, de modo que el `docker compose up` regular no los inicia a menos que se invoque explícitamente dicho perfil.
+
+### Puesta en marcha
+
+Con el juego ya levantado (o al levantarlo en conjunto):
+
+```bash
+docker compose -f deploy/compose.yml --profile monitoring up -d
+```
+
+### Puertos y accesos
+
+| Herramienta | URL por defecto | Variable de entorno en `.env` | Credenciales |
+| --- | --- | --- | --- |
+| **Grafana** | `http://localhost:3001` | `HV_GRAFANA_PORT=3001` | **Sin contraseña** (acceso anónimo como Admin activado) |
+| **Prometheus** | `http://localhost:9090` | `HV_PROMETHEUS_PORT=9090` | Sin autenticación (red interna/laboratorio) |
+
+### Tablero preaprovisionado
+
+Grafana carga automáticamente el origen de datos Prometheus (`http://prometheus:9090`) y el tablero versionado desde `deploy/monitoring/grafana/dashboards/hydrovalley-overview.json`.
+
+El tablero refleja con fidelidad idéntica todas las secciones del panel mínimo (`/sistema.html`) sumando la profundidad de las series temporales:
+1. **Estado de los Servicios:** Disponibilidad instantánea e histórica de Nginx, API, Hub, World y Persistencia.
+2. **Concurrencia y Sesiones:** Sesiones activas, goroutines del hub y tamaño de la cola de comandos en el tiempo.
+3. **Rendimiento de Acciones:** Tasas por segundo (admitidas vs. aplicadas) y curvas de latencia de acción (p50 y p95).
+4. **Simulador y Ciclo de Tick:** Avance del tick, estado del *Circuit Breaker*, indicador de pausa y duración de `WorldService.Step` frente al umbral crítico de 200 ms.
+5. **Ecología del Valle:** Humedad total, humedad aportada acumulada vs. gotas aceptadas (verificación del modo demo) y curva de incendios activos.
+
+### Detener la monitorización
+
+```bash
+docker compose -f deploy/compose.yml --profile monitoring stop
+```

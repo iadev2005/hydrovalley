@@ -163,6 +163,7 @@ func (h *Hub) stepSucceededLocked(batch []queued, resp *worldv1.StepResponse) {
 		switch status {
 		case worldv1.CommandStatus_COMMAND_STATUS_APPLIED:
 			h.appliedRate.Add(now)
+			h.appliedTotal.Add(1)
 			h.confirmLocked(playerID, actionID, h.tick)
 			if batch[i].isDrop() { // los comandos de administración no son gotas
 				h.ledger[h.tick]++

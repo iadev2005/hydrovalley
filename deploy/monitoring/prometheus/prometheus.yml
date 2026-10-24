@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: 'hub'
+    honor_labels: true
+    static_configs:
+      - targets: ['hub:8081']
+
+  - job_name: 'api'
+    honor_labels: true
+    static_configs:
+      - targets: ['api:3000']
+
