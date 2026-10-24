@@ -217,6 +217,47 @@ def fires():
     s.write()
 
 
+def fire_spread():
+    s = Scenario(
+        "08-propagacion",
+        "Propagación del fuego (B3): ignición baja (200 ppm) y propagación alta (150.000 ppm por casilla elegible con "
+        "vecina ardiendo y tick), semilla 31. Tres jugadores plantan un campo denso de 12 x 6 casillas y dos "
+        "esquinas del valle (0, 0) y (31, 31), con gotas de 40 de humedad que dejan cada planta en pasto seco; el "
+        "marchitamiento queda lejos para que no pase a tierra seca y los fuegos se consumen en 60 ticks. Cubre un "
+        "sorteo por casilla elegible con vecina ardiendo (orden por filas, antes de la ignición), la 4-vecindad "
+        "ortogonal sin diagonales ni desbordes en los bordes, el avance de un solo paso por tick, fuegos apagados con "
+        "tres gotas en pleno avance, un aspersor cuya humedad deja fuera del fuego a su zona y una restauración con "
+        "el frente encendido.",
+        31, 400,
+        catalog_set={
+            "rules.fire.ignition_chance_ppm": 200,
+            "rules.fire.propagation_chance_ppm": 150000,
+            "rules.fire.burn_out_ticks": 60,
+            "rules.drop.humidity_points": 40,
+            "rules.growth.humidity_per_stage_points": 40,
+            "rules.evaporation.wither_after_ticks": 100000,
+            "rules.tank.capacity_liters": 200,
+            "rules.tank.refill_liters": 5,
+            "installations.sprinkler.price_leaves": 1,
+        },
+        restore_at=[200])
+    owners = ["ana", "beto", "caro"]
+    field = [(x, y) for y in range(10, 16) for x in range(10, 22)]
+    corners = [(0, 0), (1, 0), (0, 1), (31, 31), (30, 31), (31, 30)]
+    for i, (x, y) in enumerate(field + corners):
+        s.drop(1 + i // 12, owners[i % 3], x, y)
+    s.place(10, "ana", "sprinkler", 11, 11)
+    # Tres gotas seguidas de un mismo jugador sobre una casilla del campo: si
+    # arde, la apagan (con su bono); si no, la humedecen y la hacen crecer.
+    for tick in range(150, 260):
+        for player in owners:
+            if s.rng.chance(6):
+                x, y = 10 + s.rng.below(12), 10 + s.rng.below(6)
+                for _ in range(3):
+                    s.drop(tick, player, x, y)
+    s.write()
+
+
 def demo_and_resets():
     after = {
         "file": "catalog/catalog.json",
@@ -562,3 +603,4 @@ if __name__ == "__main__":
     custom_figures()
     restores_with_fire()
     extreme_figures()
+    fire_spread()

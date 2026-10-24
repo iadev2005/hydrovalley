@@ -129,6 +129,7 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
             extinguish_bonus_leaves: fire.extinguish_bonus_leaves,
             burn_out_ticks: fire.burn_out_ticks,
             ignition_chance_ppm: fire.ignition_chance_ppm,
+            propagation_chance_ppm: fire.propagation_chance_ppm,
         },
         sprinkler: dc::SprinklerRules {
             price: sprinkler.price,
@@ -975,6 +976,7 @@ mod tests {
                 extinguish_bonus_leaves: c.fire.extinguish_bonus_leaves,
                 burn_out_ticks: c.fire.burn_out_ticks,
                 ignition_chance_ppm: c.fire.ignition_chance_ppm,
+                propagation_chance_ppm: c.fire.propagation_chance_ppm,
             }),
             sprinkler: Some(p::SprinklerRules {
                 price: c.sprinkler.price,
@@ -1021,9 +1023,11 @@ mod tests {
     fn the_ignition_chance_and_changed_figures_are_carried_over() {
         let mut message = d01_message();
         message.fire.as_mut().unwrap().ignition_chance_ppm = 500;
+        message.fire.as_mut().unwrap().propagation_chance_ppm = 1500;
         message.sprinkler.as_mut().unwrap().price = 12;
         let catalog = catalog_from_proto(message).unwrap();
         assert_eq!(catalog.fire.ignition_chance_ppm, 500);
+        assert_eq!(catalog.fire.propagation_chance_ppm, 1500);
         assert_eq!(catalog.sprinkler.price, 12);
     }
 

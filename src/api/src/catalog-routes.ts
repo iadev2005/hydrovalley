@@ -78,6 +78,7 @@ const catalogSchema = group("Catálogo del juego", {
     extinguish_bonus_leaves: u64("Hojas para quien suelta la última gota"),
     burn_out_ticks: u32("Ticks hasta que un incendio sin atender se consume"),
     ignition_chance_ppm: u32("Probabilidad por tick de que arda una casilla seca con planta, en partes por millón"),
+    propagation_chance_ppm: u32("Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por millón"),
   }),
   sprinkler: group("Aspersor de agua gris (Reutilizar)", {
     price: u64("Precio del primero, en hojas"),

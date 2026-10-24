@@ -8,7 +8,8 @@
 use super::catalog::FireRules;
 use super::tile::{Fire, Tile, TileStage};
 
-/// ¿Puede arder? Casilla con planta, sin humedad y que no arde ya.
+/// ¿Puede arder? Casilla con planta, sin humedad y que no arde ya. Sirve igual
+/// para la ignición al azar y para la propagación a vecinas.
 pub fn is_eligible(tile: &Tile) -> bool {
     tile.stage != TileStage::DrySoil && tile.humidity == 0 && tile.fire.is_none()
 }

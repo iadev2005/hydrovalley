@@ -239,6 +239,7 @@ func catalogMessage(t *testing.T, doc map[string]any, version string) *persisten
 			ExtinguishBonusLeaves: n("rules.fire.extinguish_bonus_leaves"),
 			BurnOutTicks:          n32("rules.fire.burn_out_ticks"),
 			IgnitionChancePpm:     n32("rules.fire.ignition_chance_ppm"),
+			PropagationChancePpm:  n32("rules.fire.propagation_chance_ppm"),
 		},
 		Sprinkler: &persistencev1.SprinklerRules{
 			Price:           n("installations.sprinkler.price_leaves"),
