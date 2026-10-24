@@ -594,6 +594,52 @@ def extreme_figures():
     s.write()
 
 
+def offline_summary():
+    s = Scenario(
+        "09-resumen-offline",
+        "Resumen al volver (B6, RF-25): ignición alta (30.000 ppm por casilla seca con planta y tick), marchitamiento "
+        "lejano e instalaciones que solo trabajan 20 s tras la última acción de su dueño, semilla 55. Ana planta un "
+        "bloque de 3 x 3 casillas, coloca un aspersor en el centro (tick 10) y se ausenta: el aspersor apaga los fuegos "
+        "que prenden en su zona antes del primer riego, hace crecer las casillas y se para a los 200 ticks, con su "
+        "resumen sin borrar. Caro hace lo mismo en otra esquina, pero vuelve con una gota en el tick 250, que borra su "
+        "resumen y reactiva su aspersor. Beto sigue activo todo el guion con goteo, planta de tratamiento y un "
+        "aspersor sin fuegos que apagar: sus acumulados no cuentan fuegos y su resumen se borra con cada acción. "
+        "Cubre la acumulación y el borrado del resumen, el acumulado de la época, el aspersor que se para y se "
+        "reactiva, que el goteo y la planta no aportan al resumen, y su ida y vuelta por la instantánea (dos "
+        "restauraciones).",
+        55, 500,
+        catalog_set={
+            "rules.fire.ignition_chance_ppm": 30000,
+            "rules.fire.propagation_chance_ppm": 0,
+            "rules.evaporation.wither_after_ticks": 100000,
+            "rules.offline_installation_seconds": 20,
+            "rules.tank.capacity_liters": 80,
+            "rules.tank.refill_liters": 4,
+            "installations.sprinkler.price_leaves": 4,
+            "installations.drip.price_leaves": 4,
+            "installations.treatment_plant.price_leaves": 4,
+        },
+        restore_at=[150, 300])
+    blocks = {"ana": (10, 10), "caro": (20, 20), "beto": (4, 24)}
+    for tick, owner in enumerate(["ana", "caro", "beto"], start=1):
+        x0, y0 = blocks[owner]
+        for dx in range(3):
+            for dy in range(3):
+                for _ in range(4):  # cuatro gotas de 25 = una etapa; queda en pasto seco
+                    s.drop(tick, owner, x0 + dx, y0 + dy)
+    s.place(10, "ana", "sprinkler", 11, 11)
+    s.place(11, "caro", "sprinkler", 21, 21)
+    s.place(12, "beto", "drip", 5, 25)
+    s.place(13, "beto", "treatment_plant", 0, 31)
+    s.place(14, "beto", "sprinkler", 31, 0)
+    # Beto actúa cada 15 ticks durante todo el guion; Ana no vuelve; Caro vuelve en el 250.
+    for tick in range(20, 500, 15):
+        s.drop(tick, "beto", 4 + s.rng.below(3), 24 + s.rng.below(3))
+    s.drop(250, "caro", 20, 20)
+    s.drop(420, "caro", 22, 22)
+    s.write()
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     real_catalog()
@@ -604,3 +650,4 @@ if __name__ == "__main__":
     restores_with_fire()
     extreme_figures()
     fire_spread()
+    offline_summary()
