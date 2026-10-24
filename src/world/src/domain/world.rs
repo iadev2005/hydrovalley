@@ -659,9 +659,10 @@ impl World {
     /// Propagación del fuego a casillas vecinas (nivel 2, Tarea B3).
     ///
     /// Recorre las casillas por filas. Para cada casilla elegible (con planta,
-    /// humedad dentro de su umbral y sin fuego) que tenga al menos una vecina
-    /// ortogonal que ya estuviera ardiendo al inicio de la fase, realiza un
-    /// sorteo con `fire.propagation_chance_ppm`. Si sale, la casilla se enciende.
+    /// humedad 0 y sin fuego) que tenga al menos una vecina ortogonal que ya
+    /// estuviera ardiendo al inicio de la fase, hace un sorteo con
+    /// `fire.propagation_chance_ppm`. Si sale, la casilla se enciende. Solo
+    /// gasta un número la casilla elegible con vecina en llamas.
     /// Solo propaga desde los incendios que ya ardían al entrar al paso,
     /// evitando cascadas instantáneas en un mismo tick.
     fn propagate_fires(&mut self) {

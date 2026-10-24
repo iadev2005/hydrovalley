@@ -266,6 +266,7 @@ pub fn catalog_message(doc: &Json, version: &str) -> persistence_pb::Catalog {
             extinguish_bonus_leaves: n("rules.fire.extinguish_bonus_leaves"),
             burn_out_ticks: n32("rules.fire.burn_out_ticks"),
             ignition_chance_ppm: n32("rules.fire.ignition_chance_ppm"),
+            propagation_chance_ppm: n32("rules.fire.propagation_chance_ppm"),
         }),
         sprinkler: Some(p::SprinklerRules {
             price: n("installations.sprinkler.price_leaves"),

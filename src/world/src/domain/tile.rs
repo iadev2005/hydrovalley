@@ -33,21 +33,6 @@ impl TileStage {
             Self::Tree => Some(Self::Flowers),
         }
     }
-
-    /// ¿Es combustible esta etapa o tipo de casilla?
-    /// Tierra seca (suelo mineral) no arde; pasto, arbusto, flores y árbol sí.
-    pub fn is_flammable(self) -> bool {
-        match self {
-            Self::DrySoil => false,
-            Self::Grass | Self::Shrub | Self::Flowers | Self::Tree => true,
-        }
-    }
-
-    /// Umbral máximo de humedad hasta el cual puede arder.
-    /// Con las reglas actuales es 0 (requiere estar completamente seca).
-    pub fn flammability_humidity_threshold(self) -> u64 {
-        0
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,13 +68,4 @@ pub struct Tile {
     pub dry_ticks: u32,
     pub fire: Option<Fire>,
     pub installation: Option<Installation>,
-}
-
-impl Tile {
-    /// ¿Actúa la casilla o su instalación como cortafuegos activo que detiene
-    /// el fuego? Preparado para futuras obras comunitarias (estanque de RF-26)
-    /// o barreras de terreno.
-    pub fn is_firebreak(&self) -> bool {
-        false
-    }
 }
