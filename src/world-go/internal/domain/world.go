@@ -186,6 +186,7 @@ func (w *World) apply(command *Command, tick uint64) CommandOutcome {
 		// El comando aplicado ya dio de alta al jugador si era nuevo.
 		slot := w.playerSlot(command.PlayerID)
 		slot.record.LastActionTick = tick
+		slot.record.OfflineSummary = OfflineSummary{}
 		slot.record.RecentActions = append(slot.record.RecentActions, AppliedAction{
 			ActionID: command.ActionID,
 			Tick:     tick,
