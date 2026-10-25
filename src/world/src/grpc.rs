@@ -30,8 +30,12 @@ impl<S: PersistenceStore> WorldGrpc<S> {
         &self,
         request: Request<pb::StepRequest>,
     ) -> Result<Response<pb::StepResponse>, Status> {
-        let commands: Vec<_> = request
-            .into_inner()
+        let inner = request.into_inner();
+        let min_expected_tick = inner.min_expected_tick;
+        self.simulator
+            .ensure_active_and_fresh(min_expected_tick)
+            .map_err(|_| Status::unavailable("el simulador todavía está cargando el mundo"))?;
+        let commands: Vec<_> = inner
             .commands
             .into_iter()
             .map(codec::command_from_proto)
@@ -53,7 +57,7 @@ impl<S: PersistenceStore> WorldGrpc<S> {
                 .map(codec::result_to_proto)
                 .collect(),
             state: Some(report.view),
-            boot_id: self.simulator.boot_id().to_string(),
+            boot_id: report.boot_id,
         }))
     }
 }
@@ -195,6 +199,8 @@ mod tests {
                 player_id: ANA.to_string(),
                 kind: Some(pb::command::Kind::Drop(pb::DropCommand { x: 0, y: 0 })),
             }],
+            hub_generation: 0,
+            min_expected_tick: 0,
         });
         if let Some(id) = id {
             crate::request_id::tag(&mut request, id);

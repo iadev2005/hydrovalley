@@ -4,6 +4,17 @@ use std::net::SocketAddr;
 
 pub const DEFAULT_LISTEN: &str = "0.0.0.0:50051";
 
+/// Modo de arranque del simulador (`WORLD_MODE`, B8 W2):
+/// - `Active`: carga catálogo e instantánea al arrancar el proceso.
+/// - `Standby`: arranca en espera sin cargar la instantánea hasta recibir su
+///   primer `Step` de promoción (evita quedar con un `tick` viejo).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorldMode {
+    #[default]
+    Active,
+    Standby,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// `WORLD_LISTEN`: dirección y puerto del gRPC.
@@ -13,6 +24,8 @@ pub struct Config {
     /// `WORLD_SEED` (u64): semilla del azar de los incendios cuando el valle
     /// empieza de cero. Sin ella se deriva de la hora de arranque.
     pub world_seed: Option<u64>,
+    /// `WORLD_MODE` (`active` o `standby`; por defecto `active`).
+    pub mode: WorldMode,
 }
 
 /// Semilla derivada de la hora de arranque, para cuando no hay `WORLD_SEED`.
@@ -76,10 +89,22 @@ impl Config {
                 })
             })
             .transpose()?;
+        let mode = match read("WORLD_MODE").as_deref() {
+            None => WorldMode::Active,
+            Some(text) if text.eq_ignore_ascii_case("active") => WorldMode::Active,
+            Some(text) if text.eq_ignore_ascii_case("standby") => WorldMode::Standby,
+            Some(text) => {
+                return Err(ConfigError::Invalid {
+                    name: "WORLD_MODE",
+                    value: text.to_string(),
+                });
+            }
+        };
         Ok(Self {
             listen,
             persistence_addr,
             world_seed,
+            mode,
         })
     }
 }
@@ -181,6 +206,30 @@ mod tests {
             ConfigError::Invalid {
                 name: "WORLD_LISTEN",
                 value: "world:50051".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn world_mode_defaults_to_active_and_accepts_standby() {
+        let base = [("PERSISTENCE_ADDR", "persistence:50051")];
+        assert_eq!(
+            Config::from_lookup(env(&base)).unwrap().mode,
+            WorldMode::Active
+        );
+        let with = |value| {
+            Config::from_lookup(env(&[
+                ("PERSISTENCE_ADDR", "persistence:50051"),
+                ("WORLD_MODE", value),
+            ]))
+        };
+        assert_eq!(with("active").unwrap().mode, WorldMode::Active);
+        assert_eq!(with("STANDBY").unwrap().mode, WorldMode::Standby);
+        assert_eq!(
+            with("invalid").unwrap_err(),
+            ConfigError::Invalid {
+                name: "WORLD_MODE",
+                value: "invalid".to_string()
             }
         );
     }

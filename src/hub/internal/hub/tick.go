@@ -36,6 +36,7 @@ func (h *Hub) Tick(ctx context.Context) {
 	batch := slices.Clone(h.queue[:n])
 	h.queue = slices.Delete(h.queue, 0, n)
 	stepID := stepRequestID(h.tick)
+	minExpectedTick := h.tick
 	h.mu.Unlock()
 
 	cmds := make([]*worldv1.Command, len(batch))
@@ -46,7 +47,10 @@ func (h *Hub) Tick(ctx context.Context) {
 	// RNF-07: el mismo id en el hub y en el simulador para este Step.
 	stepCtx = metadata.AppendToOutgoingContext(stepCtx, requestIDKey, stepID)
 	stepStart := h.clock.Now()
-	resp, err := h.world.Step(stepCtx, &worldv1.StepRequest{Commands: cmds})
+	resp, err := h.world.Step(stepCtx, &worldv1.StepRequest{
+		Commands:        cmds,
+		MinExpectedTick: minExpectedTick,
+	})
 	cancel()
 	stepEnd := h.clock.Now()
 	h.stepTimes.Add(stepEnd, stepEnd.Sub(stepStart))

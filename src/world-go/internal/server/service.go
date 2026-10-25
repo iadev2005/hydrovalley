@@ -35,6 +35,11 @@ func notReady() error {
 // Step no escribe nada.
 func (s *service) Step(ctx context.Context, request *worldv1.StepRequest) (*worldv1.StepResponse, error) {
 	id := requestid.FromContext(ctx)
+	if err := s.sim.EnsureActiveAndFresh(request.GetMinExpectedTick()); errors.Is(err, simulator.ErrNotReady) {
+		return nil, notReady()
+	} else if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 	commands := make([]domain.Command, len(request.GetCommands()))
 	for i, command := range request.GetCommands() {
 		commands[i] = codec.CommandFromProto(command)
@@ -59,7 +64,7 @@ func (s *service) Step(ctx context.Context, request *worldv1.StepRequest) (*worl
 		RestoredTick: report.RestoredTick,
 		Results:      results,
 		State:        state,
-		BootId:       s.sim.BootID(),
+		BootId:       report.BootID,
 	}, nil
 }
 

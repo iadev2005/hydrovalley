@@ -49,23 +49,29 @@ pub struct NotReady;
 pub struct StepReport<R> {
     pub outcome: StepOutcome,
     pub restored_tick: u64,
+    pub boot_id: String,
     pub view: R,
 }
 
 enum State {
+    /// En espera (`WORLD_MODE=standby`): no carga la instantánea hasta recibir
+    /// el primer `Step` de promoción (B8 W2).
+    Standby,
     Loading,
     // En el montón: el mundo lleva el catálogo y es mucho mayor que `Loading`.
     Ready {
         world: Box<World>,
         restored_tick: u64,
+        boot_id: String,
     },
 }
 
 pub struct Simulator<S> {
-    boot_id: String,
+    initial_boot_id: String,
     /// Semilla del generador de azar cuando el valle empieza de cero. Si hay
     /// instantánea manda el estado guardado en ella, no esta semilla.
     seed: u64,
+    load_backoff: Backoff,
     store: Arc<S>,
     state: Mutex<State>,
     /// Hay un guardado en curso (como mucho uno).
@@ -73,6 +79,9 @@ pub struct Simulator<S> {
     /// Tick de la última instantánea que está en la persistencia (la
     /// cargada al arrancar o la última guardada con éxito).
     saved_tick: Arc<AtomicU64>,
+    /// Época interna de memoria para descartar guardados en vuelo previos a
+    /// una recarga por despausado (`min_expected_tick`).
+    epoch: Arc<AtomicU64>,
 }
 
 /// Plazo para volver a pedir el catálogo al reiniciar el valle. Es la mitad
@@ -86,23 +95,89 @@ const SAVE_POLL: Duration = Duration::from_millis(10);
 
 impl<S: PersistenceStore> Simulator<S> {
     pub fn new(store: Arc<S>, seed: u64) -> Self {
+        Self::with_state(store, seed, Backoff::default(), State::Loading)
+    }
+
+    pub fn new_standby(store: Arc<S>, seed: u64, load_backoff: Backoff) -> Self {
+        Self::with_state(store, seed, load_backoff, State::Standby)
+    }
+
+    fn with_state(store: Arc<S>, seed: u64, load_backoff: Backoff, initial: State) -> Self {
         Self {
-            boot_id: Uuid::new_v4().to_string(),
+            initial_boot_id: Uuid::new_v4().to_string(),
             seed,
+            load_backoff,
             store,
-            state: Mutex::new(State::Loading),
+            state: Mutex::new(initial),
             saving: Arc::new(AtomicBool::new(false)),
             saved_tick: Arc::new(AtomicU64::new(0)),
+            epoch: Arc::new(AtomicU64::new(1)),
         }
     }
 
-    /// UUID v4 generado al crear el simulador; va en todas las respuestas.
-    pub fn boot_id(&self) -> &str {
-        &self.boot_id
+    /// UUID v4 actual del simulador; se rota si el contenedor estuvo pausado
+    /// y recarga desde persistencia al despausarse (D-B8-1 / D-B8-2).
+    pub fn boot_id(&self) -> String {
+        match &*self.lock() {
+            State::Ready { boot_id, .. } => boot_id.clone(),
+            _ => self.initial_boot_id.clone(),
+        }
     }
 
     pub fn is_ready(&self) -> bool {
         matches!(*self.lock(), State::Ready { .. })
+    }
+
+    pub fn is_standby(&self) -> bool {
+        matches!(*self.lock(), State::Standby)
+    }
+
+    /// Si el simulador está en `Standby` o si su `tick` en memoria quedó por
+    /// debajo de `min_expected_tick` (contenedor despausado tras un relevo, o
+    /// regreso `world-go → Rust`), invalida su estado en memoria, lanza la
+    /// carga de la última instantánea en segundo plano con un nuevo `boot_id`
+    /// y devuelve `Err(NotReady)` para que `Step` responda `UNAVAILABLE` hasta
+    /// completar la recarga.
+    pub fn ensure_active_and_fresh(
+        self: &Arc<Self>,
+        min_expected_tick: u64,
+    ) -> Result<(), NotReady> {
+        let mut state = self.lock();
+        match &*state {
+            State::Standby => {
+                tracing::info!(
+                    min_expected_tick,
+                    "promoción de simulador standby: iniciando carga de instantánea"
+                );
+                *state = State::Loading;
+                self.spawn_background_load(true);
+                Err(NotReady)
+            }
+            State::Loading => Err(NotReady),
+            State::Ready { world, .. } if min_expected_tick > world.tick() => {
+                tracing::warn!(
+                    local_tick = world.tick(),
+                    min_expected_tick,
+                    "estado en memoria desfasado tras pausa o relevo: descartando mundo y recargando instantánea"
+                );
+                self.epoch.fetch_add(1, Ordering::AcqRel);
+                *state = State::Loading;
+                self.spawn_background_load(true);
+                Err(NotReady)
+            }
+            State::Ready { .. } => Ok(()),
+        }
+    }
+
+    fn spawn_background_load(self: &Arc<Self>, rotate_boot_id: bool) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let sim = Arc::clone(self);
+        let backoff = self.load_backoff;
+        runtime.spawn(async move {
+            sim.load_inner(backoff, rotate_boot_id).await;
+        });
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -140,6 +215,10 @@ impl<S: PersistenceStore> Simulator<S> {
     /// tick nunca retrocede. El mundo aplica el catálogo vigente, también
     /// si la instantánea se tomó con otra versión.
     pub async fn load(&self, backoff: Backoff) {
+        self.load_inner(backoff, false).await;
+    }
+
+    async fn load_inner(&self, backoff: Backoff, rotate_boot_id: bool) {
         let catalog = self.fetch_catalog(backoff).await;
         let mut delay = backoff.initial;
         let (world, restored_tick) = loop {
@@ -182,9 +261,15 @@ impl<S: PersistenceStore> Simulator<S> {
         let mut state = self.lock();
         if matches!(*state, State::Loading) {
             self.saved_tick.store(restored_tick, Ordering::Release);
+            let boot_id = if rotate_boot_id {
+                Uuid::new_v4().to_string()
+            } else {
+                self.initial_boot_id.clone()
+            };
             *state = State::Ready {
                 world: Box::new(world),
                 restored_tick,
+                boot_id,
             };
         }
     }
@@ -251,6 +336,7 @@ impl<S: PersistenceStore> Simulator<S> {
         let State::Ready {
             world,
             restored_tick,
+            boot_id,
         } = &mut *state
         else {
             return Err(NotReady);
@@ -262,6 +348,7 @@ impl<S: PersistenceStore> Simulator<S> {
         Ok(StepReport {
             outcome,
             restored_tick: *restored_tick,
+            boot_id: boot_id.clone(),
             view: view(world),
         })
     }
@@ -289,9 +376,14 @@ impl<S: PersistenceStore> Simulator<S> {
         let store = Arc::clone(&self.store);
         let saving = Arc::clone(&self.saving);
         let saved_tick = Arc::clone(&self.saved_tick);
+        let epoch_ref = Arc::clone(&self.epoch);
+        let expected_epoch = epoch_ref.load(Ordering::Acquire);
         runtime.spawn(async move {
             // Libera el turno al terminar, también si la tarea entra en pánico.
             let _turn = SavingTurn(saving);
+            if epoch_ref.load(Ordering::Acquire) != expected_epoch {
+                return;
+            }
             save_copy(store.as_ref(), &saved_tick, &copy).await;
         });
     }
@@ -486,7 +578,7 @@ mod tests {
         let store = Arc::new(FakeStore::default());
         let a = Simulator::new(store.clone(), 0);
         let b = Simulator::new(store, 0);
-        let parsed = Uuid::parse_str(a.boot_id()).unwrap();
+        let parsed = Uuid::parse_str(&a.boot_id()).unwrap();
         assert_eq!(parsed.get_version_num(), 4);
         assert_ne!(a.boot_id(), b.boot_id());
     }
@@ -884,6 +976,7 @@ mod tests {
         *simulator.state.lock().unwrap() = State::Ready {
             world: Box::new(World::with_seed(Catalog::d01(), 0)),
             restored_tick: 0,
+            boot_id: simulator.boot_id(),
         };
         // Con el reloj en pausa, Tokio lo adelanta solo al quedar inactivo:
         // el tiempo transcurrido es exactamente el plazo.
@@ -929,5 +1022,51 @@ mod tests {
             CommandOutcome::Rejected(_)
         ));
         assert_eq!(report.view, Catalog::D01_VERSION);
+    }
+
+    #[tokio::test]
+    async fn standby_mode_does_not_load_snapshot_until_first_step_promotion() {
+        let store = Arc::new(FakeStore::with_loads(vec![Ok(Some(snapshot_at(200)))]));
+        let simulator = Arc::new(Simulator::new_standby(store.clone(), 0, fast()));
+        assert!(simulator.is_standby());
+        assert!(!simulator.is_ready());
+        assert_eq!(store.load_calls.load(Ordering::SeqCst), 0);
+
+        // El primer intento promueve Standby -> Loading y devuelve NotReady.
+        assert_eq!(simulator.ensure_active_and_fresh(0), Err(NotReady));
+        eventually("promoción de standby completada", || simulator.is_ready()).await;
+        assert_eq!(store.load_calls.load(Ordering::SeqCst), 1);
+
+        let report = simulator.step(&[], |_| ()).unwrap();
+        assert_eq!(report.restored_tick, 200);
+        assert_eq!(report.outcome.tick, 201);
+    }
+
+    #[tokio::test]
+    async fn min_expected_tick_higher_than_local_tick_forces_reload_and_rotates_boot_id() {
+        let store = Arc::new(FakeStore::with_loads(vec![
+            Ok(Some(snapshot_at(100))),
+            Ok(Some(snapshot_at(250))),
+        ]));
+        let simulator = Arc::new(Simulator::new(store.clone(), 0));
+        simulator.load(fast()).await;
+
+        let first = simulator.step(&[], |_| ()).unwrap();
+        assert_eq!(first.outcome.tick, 101);
+        let original_boot_id = first.boot_id.clone();
+
+        // El contenedor estuvo en pausa mientras otro simulador (world-go)
+        // avanzó hasta el tick 260 y guardó la instantánea del tick 250.
+        assert_eq!(simulator.ensure_active_and_fresh(260), Err(NotReady));
+        eventually("recarga tras despausado completada", || {
+            simulator.is_ready()
+        })
+        .await;
+
+        assert_eq!(simulator.ensure_active_and_fresh(250), Ok(()));
+        let resumed = simulator.step(&[], |_| ()).unwrap();
+        assert_eq!(resumed.restored_tick, 250);
+        assert_eq!(resumed.outcome.tick, 251);
+        assert_ne!(resumed.boot_id, original_boot_id);
     }
 }

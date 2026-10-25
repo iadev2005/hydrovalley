@@ -715,3 +715,73 @@ func TestConcurrentStepsNeverOverlap(t *testing.T) {
 		t.Fatalf("tick %d, quiero 161 (cada Step avanza uno)", report.Outcome.Tick)
 	}
 }
+
+func TestStandbyModeDoesNotLoadSnapshotUntilFirstStepPromotion(t *testing.T) {
+	st := &fakeStore{t: t, loads: []result[*persistencev1.Snapshot]{found(snapshotAt(t, 200))}}
+	s := New(st, Options{Seed: 0, Standby: true, Backoff: fast()})
+	t.Cleanup(func() { s.Shutdown(100 * time.Millisecond) })
+
+	if !s.IsStandby() || s.IsReady() {
+		t.Fatalf("debe arrancar en standby y no listo: standby=%v ready=%v", s.IsStandby(), s.IsReady())
+	}
+	if n := st.loadCalls.Load(); n != 0 {
+		t.Fatalf("no debe llamar a LoadSnapshot en standby: %d llamadas", n)
+	}
+
+	// El primer intento promueve Standby -> Loading y devuelve ErrNotReady.
+	if err := s.EnsureActiveAndFresh(0); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("EnsureActiveAndFresh en standby debe devolver ErrNotReady, dio %v", err)
+	}
+	eventually(t, "promoción de standby completada", s.IsReady)
+	if n := st.loadCalls.Load(); n != 1 {
+		t.Fatalf("LoadSnapshot tras promoción = %d, quiero 1", n)
+	}
+
+	report, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredTick != 200 || report.Outcome.Tick != 201 {
+		t.Fatalf("restored=%d tick=%d, quiero 200 y 201", report.RestoredTick, report.Outcome.Tick)
+	}
+}
+
+func TestMinExpectedTickHigherThanLocalTickForcesReloadAndRotatesBootID(t *testing.T) {
+	st := &fakeStore{
+		t: t,
+		loads: []result[*persistencev1.Snapshot]{
+			found(snapshotAt(t, 100)),
+			found(snapshotAt(t, 250)),
+		},
+	}
+	s := ready(t, st)
+	first, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Outcome.Tick != 101 {
+		t.Fatalf("tick = %d, quiero 101", first.Outcome.Tick)
+	}
+	originalBootID := first.BootID
+
+	// Estuvo pausado mientras otro simulador avanzó hasta el tick 260 y guardó
+	// la instantánea del tick 250.
+	if err := s.EnsureActiveAndFresh(260); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("EnsureActiveAndFresh(260) = %v, quiero ErrNotReady", err)
+	}
+	eventually(t, "recarga tras despausado completada", s.IsReady)
+
+	if err := s.EnsureActiveAndFresh(250); err != nil {
+		t.Fatalf("EnsureActiveAndFresh(250) tras recarga = %v", err)
+	}
+	resumed, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.RestoredTick != 250 || resumed.Outcome.Tick != 251 {
+		t.Fatalf("restored=%d tick=%d, quiero 250 y 251", resumed.RestoredTick, resumed.Outcome.Tick)
+	}
+	if resumed.BootID == originalBootID {
+		t.Fatalf("boot_id no rotó tras recarga: %q", resumed.BootID)
+	}
+}
