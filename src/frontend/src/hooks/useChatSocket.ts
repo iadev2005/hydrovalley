@@ -11,14 +11,19 @@ import {
 } from "../logic/chat.ts";
 import {
   AUTH_CLOSE_CODE,
+  createEndpointRotator,
   createReconnectBackoff,
   type ConnectionStatus,
+  type EndpointRotator,
 } from "../logic/play.ts";
+import { sharedEndpointRotator } from "./browserFetch.ts";
 
 export interface UseChatSocketOptions {
   session: Session | null;
   onSessionExpired?: (reason: string) => void;
   location?: { protocol: string; host: string };
+  backupHosts?: readonly string[];
+  rotator?: EndpointRotator;
   random?: () => number;
   now?: () => number;
 }
@@ -35,6 +40,8 @@ export function useChatSocket({
   session,
   onSessionExpired,
   location = typeof window !== "undefined" ? window.location : { protocol: "http:", host: "localhost:8080" },
+  backupHosts,
+  rotator,
   random = Math.random,
   now = Date.now,
 }: UseChatSocketOptions): UseChatSocketReturn {
@@ -47,6 +54,13 @@ export function useChatSocket({
   const lastSeqRef = useRef<number>(0);
   const serverEpochRef = useRef<string | null>(null);
   const backoffRef = useRef(createReconnectBackoff({ random, now }));
+  const backupHostsKey = backupHosts ? backupHosts.join(",") : "";
+  const rotatorRef = useRef<EndpointRotator>(
+    rotator ??
+      (backupHosts
+        ? createEndpointRotator(location.host, backupHosts)
+        : sharedEndpointRotator),
+  );
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -86,14 +100,22 @@ export function useChatSocket({
     }
 
     let isDisposed = false;
+    rotatorRef.current =
+      rotator ??
+      (backupHostsKey
+        ? createEndpointRotator(location.host, backupHostsKey)
+        : typeof window !== "undefined" && location.host === window.location.host
+          ? sharedEndpointRotator
+          : createEndpointRotator(location.host));
 
     const connect = () => {
       if (isDisposed) return;
       clearReconnectTimer();
 
+      const activeHost = rotatorRef.current.currentHost() || location.host;
       const url = buildChatUrl({
         protocol: location.protocol,
-        host: location.host,
+        host: activeHost,
         token: session.token,
       });
 
@@ -185,6 +207,7 @@ export function useChatSocket({
         }
 
         setStatusText("desconectado (reintentando...)");
+        rotatorRef.current.advance();
         const delay = backoffRef.current.nextDelay();
         reconnectTimerRef.current = setTimeout(connect, delay);
       };
@@ -205,7 +228,7 @@ export function useChatSocket({
         ws.close();
       }
     };
-  }, [session, location.protocol, location.host, clearReconnectTimer, onSessionExpired, random, now]);
+  }, [session, location.protocol, location.host, backupHostsKey, rotator, clearReconnectTimer, onSessionExpired, random, now]);
 
   const effectiveStatus = session ? status : "disconnected";
   const effectiveStatusText = session ? statusText : "";

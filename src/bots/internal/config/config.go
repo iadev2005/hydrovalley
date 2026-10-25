@@ -16,8 +16,11 @@ import (
 
 // Config es la configuración común de todos los escenarios.
 type Config struct {
-	// BaseURL es la dirección del proxy, p. ej. http://nginx:8080.
+	// BaseURL es la dirección del proxy primario, p. ej. http://nginx:8080.
 	BaseURL string
+	// BaseURLs contiene la lista ordenada y sin duplicados de todas las URLs de
+	// entrada configuradas en HV_BASE_URL (separadas por comas).
+	BaseURLs []string
 	// TLSInsecure (HV_TLS_INSECURE) omite la verificación del certificado del
 	// proxy: solo para el certificado autofirmado del laboratorio.
 	TLSInsecure bool
@@ -95,9 +98,25 @@ func Load(getenv func(string) string) (Config, error) {
 		ReportPath:    strings.TrimSpace(getenv("BOTS_REPORT_PATH")),
 		LogLevel:      slog.LevelInfo,
 	}
-	if c.BaseURL == "" {
+	rawBase := strings.TrimSpace(getenv("HV_BASE_URL"))
+	if rawBase == "" {
 		return c, errors.New("HV_BASE_URL is required (e.g. https://nginx:8080)")
 	}
+	seenURLs := make(map[string]struct{})
+	for _, part := range strings.Split(rawBase, ",") {
+		u := strings.TrimSpace(part)
+		if u == "" {
+			continue
+		}
+		if _, ok := seenURLs[u]; !ok {
+			seenURLs[u] = struct{}{}
+			c.BaseURLs = append(c.BaseURLs, u)
+		}
+	}
+	if len(c.BaseURLs) == 0 {
+		return c, errors.New("HV_BASE_URL is required (e.g. https://nginx:8080)")
+	}
+	c.BaseURL = c.BaseURLs[0]
 	if v := getenv("BOTS_COUNT"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {

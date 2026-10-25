@@ -42,9 +42,12 @@ services:
     environment:
       API_ADDR: api:3000
       HUB_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081}
+      HUB_BACKUP_ADDR: ${LAB_STANDBY_HOST:-${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}}:${HV_HUB_PORT:-8081}
       CHAT_ADDR: ${LAB_CHAT_HOST:-${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}}:${HV_CHAT_PORT:-8082}
+      CHAT_BACKUP_ADDR: ${LAB_CHAT_HOST:-${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}}:${HV_CHAT_PORT:-8082}
+      PROXY_BACKUP_URLS: ${LAB_STANDBY_HOST:+${LAB_STANDBY_HOST}:${HV_PROXY_PORT:-8080}}
       NGINX_RESOLVER: 127.0.0.11
-      TLS_EXTRA_SANS: ${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}${TLS_EXTRA_SANS:+,${TLS_EXTRA_SANS}}
+      TLS_EXTRA_SANS: ${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}${LAB_STANDBY_HOST:+,${LAB_STANDBY_HOST}}${TLS_EXTRA_SANS:+,${TLS_EXTRA_SANS}}
     ports:
       - "${HV_PROXY_PORT:-8080}:8080"
 

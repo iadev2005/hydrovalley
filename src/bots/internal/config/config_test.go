@@ -241,3 +241,19 @@ func TestWarnIfInsecureLogsOnceOnlyWhenVerificationIsOff(t *testing.T) {
 		t.Fatalf("want a single WARN naming HV_TLS_INSECURE, got %q", out)
 	}
 }
+
+func TestLoadParsesCommaSeparatedBaseURLs(t *testing.T) {
+	c, err := Load(env(map[string]string{
+		"HV_BASE_URL": " https://10.68.17.80:8080 , https://10.68.17.99:8080/ , https://10.68.17.80:8080 ",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BaseURL != "https://10.68.17.80:8080" {
+		t.Fatalf("BaseURL = %q, want primary URL", c.BaseURL)
+	}
+	want := []string{"https://10.68.17.80:8080", "https://10.68.17.99:8080/"}
+	if len(c.BaseURLs) != len(want) || c.BaseURLs[0] != want[0] || c.BaseURLs[1] != want[1] {
+		t.Fatalf("BaseURLs = %v, want %v", c.BaseURLs, want)
+	}
+}

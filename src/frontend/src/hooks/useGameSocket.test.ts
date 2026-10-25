@@ -220,4 +220,45 @@ describe("useGameSocket", () => {
 
     vi.useRealTimers();
   });
+
+  it("closes the socket and rotates to the backup host when no state arrives within STATE_SILENCE_MS", () => {
+    vi.useFakeTimers();
+    let now = 100_000;
+    const getNow = () => now;
+    renderHook(() =>
+      useGameSocket({
+        session,
+        now: getNow,
+        location: { protocol: "https:", host: "10.68.17.80:8080" },
+        backupHosts: ["10.68.17.99:8080"],
+      }),
+    );
+
+    const ws1 = MockWebSocket.instances[0];
+    expect(ws1?.url).toBe("wss://10.68.17.80:8080/play?token=tok&map=true");
+    if (!ws1) return;
+
+    act(() => {
+      ws1.emit("open");
+    });
+
+    // Advance 3.5s without any state frame -> watchdog closes ws1 and triggers reconnect
+    now += 3_500;
+    act(() => {
+      vi.advanceTimersByTime(3_500);
+    });
+    expect(ws1.readyState).toBe(MockWebSocket.CLOSED);
+
+    // Run reconnect backoff timer
+    now += 1_000;
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws2 = MockWebSocket.instances[1];
+    expect(ws2?.url).toBe("wss://10.68.17.99:8080/play?token=tok&map=true");
+
+    vi.useRealTimers();
+  });
 });

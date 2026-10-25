@@ -252,3 +252,46 @@ func TestGetRankingReportsAContextCancellationAsTheContextError(t *testing.T) {
 		t.Fatalf("want context.DeadlineExceeded, got %v", err)
 	}
 }
+
+func TestAPIFailsOverToBackupBaseURLOnTransportErrorOrBadGateway(t *testing.T) {
+	var primaryCalls, backupCalls int
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		primaryCalls++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(primary.Close)
+
+	backup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backupCalls++
+		if r.URL.Path == "/api/auth/login" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"token":"tok-backup","expires_at":"2026-10-03T12:00:00Z"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"tick":"99","entries":[]}`))
+	}))
+	t.Cleanup(backup.Close)
+
+	api, err := NewAPI(primary.URL + "," + backup.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tok, err := api.Login(context.Background(), "admin", "secret")
+	if err != nil || tok != "tok-backup" {
+		t.Fatalf("Login = %q, %v; want tok-backup", tok, err)
+	}
+	if primaryCalls != 1 || backupCalls != 1 {
+		t.Fatalf("primaryCalls=%d backupCalls=%d, want 1 and 1", primaryCalls, backupCalls)
+	}
+
+	// La afinidad mantiene el backup mientras funcione.
+	res, _, err := api.GetRanking(context.Background(), tok, 5)
+	if err != nil || res.Tick != "99" {
+		t.Fatalf("GetRanking = %+v, %v", res, err)
+	}
+	if primaryCalls != 1 || backupCalls != 2 {
+		t.Fatalf("sticky affinity broken: primaryCalls=%d backupCalls=%d", primaryCalls, backupCalls)
+	}
+}
