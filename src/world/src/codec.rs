@@ -470,6 +470,8 @@ fn snapshot_player(player: &Player) -> persistence_pb::SnapshotPlayer {
         water_reduced: player.water_reduced,
         water_reused: player.water_reused,
         water_recycled: player.water_recycled,
+        fires_extinguished: player.offline_summary.fires_extinguished,
+        tiles_grown: player.offline_summary.tiles_grown,
     }
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminPanel } from "../components/AdminPanel.tsx";
 import { AuthPanel } from "../components/AuthPanel.tsx";
 import { ChatPanel } from "../components/ChatPanel.tsx";
@@ -14,7 +14,71 @@ import { useGameSocket, type UseGameSocketOptions } from "../hooks/useGameSocket
 import { useReports, type UseReportsOptions } from "../hooks/useReports.ts";
 import { useSession, type UseSessionOptions } from "../hooks/useSession.ts";
 import { useValleyView, type UseValleyViewOptions } from "../hooks/useValleyView.ts";
-import { describeFrame } from "../logic/play.ts";
+import { describeFrame, type OfflineSummary } from "../logic/play.ts";
+import type { StorageLike } from "../logic/auth.ts";
+
+const OFFLINE_SUMMARY_STORAGE_PREFIX = "hydrovalley.offline-summary.";
+
+function summaryStorage(storage: StorageLike | undefined): StorageLike | null {
+  if (storage) return storage;
+  if (typeof window !== "undefined") return window.localStorage;
+  return null;
+}
+
+function summaryKey(username: string): string {
+  return `${OFFLINE_SUMMARY_STORAGE_PREFIX}${username.toLowerCase()}`;
+}
+
+function readSummary(storage: StorageLike | null, key: string): OfflineSummary | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      leaves_earned: BigInt(String(value.leaves_earned ?? "0")),
+      water_reused: BigInt(String(value.water_reused ?? "0")),
+      fires_extinguished: Number(value.fires_extinguished) || 0,
+      tiles_grown: Number(value.tiles_grown) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeSummary(storage: StorageLike | null, key: string, summary: OfflineSummary): void {
+  if (!storage) return;
+  try {
+    storage.setItem(
+      key,
+      JSON.stringify({
+        leaves_earned: summary.leaves_earned.toString(),
+        water_reused: summary.water_reused.toString(),
+        fires_extinguished: summary.fires_extinguished,
+        tiles_grown: summary.tiles_grown,
+      }),
+    );
+  } catch {
+    // El resumen sigue funcionando aunque el navegador no permita storage.
+  }
+}
+
+function summaryDelta(current: OfflineSummary, previous: OfflineSummary): OfflineSummary {
+  return {
+    leaves_earned: current.leaves_earned > previous.leaves_earned
+      ? current.leaves_earned - previous.leaves_earned
+      : 0n,
+    water_reused: current.water_reused > previous.water_reused
+      ? current.water_reused - previous.water_reused
+      : 0n,
+    fires_extinguished: Math.max(0, current.fires_extinguished - previous.fires_extinguished),
+    tiles_grown: Math.max(0, current.tiles_grown - previous.tiles_grown),
+  };
+}
+
+function hasSummaryActivity(summary: OfflineSummary): boolean {
+  return summary.leaves_earned > 0n || summary.water_reused > 0n || summary.fires_extinguished > 0 || summary.tiles_grown > 0;
+}
 
 export interface GameAppProps {
   sessionOptions?: UseSessionOptions;
@@ -32,6 +96,11 @@ export function GameApp({
   valleyViewOptions,
 }: GameAppProps = {}) {
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
+  const [offlineSummaryDismissed, setOfflineSummaryDismissed] = useState(false);
+  const [offlineSummaryToShow, setOfflineSummaryToShow] = useState<OfflineSummary | null>(null);
+  const previousSocketStatus = useRef("disconnected");
+  const awaitingInitialState = useRef(false);
+  const summaryBaseline = useRef<OfflineSummary | null>(null);
   const phaserRef = useRef<ValleyPhaserHandle | null>(null);
 
   const valleyViewHook = useValleyView({
@@ -133,6 +202,44 @@ export function GameApp({
   const stateText = socketHook.gameState
     ? describeFrame(socketHook.gameState)
     : "Sin estado todavía.";
+  useEffect(() => {
+    const becameConnected =
+      socketHook.status === "connected" && previousSocketStatus.current !== "connected";
+    if (becameConnected) {
+      awaitingInitialState.current = true;
+      setOfflineSummaryToShow(null);
+      setOfflineSummaryDismissed(false);
+      summaryBaseline.current = readSummary(
+        summaryStorage(sessionOptions?.storage),
+        summaryKey(session?.username ?? ""),
+      );
+    }
+    previousSocketStatus.current = socketHook.status;
+  }, [socketHook.status]);
+
+  useEffect(() => {
+    if (socketHook.status !== "connected" || !socketHook.gameState) {
+      return;
+    }
+    const summary = socketHook.gameState.player?.offline_summary;
+    if (!summary) {
+      awaitingInitialState.current = false;
+      return;
+    }
+    if (awaitingInitialState.current) {
+      const previous = summaryBaseline.current;
+      if (previous) {
+        const delta = summaryDelta(summary, previous);
+        if (hasSummaryActivity(delta)) setOfflineSummaryToShow(delta);
+      }
+      awaitingInitialState.current = false;
+    }
+    writeSummary(
+      summaryStorage(sessionOptions?.storage),
+      summaryKey(session?.username ?? ""),
+      summary,
+    );
+  }, [session, sessionOptions?.storage, socketHook.gameState, socketHook.status]);
 
   return (
     <main>
@@ -158,6 +265,28 @@ export function GameApp({
       <p className="meta" id="state">
         {stateText}
       </p>
+
+      {offlineSummaryToShow && !offlineSummaryDismissed ? (
+        <div className="offline-summary-backdrop">
+          <section
+            className="offline-summary-modal"
+            aria-labelledby="offline-summary-title"
+            aria-modal="true"
+            role="dialog"
+          >
+            <p className="offline-summary-kicker">Resumen de regreso</p>
+            <h2 id="offline-summary-title">Mientras no estabas</h2>
+            <p>
+              Tus aspersores aportaron {offlineSummaryToShow.water_reused.toString()} puntos de humedad,
+              hicieron crecer {offlineSummaryToShow.tiles_grown} casillas y apagaron {offlineSummaryToShow.fires_extinguished} incendios.
+            </p>
+            <p>Ganaste {offlineSummaryToShow.leaves_earned.toString()} hojas.</p>
+            <button type="button" onClick={() => setOfflineSummaryDismissed(true)}>
+              Continuar al valle
+            </button>
+          </section>
+        </div>
+      ) : null}
 
       <section id="game" aria-labelledby="valley-title">
         <h2 id="valley-title">Valle</h2>

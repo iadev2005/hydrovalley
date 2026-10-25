@@ -199,6 +199,13 @@ export interface PlacedInstallation {
   owner_id: string;
 }
 
+export interface OfflineSummary {
+  leaves_earned: bigint;
+  water_reused: bigint;
+  fires_extinguished: number;
+  tiles_grown: number;
+}
+
 export interface PlayerState {
   water: bigint;
   tank_capacity: bigint;
@@ -207,6 +214,7 @@ export interface PlayerState {
   next_sprinkler_price: bigint;
   next_drip_price: bigint;
   next_treatment_plant_price: bigint;
+  offline_summary?: OfflineSummary;
 }
 
 export interface ResultFrame {
@@ -307,6 +315,19 @@ export function parseFrame(text: string): PlayFrame {
                 next_sprinkler_price: toBigInt(p["next_sprinkler_price"]),
                 next_drip_price: toBigInt(p["next_drip_price"]),
                 next_treatment_plant_price: toBigInt(p["next_treatment_plant_price"]),
+                ...(p["offline_summary"] && typeof p["offline_summary"] === "object"
+                  ? (() => {
+                      const summary = p["offline_summary"] as Record<string, unknown>;
+                      return {
+                        offline_summary: {
+                          leaves_earned: toBigInt(summary["leaves_earned"]),
+                          water_reused: toBigInt(summary["water_reused"]),
+                          fires_extinguished: Number(summary["fires_extinguished"]) || 0,
+                          tiles_grown: Number(summary["tiles_grown"]) || 0,
+                        },
+                      };
+                    })()
+                  : {}),
               }
             : null,
       };

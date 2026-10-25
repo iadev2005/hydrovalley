@@ -13,6 +13,38 @@ main {
 .meta {
   margin: 0.25rem 0;
 }
+.offline-summary-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 55%);
+}
+.offline-summary-modal {
+  width: min(30rem, 100%);
+  padding: 1.5rem;
+  border: 1px solid #8888;
+  border-radius: 8px;
+  background: Canvas;
+  color: CanvasText;
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 30%);
+}
+.offline-summary-kicker {
+  margin: 0;
+  color: #2e7d32;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.offline-summary-modal h2 {
+  margin: 0.25rem 0 1rem;
+}
+.offline-summary-modal button {
+  margin-top: 0.75rem;
+}
 form {
   display: flex;
   flex-wrap: wrap;

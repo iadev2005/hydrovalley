@@ -81,7 +81,19 @@ func (b *StateBuilder) For(playerID string, withMap bool) *playv1.StateMessage {
 }
 
 func playerView(p *worldv1.PlayerState) *playv1.PlayerView {
-	view := &playv1.PlayerView{Water: p.GetWater(), TankCapacity: p.GetTankCapacity(), Leaves: p.GetLeaves()}
+	view := &playv1.PlayerView{
+		Water:        p.GetWater(),
+		TankCapacity: p.GetTankCapacity(),
+		Leaves:       p.GetLeaves(),
+	}
+	if summary := p.GetOfflineSummary(); summary != nil {
+		view.OfflineSummary = &playv1.OfflineSummaryView{
+			LeavesEarned:      summary.GetLeavesEarned(),
+			WaterReused:       summary.GetWaterReused(),
+			FiresExtinguished: summary.GetFiresExtinguished(),
+			TilesGrown:        summary.GetTilesGrown(),
+		}
+	}
 	for _, u := range p.GetUpgrades() {
 		if name := upgradeName(u); name != "" {
 			view.Upgrades = append(view.Upgrades, name)
