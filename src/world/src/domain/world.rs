@@ -250,14 +250,16 @@ impl World {
     ///    casillas que arden.
     /// 8. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
     ///    modo demo y en las que arden).
-    /// 9. Ignición al azar (salvo en modo demo): un sorteo con el generador
-    ///    con semilla por cada casilla elegible, por filas.
+    /// 9. Propagación y luego ignición al azar (salvo en modo demo): primero,
+    ///    un sorteo por cada casilla elegible con alguna vecina ortogonal que
+    ///    ardía al empezar el paso; después, un sorteo por cada casilla
+    ///    elegible, por filas, con el generador con semilla.
     /// 10. El tick pasa a `t`.
     ///
     /// Las instalaciones (4, 5 y el goteo de 7) solo actúan mientras su dueño
     /// no lleve ausente más de `offline_installation_seconds` (RF-25).
     ///
-    /// Solo la ignición usa el azar, y lo toma del generador con semilla del
+    /// Solo la propagación y la ignición usan el azar, y lo toman del generador con semilla del
     /// mundo, cuyo estado viaja en la instantánea: misma semilla y mismos
     /// comandos dan el mismo valle.
     pub fn step(&mut self, commands: &[Command]) -> StepOutcome {
@@ -644,6 +646,7 @@ impl World {
         for tile in &mut self.tiles {
             growth::wither(tile, &self.catalog.evaporation);
         }
+        self.propagate_fires();
         self.ignite_fires();
     }
 
@@ -652,6 +655,37 @@ impl World {
     fn burn_fires(&mut self) {
         for tile in &mut self.tiles {
             fire::burn(tile, &self.catalog.fire);
+        }
+    }
+
+    /// Propagación del fuego a casillas vecinas (nivel 2, Tarea B3).
+    ///
+    /// Recorre las casillas por filas. Para cada casilla elegible (con planta,
+    /// humedad 0 y sin fuego) que tenga al menos una vecina ortogonal que ya
+    /// estuviera ardiendo al inicio de la fase, hace un sorteo con
+    /// `fire.propagation_chance_ppm`. Si sale, la casilla se enciende. Solo
+    /// gasta un número la casilla elegible con vecina en llamas.
+    /// Solo propaga desde los incendios que ya ardían al entrar al paso,
+    /// evitando cascadas instantáneas en un mismo tick.
+    fn propagate_fires(&mut self) {
+        let ppm = self.catalog.fire.propagation_chance_ppm;
+        let burning_at_start: Vec<bool> = self.tiles.iter().map(|t| t.fire.is_some()).collect();
+        if !burning_at_start.contains(&true) {
+            return;
+        }
+
+        let (width, height) = (self.width, self.height);
+        for y in 0..height {
+            for x in 0..width {
+                let index = y as usize * width as usize + x as usize;
+                let tile = &mut self.tiles[index];
+                if fire::is_eligible(tile)
+                    && orthogonal_neighbor_indices(x, y, width, height).any(|n| burning_at_start[n])
+                    && self.rng.chance_ppm(ppm)
+                {
+                    fire::ignite(tile);
+                }
+            }
         }
     }
 
@@ -816,6 +850,36 @@ fn area_indices(x: u32, y: u32, side: u32, width: u32, height: u32) -> Vec<usize
             .map(move |column| row as usize * width as usize + column as usize)
     })
     .collect()
+}
+
+/// Índices de las casillas vecinas ortogonales (norte, sur, oeste, este)
+/// dentro de un valle de `width` × `height`.
+fn orthogonal_neighbor_indices(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> impl Iterator<Item = usize> {
+    let (x, y, width) = (x as usize, y as usize, width as usize);
+    let mut neighbors = [0usize; 4];
+    let mut count = 0;
+    if y > 0 {
+        neighbors[count] = (y - 1) * width + x;
+        count += 1;
+    }
+    if y + 1 < height as usize {
+        neighbors[count] = (y + 1) * width + x;
+        count += 1;
+    }
+    if x > 0 {
+        neighbors[count] = y * width + (x - 1);
+        count += 1;
+    }
+    if x + 1 < width {
+        neighbors[count] = y * width + (x + 1);
+        count += 1;
+    }
+    neighbors.into_iter().take(count)
 }
 
 fn tile_count(width: u32, height: u32) -> usize {

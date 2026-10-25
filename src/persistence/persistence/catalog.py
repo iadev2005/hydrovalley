@@ -102,6 +102,7 @@ SECTIONS: dict[str, Section] = {
             _u64("extinguish_bonus_leaves", "extinguish_bonus_leaves"),
             _u32("burn_out_ticks", "burn_out_ticks", minimum=1),
             Field("ignition_chance_ppm", "ignition_chance_ppm", PPM_MAX),
+            Field("propagation_chance_ppm", "propagation_chance_ppm", PPM_MAX),
         ),
     ),
     "installation_price_increase_percent": Section(

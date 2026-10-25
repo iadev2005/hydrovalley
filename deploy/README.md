@@ -293,3 +293,51 @@ Después de la prueba de humo, `run.sh` corre `tests/e2e/faults.test.mjs` (CP-05
 Cada caso imprime una línea `MEDICION …` con los tiempos y los valores medidos. Los jugadores son el administrador efímero (inicio de sesión), para no gastar los 5 registros por IP de la prueba de humo; CP-06, CP-07 y CP-12 usan el modo demo (la gota es gratis y suma exactamente 1 a la humedad aportada) y lo apagan al terminar. Se hacen solo dos accesos por caso (durante el fallo y tras volver) para no agotar el limitador de acceso.
 
 `E2E_SKIP_FAULTS=1 tests/e2e/run.sh` los omite. La lógica pura del arnés (`tests/e2e/faults.mjs`) se prueba sin el stack: `node --test tests/e2e/faults.unit.test.mjs`. Cada caso tarda entre 12 y 28 s (los fallos completos, unos 3 min); el CI no necesita más de los 45 min que ya tiene el job.
+
+## Monitorización: Prometheus y Grafana (Nivel 2, B7)
+
+Los servicios de monitorización profesional (`prometheus` y `grafana`) se encuentran en `deploy/compose.yml` bajo el perfil **`monitoring`**, de modo que el `docker compose up` regular no los inicia a menos que se invoque explícitamente dicho perfil.
+
+### Puesta en marcha
+
+Con el juego ya levantado (o al levantarlo en conjunto):
+
+```bash
+docker compose -f deploy/compose.yml --profile monitoring up -d
+```
+
+### Puertos y accesos
+
+Ambos puertos se publican solo en `127.0.0.1` (en el plan B, el único puerto abierto a la red sigue siendo el 8080). Para abrirlos a otra interfaz, por ejemplo en el laboratorio, se cambia el enlace con `HV_PROMETHEUS_BIND` o `HV_GRAFANA_BIND` (p. ej. `0.0.0.0`).
+
+| Herramienta | URL por defecto | Variables de entorno | Acceso |
+| --- | --- | --- | --- |
+| **Grafana** | `http://127.0.0.1:3001` | `HV_GRAFANA_PORT`, `HV_GRAFANA_BIND`, `GRAFANA_ADMIN_PASSWORD` | Anónimo de solo lectura (Viewer). Para editar, usuario `admin` y la contraseña de `GRAFANA_ADMIN_PASSWORD` |
+| **Prometheus** | `http://127.0.0.1:9090` | `HV_PROMETHEUS_PORT`, `HV_PROMETHEUS_BIND` | Sin autenticación (solo local por defecto) |
+
+`GRAFANA_ADMIN_PASSWORD` no tiene valor por defecto en el repositorio y no es obligatoria (así `up` sin el perfil no la exige). Defínela antes de levantar el perfil; si queda vacía, no hay una cuenta admin utilizable.
+
+### Destinos de scrape (plan A)
+
+Prometheus no expande variables de entorno en su configuración. Por eso el contenedor arranca con un `sed` que convierte la plantilla `deploy/monitoring/prometheus/prometheus.yml.tmpl` en la configuración real (la imagen es busybox: trae `sh` y `sed`, no `envsubst`). Las variables son `HUB_METRICS_ADDR` (por defecto `hub:8081`) y `API_METRICS_ADDR` (por defecto `api:3000`); en el plan A se apuntan a las máquinas del hub y de la API, por ejemplo `HUB_METRICS_ADDR=10.68.17.x:8081`.
+
+### Cobertura
+
+El hub y la API exponen `/metrics`. El simulador (Rust) y la persistencia (Python) no tienen un exportador propio: su estado llega a Prometheus por las sondas de la API (`hydrovalley_service_status`) y por las cifras del hub (duración y fallos de `Step`, tick, humedad).
+
+### Tablero preaprovisionado
+
+Grafana carga automáticamente el origen de datos Prometheus (`http://prometheus:9090`) y el tablero versionado desde `deploy/monitoring/grafana/dashboards/hydrovalley-overview.json`.
+
+El tablero refleja con fidelidad idéntica todas las secciones del panel mínimo (`/sistema.html`) sumando la profundidad de las series temporales:
+1. **Estado de los Servicios:** Disponibilidad instantánea e histórica de Nginx, API, Hub, World y Persistencia.
+2. **Concurrencia y Sesiones:** Sesiones activas, goroutines del hub y tamaño de la cola de comandos en el tiempo.
+3. **Rendimiento de Acciones:** Tasas por segundo (admitidas vs. aplicadas) y curvas de latencia de acción (p50 y p95).
+4. **Simulador y Ciclo de Tick:** Avance del tick, estado del *Circuit Breaker*, indicador de pausa y duración de `WorldService.Step` frente al umbral crítico de 200 ms.
+5. **Ecología del Valle:** Humedad total, humedad aportada acumulada vs. gotas aceptadas (verificación del modo demo) y curva de incendios activos.
+
+### Detener la monitorización
+
+```bash
+docker compose -f deploy/compose.yml --profile monitoring stop
+```

@@ -33,6 +33,7 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `fire.extinguish_bonus_leaves` | Hojas para quien suelta la última | 5 |
 | `fire.burn_out_ticks` | Ticks hasta que un incendio sin atender se consume | 300 |
 | `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón (0 = no hay incendios) | 50 |
+| `fire.propagation_chance_ppm` | Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por millón (0 = no hay propagación) | 2000 |
 | `installation_price_increase_percent` | Aumento del precio por cada compra del mismo tipo de instalación (RF-07) | 15 |
 | `offline_installation_seconds` | Tiempo que las instalaciones siguen trabajando tras la última acción de su dueño (RF-25) | 7200 |
 

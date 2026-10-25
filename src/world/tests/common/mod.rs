@@ -37,6 +37,7 @@ pub fn catalog() -> p::Catalog {
             extinguish_bonus_leaves: 5,
             burn_out_ticks: 300,
             ignition_chance_ppm: 0,
+            propagation_chance_ppm: 0,
         }),
         sprinkler: Some(p::SprinklerRules {
             price: 10,

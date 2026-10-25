@@ -93,6 +93,7 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 			ExtinguishBonusLeaves: fire.GetExtinguishBonusLeaves(),
 			BurnOutTicks:          fire.GetBurnOutTicks(),
 			IgnitionChancePPM:     fire.GetIgnitionChancePpm(),
+			PropagationChancePPM:  fire.GetPropagationChancePpm(),
 		},
 		Sprinkler: domain.SprinklerRules{
 			Price:           sprinkler.GetPrice(),

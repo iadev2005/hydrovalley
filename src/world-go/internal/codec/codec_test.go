@@ -594,6 +594,7 @@ func TestTheDemoHumidityOfTheDropIsCarriedOver(t *testing.T) {
 func TestTheIgnitionChanceAndChangedFiguresAreCarriedOver(t *testing.T) {
 	message := d01Message()
 	message.Fire.IgnitionChancePpm = 500
+	message.Fire.PropagationChancePpm = 1500
 	message.Sprinkler.Price = 12
 	got, err := CatalogFromProto(message)
 	if err != nil {
@@ -601,6 +602,9 @@ func TestTheIgnitionChanceAndChangedFiguresAreCarriedOver(t *testing.T) {
 	}
 	if got.Fire.IgnitionChancePPM != 500 || got.Sprinkler.Price != 12 {
 		t.Errorf("ppm/price = %d/%d, want 500/12", got.Fire.IgnitionChancePPM, got.Sprinkler.Price)
+	}
+	if got.Fire.PropagationChancePPM != 1500 {
+		t.Errorf("propagation ppm = %d, want 1500", got.Fire.PropagationChancePPM)
 	}
 }
 

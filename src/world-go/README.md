@@ -59,6 +59,10 @@ El dominio no depende de los tipos generados desde `proto/`; la traducción vive
 
 Los bytes de la fila de instantánea y del `WorldState` son idénticos a los de Rust: lo comprueba la prueba de conformidad.
 
+## Propagación del fuego (B3)
+
+`World.propagateFires` es el port de `propagate_fires` de Rust y corre en el mismo punto del tick: después del marchitamiento y antes de la ignición, nunca en modo demo. Recorre las casillas por filas y, por cada casilla elegible (`IsEligible`: con planta, humedad 0 y sin fuego) con al menos una vecina ortogonal que ardiera al empezar el paso, hace **un** sorteo con `fire.propagation_chance_ppm`; solo esas casillas gastan número del generador. Usa las dimensiones del mundo (`width`, `height`), no las del juego, para que la comparativa con otros tamaños funcione. Los guiones de conformidad (en especial `08-propagacion`) comprueban que Go y Rust dan los mismos bytes.
+
 ## Conformidad con Rust
 
 `internal/conformance` ejecuta con el dominio y el codec de Go los guiones de `tests/conformance/scenarios/` y los compara con `tests/conformance/expected/`, que escribe el simulador en Rust. Comprueba, tick a tick, los resultados de los comandos, `humidity_contributed`, los fuegos y las huellas de las instantáneas; que las instantáneas finales son idénticas byte a byte; y que Go retoma el valle desde las instantáneas que escribió Rust y llega al mismo estado final (plan B de D-03). No necesita Rust: los esperados están versionados. Si Rust cambia a propósito, se regeneran (ver `tests/conformance/README.md`). La caché de `go test` no vigila `tests/conformance` (queda fuera del módulo): para repetir una prueba sin cambios en Go, `go test -count=1 ./...`.
@@ -93,7 +97,7 @@ Plan y evidencia en `odd/tasks/b5-world-go.md`.
 | T1 | Módulo, tipos y catálogo, job de CI | hecho |
 | T2 | Gotas, humedad, crecimiento, marchitamiento, evaporación, depósito, `Step` | hecho |
 | T3 | Instalaciones, mejoras, precios, dueños inactivos | hecho |
-| T4 | Incendios y SplitMix64 | hecho |
+| T4 | Incendios, propagación a vecinas (B3) y SplitMix64 | hecho |
 | T5 | Modo demo, reinicio y épocas, ventana de `action_id`, ranking | hecho |
 | T6 | Codificación de proto y de instantáneas (`internal/codec`, `Restore`/`Parts`) | hecho |
 | T7 | Prueba de conformidad Rust ↔ Go (`internal/conformance`, `tests/conformance`) | hecho |

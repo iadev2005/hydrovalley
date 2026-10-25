@@ -32,7 +32,7 @@ state Casilla {
     Ardiendo : congela el crecimiento\n(ni crece ni se seca; dry_ticks no avanza)
 
     [*] --> SinFuego
-    SinFuego --> Ardiendo : azar, si está seca\ny tiene planta
+    SinFuego --> Ardiendo : azar o propagación vecina,\nsi está seca y tiene planta
     Ardiendo --> SinFuego : tercera gota\n(de cualquier jugador)
     Ardiendo --> SinFuego : aspersor en su zona
     Ardiendo -[#B22222]-> SinFuego : <color:#B22222>se consume (300 ticks)</color>\n<color:#B22222>/ crecimiento := Tierra seca</color>

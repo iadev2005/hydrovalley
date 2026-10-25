@@ -17,6 +17,15 @@ func catalogWithPPM(ppm uint32) Catalog {
 	return catalog
 }
 
+// catalogWithPropagationPPM es catalog_with_propagation_ppm de Rust: sin
+// ignición espontánea y con la propagación indicada.
+func catalogWithPropagationPPM(ppm uint32) Catalog {
+	catalog := d01()
+	catalog.Fire.IgnitionChancePPM = 0
+	catalog.Fire.PropagationChancePPM = ppm
+	return catalog
+}
+
 // worldWith es world_with de Rust (world_fire_tests.rs:25): un mundo con las
 // casillas dadas ya en su estado. Rust restaura una instantánea (T6); aquí se
 // ponen directamente.
@@ -136,6 +145,125 @@ func TestATileThatWithersToDrySoilInTheTickIsNotEligible(t *testing.T) {
 		t.Error("the tile did not wither")
 	}
 	wantFire(t, w, 4, 4, nil)
+}
+
+// ---- Propagación a vecinas (nivel 2, B3) ---------------------------------
+
+func TestFireSpreadsToAnOrthogonalEligibleNeighborWhenTheChanceIsCertain(t *testing.T) {
+	w := worldWith(catalogWithPropagationPPM(1_000_000), 1, func(w *World) {
+		w.tiles[tileIdx(5, 5)] = burningGrass(0)
+		w.tiles[tileIdx(5, 6)] = dryGrass()
+	})
+	w.Step(nil)
+	wantFire(t, w, 5, 6, fireOf(0, 0))
+}
+
+func TestFireDoesNotSpreadWithoutChance(t *testing.T) {
+	w := worldWith(catalogWithPropagationPPM(0), 1, func(w *World) {
+		w.tiles[tileIdx(5, 5)] = burningGrass(0)
+		w.tiles[tileIdx(5, 6)] = dryGrass()
+	})
+	idle(w, 20)
+	wantFire(t, w, 5, 6, nil)
+}
+
+func TestFireDoesNotSpreadToIneligibleNeighbors(t *testing.T) {
+	w := worldWith(catalogWithPropagationPPM(1_000_000), 1, func(w *World) {
+		w.tiles[tileIdx(5, 5)] = burningGrass(0)
+		w.tiles[tileIdx(5, 4)] = Tile{Stage: Grass, Humidity: 10} // con humedad
+		w.tiles[tileIdx(4, 5)] = Tile{}                           // tierra seca
+		w.tiles[tileIdx(6, 5)] = dryGrass()                       // elegible
+	})
+	w.Step(nil)
+	wantFire(t, w, 5, 4, nil)
+	wantFire(t, w, 4, 5, nil)
+	wantFire(t, w, 6, 5, fireOf(0, 0))
+}
+
+func TestFireDoesNotSpreadDiagonally(t *testing.T) {
+	w := worldWith(catalogWithPropagationPPM(1_000_000), 1, func(w *World) {
+		w.tiles[tileIdx(5, 5)] = burningGrass(0)
+		w.tiles[tileIdx(6, 6)] = dryGrass()
+	})
+	w.Step(nil)
+	wantFire(t, w, 6, 6, nil)
+}
+
+// Solo propagan los fuegos que ardían al empezar el paso: (7, 5) no prende en
+// el mismo tick que (6, 5), sino en el siguiente.
+func TestPropagationIsSynchronousOneStepPerTick(t *testing.T) {
+	w := worldWith(catalogWithPropagationPPM(1_000_000), 1, func(w *World) {
+		w.tiles[tileIdx(5, 5)] = burningGrass(0)
+		w.tiles[tileIdx(6, 5)] = dryGrass()
+		w.tiles[tileIdx(7, 5)] = dryGrass()
+	})
+	w.Step(nil)
+	if mustTile(t, w, 6, 5).Fire == nil {
+		t.Error("tick 1: the fire should reach (6, 5)")
+	}
+	wantFire(t, w, 7, 5, nil)
+	w.Step(nil)
+	if mustTile(t, w, 7, 5).Fire == nil {
+		t.Error("tick 2: the fire should reach (7, 5)")
+	}
+}
+
+func TestFireDoesNotPropagateInDemoMode(t *testing.T) {
+	w := worldWith(catalogWithPropagationPPM(1_000_000), 1, func(w *World) {
+		w.demoMode = true
+		w.tiles[tileIdx(5, 5)] = burningGrass(0)
+		w.tiles[tileIdx(5, 6)] = dryGrass()
+	})
+	idle(w, 20)
+	wantFire(t, w, 5, 6, nil)
+}
+
+// La comparativa usa valles de otros tamaños (NewWorldWithSize): la
+// propagación usa las dimensiones del mundo, no las del juego.
+func TestFireSpreadsAcrossAValleyOfAnotherSize(t *testing.T) {
+	w := NewWorldWithSize(catalogWithPropagationPPM(1_000_000), 1, 64, 8)
+	at := func(x, y int) int { return y*64 + x }
+	w.tiles[at(40, 2)] = burningGrass(0)
+	w.tiles[at(41, 2)] = dryGrass()
+	w.tiles[at(40, 3)] = dryGrass()
+	w.tiles[at(63, 7)] = burningGrass(0)
+	w.tiles[at(0, 0)] = dryGrass() // no es vecina de ningún fuego
+	w.Step(nil)
+	wantFire(t, w, 41, 2, fireOf(0, 0))
+	wantFire(t, w, 40, 3, fireOf(0, 0))
+	wantFire(t, w, 0, 0, nil)
+}
+
+// Dos casillas elegibles junto a fuegos: la de la fila 0 gasta el primer
+// número y la de la fila 4 el segundo. Las que no prenden gastan después un
+// número de la ignición (que corre tras la propagación, aunque su
+// probabilidad sea 0).
+func TestPropagationDrawsInRowMajorOrder(t *testing.T) {
+	w := worldWith(catalogWithPropagationPPM(500_000), 42, func(w *World) {
+		w.tiles[tileIdx(4, 0)] = burningGrass(0)
+		w.tiles[tileIdx(5, 0)] = dryGrass()
+		w.tiles[tileIdx(2, 3)] = burningGrass(0)
+		w.tiles[tileIdx(2, 4)] = dryGrass()
+	})
+	rng := NewSplitMix64(42)
+	first := rng.ChancePPM(500_000)
+	second := rng.ChancePPM(500_000)
+	w.Step(nil)
+	if got := mustTile(t, w, 5, 0).Fire != nil; got != first {
+		t.Errorf("(5, 0) burns = %v, want %v", got, first)
+	}
+	if got := mustTile(t, w, 2, 4).Fire != nil; got != second {
+		t.Errorf("(2, 4) burns = %v, want %v", got, second)
+	}
+	if !first {
+		rng.ChancePPM(0)
+	}
+	if !second {
+		rng.ChancePPM(0)
+	}
+	if got, want := w.RngState(), rng.Bytes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("rng state = %v, want %v", got, want)
+	}
 }
 
 // ---- Apagar con gotas --------------------------------------------------

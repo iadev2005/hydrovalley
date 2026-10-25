@@ -262,11 +262,13 @@ type Hub struct {
 	lastBroadcast time.Time
 	lastSweep     time.Time
 	// Métricas de /stats: tienen su propio candado corto y no dependen de mu.
-	admittedRate *metrics.Rate
-	appliedRate  *metrics.Rate
-	latency      *metrics.Samples
-	stepTimes    *metrics.Samples
-	stepFailures atomic.Uint64
+	admittedRate  *metrics.Rate
+	appliedRate   *metrics.Rate
+	admittedTotal atomic.Uint64
+	appliedTotal  atomic.Uint64
+	latency       *metrics.Samples
+	stepTimes     *metrics.Samples
+	stepFailures  atomic.Uint64
 }
 
 // New crea el hub. El bucle del tick arranca con Run.
@@ -486,6 +488,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	q.admittedAt = now
 	h.queue = append(h.queue, q)
 	h.admittedRate.Add(now)
+	h.admittedTotal.Add(1)
 	h.logOutcome(s.playerID, actionID, Admitted)
 	return Admitted
 }

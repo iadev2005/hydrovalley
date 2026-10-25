@@ -145,7 +145,7 @@ Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o m�
 
 ### Resumen
 
-Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 montada y verificada en las 5 PCs del laboratorio (Claude + equipo, PR #59 y ensayo del 23 oct 2026: `10.68.17.3`, `.9`, `.10`, `.12`, `.80`; faltan las mediciones de carga y fallos); B2 hecha (PR #62); B5 hecha (Claude, PR #60–#65; `world-go` sustituye a Rust por configuración; comparativa medida bajo D-03); B8 completada (Fer2703: Fases 0–5 cerradas; documento de decisión con mediciones en `docs/decisiones/b8-orquestacion.md`, tareas T1–T6 completadas y mediciones de aceptación registradas en `odd/tasks/b8-failover.md`).
+Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 hecha (Claude, PR #59) y ensayada en el laboratorio el 23 de octubre (Fer y el equipo; registro en `docs/registro-despliegue-laboratorio.md`); B2 hecha (PR #62); B3 hecha (Cristian Baczek, integrada por Claude); B5 hecha (Claude, PR #60–#65; `world-go` sustituye a Rust por configuración; comparativa medida bajo D-03); B7 hecha (Cristian Baczek, integrada por Claude); B8 completada (Fer2703: Fases 0–5 cerradas; documento de decisión con mediciones en `docs/decisiones/b8-orquestacion.md`, tareas T1–T6 completadas y mediciones de aceptación registradas en `odd/tasks/b8-failover.md`).
 
 | ID | Tarea | Nivel | Tamaño | Depende de | Perfil |
 | --- | --- | --- | --- | --- | --- |
@@ -332,6 +332,7 @@ Cada uno es un PR pequeño:
 - **Archivos:** `src/world/src/domain/` (reglas y pruebas), `catalog/catalog.json` (cifras nuevas), documento (D-01, con las cifras propuestas por el equipo).
 - **Qué hacer:** el fuego salta a vecinas con una probabilidad por tick definida en el catálogo; solo con el generador con semilla (regla 6), así la misma semilla da el mismo valle (CP-10).
 - **Aceptación:** pruebas de dominio deterministas; CP-10 sigue pasando; las cifras nuevas en D-01.
+- **Estado:** hecha (Cristian Baczek; integrada y corregida por Claude). Cifra de catálogo `fire.propagation_chance_ppm = 2000` (0,2 % por tick, unos 2 % por segundo; valor inicial elegido por el equipo). Un sorteo del generador con semilla por casilla elegible con vecina ardiendo, por filas y antes de la ignición, con la 4-vecindad ortogonal y solo desde los fuegos que ardían al empezar el paso (sin cascadas dentro de un tick). Está también en `world-go` (misma regla, conformidad byte a byte con el guion `08-propagacion`). La elegibilidad es la de siempre (planta, humedad 0, sin fuego); no se dejaron ganchos para biomas u obras (RF-26): cuando B4 los necesite, se añaden con su regla y sus pruebas.
 
 #### B4 · Obras comunitarias (RF-26)
 
@@ -358,6 +359,7 @@ Cada uno es un PR pequeño:
 - **Archivos:** `deploy/` (servicios bajo un perfil, como `bots`), métricas en el hub (ya existen en `/stats`), API y persistencia.
 - **Qué hacer:** exponer `/metrics` (el hub ya calcula las cifras en `internal/metrics`), Prometheus que las recoge y un tablero de Grafana versionado como archivo.
 - **Aceptación:** el tablero muestra lo mismo que `/sistema.html` y más historia.
+- **Estado:** hecha (Cristian Baczek, integrada por Claude). Hub y API exponen `GET /metrics`; `compose.yml` añade `prometheus` y `grafana` bajo el perfil `monitoring` (puertos solo en `127.0.0.1`, Grafana anónimo de solo lectura); los destinos de scrape se configuran con `HUB_METRICS_ADDR` y `API_METRICS_ADDR` (plan A). El simulador y la persistencia no tienen `/metrics` propio: se vigilan por las sondas de la API (`hydrovalley_service_status`). Ficha: `odd/tasks/b7-prometheus-grafana.md`.
 
 #### B8 · Mantener el juego con una máquina apagada (orquestación)
 

@@ -42,7 +42,7 @@ type World struct {
 	width, height uint32
 	tiles         []Tile
 	players       map[string]*playerSlot
-	// rng es el único azar del mundo (regla 6): decide la ignición; su
+	// rng es el único azar del mundo (regla 6): decide la propagación y la ignición; su
 	// estado viaja en la instantánea (world.rs:104).
 	rng SplitMix64
 	// resetCatalog es el catálogo ofrecido a los reinicios del tick en curso;
@@ -93,14 +93,16 @@ func NewWorldWithSize(catalog Catalog, seed uint64, width, height uint32) *World
 //     arden.
 //  8. Marchitamiento: un tick más de cuenta a cada planta seca (salvo en
 //     modo demo y en las que arden).
-//  9. Ignición al azar (salvo en modo demo): un sorteo con el generador con
-//     semilla por cada casilla elegible, por filas.
+//  9. Propagación y luego ignición al azar (salvo en modo demo): primero, un
+//     sorteo por cada casilla elegible con alguna vecina ortogonal que ardía
+//     al empezar el paso; después, un sorteo por cada casilla elegible, por
+//     filas, con el generador con semilla.
 //  10. El tick pasa a t.
 //
 // Las instalaciones (4, 5 y el goteo de 7) solo actúan mientras su dueño no
 // lleve ausente más de OfflineInstallationSeconds (RF-25).
 //
-// Solo la ignición usa el azar, y lo toma del generador con semilla del
+// Solo la propagación y la ignición usan el azar, y lo toman del generador con semilla del
 // mundo, cuyo estado viaja en la instantánea: misma semilla y mismos comandos
 // dan el mismo valle.
 func (w *World) Step(commands []Command) StepOutcome {
@@ -312,7 +314,50 @@ func (w *World) advanceValley(tick uint64) {
 	for i := range w.tiles {
 		Wither(&w.tiles[i], w.catalog.Evaporation)
 	}
+	w.propagateFires()
 	w.igniteFires()
+}
+
+// propagateFires es la propagación a vecinas (world.rs propagate_fires; B3):
+// recorre las casillas por filas y, por cada una elegible con al menos una
+// vecina ortogonal que ya ardiera al empezar el paso, hace un sorteo con
+// PropagationChancePPM; si sale, la enciende. Solo propagan los fuegos
+// presentes al entrar, así no hay cascadas dentro de un mismo tick.
+func (w *World) propagateFires() {
+	burningAtStart := make([]bool, len(w.tiles))
+	anyBurning := false
+	for i := range w.tiles {
+		if w.tiles[i].Fire != nil {
+			burningAtStart[i] = true
+			anyBurning = true
+		}
+	}
+	if !anyBurning {
+		return
+	}
+
+	ppm := w.catalog.Fire.PropagationChancePPM
+	for y := range w.height {
+		for x := range w.width {
+			tile := &w.tiles[int(y)*int(w.width)+int(x)]
+			// && en corto: solo una casilla elegible con vecina en llamas
+			// gasta un número.
+			if IsEligible(tile) && hasBurningNeighbor(burningAtStart, x, y, w.width, w.height) && w.rng.ChancePPM(ppm) {
+				Ignite(tile)
+			}
+		}
+	}
+}
+
+// hasBurningNeighbor dice si alguna de las vecinas ortogonales (norte, sur,
+// oeste, este) de (x, y) dentro de un valle de width x height está marcada.
+func hasBurningNeighbor(burning []bool, x, y, width, height uint32) bool {
+	stride := int(width)
+	index := int(y)*stride + int(x)
+	return (y > 0 && burning[index-stride]) ||
+		(y+1 < height && burning[index+stride]) ||
+		(x > 0 && burning[index-1]) ||
+		(x+1 < width && burning[index+1])
 }
 
 // igniteFires es la ignición al azar (world.rs:649; RF-29): recorre las
