@@ -67,8 +67,12 @@ $unset = 0
 foreach ($node in $script:LabNodes) {
     $endpoint = Get-LabNodeEndpoint -Node $node -Addresses $values
     if (Test-LabPlaceholder $endpoint.Address) {
-        $result = 'SIN IP'
-        $unset++
+        if ($node.Optional) {
+            $result = 'NO CONFIGURADO'
+        } else {
+            $result = 'SIN IP'
+            $unset++
+        }
     } else {
         $ok = Test-NetConnection -ComputerName $endpoint.Address -Port $endpoint.Port -InformationLevel Quiet -WarningAction SilentlyContinue
         if ($ok) { $result = 'abierto' } else { $result = 'BLOQUEADO'; $failed++ }

@@ -53,7 +53,13 @@ const closeUnauthorized websocket.StatusCode = 4401
 func NewHandler(ctx context.Context, h *hub.Hub, log *slog.Logger, opts Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		st := h.Status()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if st.Fenced {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("fenced\n"))
+			return
+		}
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
@@ -68,10 +74,22 @@ func NewHandler(ctx context.Context, h *hub.Hub, log *slog.Logger, opts Options)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ready": code == http.StatusOK, "tick": strconv.FormatUint(st.Tick, 10),
 			"paused": st.Paused, "breaker": st.Breaker, "queue": st.QueueLen,
+			"fenced": st.Fenced, "standby": st.Standby,
 		})
 	})
 	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, _ *http.Request) {
-		// Interno: sin autenticación; nginx no lo reenvía.
+		// Interno: sin autenticación; nginx no lo reenvía. Si el hub está en
+		// standby o fue desplazado (fenced), responde 503 para que la API pase
+		// al siguiente hub de HUB_STATS_ADDR.
+		status := h.Status()
+		if status.Fenced || status.Standby {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"fenced": status.Fenced, "standby": status.Standby,
+			})
+			return
+		}
 		st := h.Stats()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -138,6 +156,11 @@ func (p *playHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		withMap = b
 	}
 
+	if st := p.hub.Status(); st.Fenced {
+		http.Error(w, "hub fenced", http.StatusServiceUnavailable)
+		return
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: p.opts.OriginPatterns})
 	if err != nil {
 		p.log.Debug("websocket upgrade failed", "err", err)
@@ -159,12 +182,22 @@ func (p *playHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log := p.log.With("player_id", id.PlayerID, "role", id.Role)
 	log.Debug("player connected", "map", withMap)
 
-	// Al apagar el servidor se cierra la conexión con StatusGoingAway; la
-	// lectura termina y con ella la escritura.
+	// Al apagar el servidor o al quedar desplazado (fenced) se cierra la
+	// conexión con StatusGoingAway; la lectura termina y con ella la escritura.
 	stop := context.AfterFunc(p.ctx, func() {
 		_ = conn.Close(websocket.StatusGoingAway, "server shutting down")
 	})
 	defer stop()
+	fencedDone := make(chan struct{})
+	defer close(fencedDone)
+	go func() {
+		select {
+		case <-p.hub.Fenced():
+			_ = conn.Close(websocket.StatusGoingAway, "hub fenced")
+		case <-fencedDone:
+		case <-p.ctx.Done():
+		}
+	}()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 

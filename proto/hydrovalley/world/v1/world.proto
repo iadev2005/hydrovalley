@@ -40,6 +40,17 @@ message StepRequest {
   // Comandos en orden de admisión (como mucho 500 mientras el hub vacía su
   // cola tras un reinicio). Puede ir vacío: el valle avanza igual (RF-28).
   repeated Command commands = 1;
+
+  // Generación del hub emisor (B8, D-B8-1): un hub con generación menor que
+  // la máxima vista por el simulador recibe FAILED_PRECONDITION y se retira
+  // (fencing). 0 omite la validación por compatibilidad hacia atrás.
+  uint64 hub_generation = 2;
+
+  // Último tick confirmado que conoce el hub emisor (B8, D-B8-1 / D-B8-2):
+  // si es mayor que el tick en memoria del simulador, este estuvo pausado
+  // mientras otro simulador avanzó el valle y debe descartar su memoria,
+  // rotar su boot_id y recargar la última instantánea antes de avanzar.
+  uint64 min_expected_tick = 3;
 }
 
 // Comando admitido por el hub. Go decide si es admisible (sesión, rol,

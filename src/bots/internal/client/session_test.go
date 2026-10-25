@@ -412,3 +412,43 @@ func TestSendRawWhileDisconnectedFails(t *testing.T) {
 		t.Fatalf("SendRaw = %v, want ErrNotConnected", err)
 	}
 }
+
+func TestSessionRotatesAcrossCommaSeparatedBaseURLsAndDetectsReadSilence(t *testing.T) {
+	// El primer hub acepta la conexión y se queda mudo (como un contenedor en docker pause);
+	// el segundo hub envía el estado esperado tras la rotación por ReadTimeout.
+	silentHub := newFakeHub(t, func(ctx context.Context, _ *websocket.Conn, _ int) {
+		<-ctx.Done()
+	})
+	backupHub := newFakeHub(t, func(ctx context.Context, c *websocket.Conn, _ int) {
+		_ = c.Write(ctx, websocket.MessageText, []byte(`{"type":"state","tick":"42","width":1,"height":1,"stages":[1],"humidity":["0"]}`))
+		<-ctx.Done()
+	})
+
+	s, err := NewSession(SessionConfig{
+		BaseURL:     silentHub.srv.URL + "," + backupHub.srv.URL,
+		Token:       "tok",
+		ReadTimeout: 40 * time.Millisecond,
+		Backoff:     func(int) time.Duration { return 5 * time.Millisecond },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+
+	select {
+	case st := <-s.States():
+		if st.Tick != 42 {
+			t.Fatalf("unexpected state tick %d, want 42", st.Tick)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for state from backup hub after silence timeout")
+	}
+	if silentHub.conns.Load() < 1 || backupHub.conns.Load() < 1 {
+		t.Fatalf("expected both hubs to be contacted, got silent=%d backup=%d", silentHub.conns.Load(), backupHub.conns.Load())
+	}
+	cancel()
+	<-done
+}

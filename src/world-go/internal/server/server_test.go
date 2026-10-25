@@ -628,3 +628,29 @@ func TestGetRankingLogsTheRequestIDAtInfo(t *testing.T) {
 		t.Fatalf("la línea de GetRanking debe llevar el id: %q", line)
 	}
 }
+
+func TestStepRejectsLowerHubGenerationWithFailedPrecondition(t *testing.T) {
+	h := start(t, fakepersist.New(), slog.LevelInfo)
+	h.firstStep()
+	ctx := context.Background()
+
+	// Hub 1 (generación 1) avanza un paso.
+	resp, err := h.world.Step(ctx, &worldv1.StepRequest{HubGeneration: 1})
+	if err != nil || resp.GetTick() != 2 {
+		t.Fatalf("Step gen=1: %v, tick=%d", err, resp.GetTick())
+	}
+	// Hub 2 (generación 2) toma el mando.
+	resp, err = h.world.Step(ctx, &worldv1.StepRequest{HubGeneration: 2})
+	if err != nil || resp.GetTick() != 3 {
+		t.Fatalf("Step gen=2: %v, tick=%d", err, resp.GetTick())
+	}
+	// Si el Hub 1 vuelve tras un docker unpause, recibe FAILED_PRECONDITION y el tick no avanza.
+	_, err = h.world.Step(ctx, &worldv1.StepRequest{HubGeneration: 1})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("Step gen=1 tras gen=2: code=%v (%v), quiero FailedPrecondition", status.Code(err), err)
+	}
+	resp, err = h.world.Step(ctx, &worldv1.StepRequest{HubGeneration: 2})
+	if err != nil || resp.GetTick() != 4 {
+		t.Fatalf("Step gen=2 siguiente: %v, tick=%d, quiero 4", err, resp.GetTick())
+	}
+}

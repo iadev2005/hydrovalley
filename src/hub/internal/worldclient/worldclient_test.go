@@ -169,3 +169,33 @@ func TestReconnectsWhenTheWorldAppears(t *testing.T) {
 		return err
 	})
 }
+
+func TestFailsOverAcrossCommaSeparatedAddressesAndCanFailBack(t *testing.T) {
+	primary := newGate(t)
+	standby := newGate(t)
+	standby.up(t)
+
+	c, err := New(primary.lis.Addr().String() + "," + standby.lis.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	// 3 fallos en el primario conmutan al standby.
+	for i := range 3 {
+		if _, err := step(c, 100*time.Millisecond); err == nil {
+			t.Fatalf("attempt %d on closed primary should fail", i)
+		}
+	}
+	if c.ActiveAddr() != standby.lis.Addr().String() {
+		t.Fatalf("ActiveAddr = %q, want standby %q", c.ActiveAddr(), standby.lis.Addr().String())
+	}
+	resp, err := step(c, 2*time.Second)
+	if err != nil || resp.GetTick() != 7 {
+		t.Fatalf("Step on standby = %v, %v", resp, err)
+	}
+	// La afinidad mantiene el standby mientras funcione.
+	if _, err := step(c, 2*time.Second); err != nil || c.ActiveAddr() != standby.lis.Addr().String() {
+		t.Fatalf("sticky affinity lost: err=%v active=%q", err, c.ActiveAddr())
+	}
+}

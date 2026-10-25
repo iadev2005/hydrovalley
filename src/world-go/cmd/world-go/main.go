@@ -48,6 +48,7 @@ func run(ctx context.Context, getenv func(string) string, out io.Writer) error {
 
 	settings := server.NewSettings(cfg.PersistenceAddr)
 	settings.Seed = cfg.Seed
+	settings.Standby = cfg.Mode == config.ModeStandby
 	settings.Log = log
 	// Cuando ctx termina (señal de parada) Serve para ordenadamente.
 	go func() {

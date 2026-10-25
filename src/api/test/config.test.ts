@@ -111,6 +111,12 @@ describe("loadConfig WORLD_ADDR", () => {
     expect(loadConfig(REQUIRED).worldAddr).toBe("world:50051");
   });
 
+  it("accepts a comma-separated list of host:port for failover (B8 W2)", () => {
+    expect(
+      loadConfig({ ...REQUIRED, WORLD_ADDR: "10.68.17.10:50051, 10.68.17.99:50051" }).worldAddr,
+    ).toBe("10.68.17.10:50051,10.68.17.99:50051");
+  });
+
   it.each(["world", "host:", ":50051", "host:0", "host:70000", "http://host:50051", "a b:1"])(
     "rejects the invalid value %j",
     (value) => {

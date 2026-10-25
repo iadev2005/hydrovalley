@@ -18,8 +18,10 @@ services:
     restart: unless-stopped
     image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-hub:${HV_TAG:-dev}
     environment:
-      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051}
+      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051}${LAB_STANDBY_HOST:+,${LAB_STANDBY_HOST}:${HV_STANDBY_WORLD_PORT:-${HV_WORLD_PORT:-50051}}}
       HUB_LISTEN: :8081
+      HUB_GENERATION: ${HUB_GENERATION:-1}
+      HUB_PRIMARY_HEALTH_URL: ${HUB_PRIMARY_HEALTH_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?definir TOKEN_PUBLIC_KEY en secrets.local}
     ports:

@@ -33,6 +33,23 @@ map $http_x_request_id $hv_request_id {
     "~^[0-9a-fA-F]{32}$" $http_x_request_id;
 }
 
+# Orígenes autorizados para conmutación transparente entre el proxy primario y
+# el proxy-standby (B8 E2): cuando una pestaña cargada desde el proxy primario
+# conmuta sus peticiones /api/* o WebSockets al proxy de respaldo tras caer el
+# primario, el navegador envía Origin del proxy original.
+map $http_origin $hv_cors_origin {
+    default "";
+    "~^https?://(localhost|127\.0\.0\.1|10\.68\.17\.[0-9]+|172\.[0-9]+\.[0-9]+\.[0-9]+)(:[0-9]+)?$" $http_origin;
+}
+
+# Si el navegador envía Origin (conmutación entre proxies), en /play se alinea
+# Origin con el Host de este proxy para que la validación por defecto del hub
+# no rechace el handshake con 403.
+map $http_origin $hv_ws_origin {
+    default $http_origin;
+    "~^https?://(localhost|127\.0\.0\.1|10\.68\.17\.[0-9]+|172\.[0-9]+\.[0-9]+\.[0-9]+)(:[0-9]+)?$" "$scheme://$http_host";
+}
+
 # Registro de acceso sin la consulta de la URL: /play?token=… lleva el token
 # firmado, y $request y $request_uri incluyen la consulta. Aquí solo va $uri
 # (la ruta, sin consulta). No se registran $args, $query_string ni el
@@ -98,6 +115,14 @@ server {
 
     # API REST y Swagger (/api/docs). La ruta se reenvía sin cambios.
     location /api/ {
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $hv_cors_origin always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Request-Id" always;
+            add_header Access-Control-Expose-Headers "X-Request-Id, X-Proxy-Backups, Retry-After" always;
+            add_header Access-Control-Max-Age 86400 always;
+            return 204;
+        }
         set $api_upstream http://${API_ADDR};
         proxy_pass $api_upstream;
         proxy_http_version 1.1;
@@ -113,12 +138,17 @@ server {
         proxy_set_header X-Request-Id $hv_request_id;
         proxy_hide_header X-Request-Id;
         add_header X-Request-Id $hv_request_id always;
+        add_header Access-Control-Allow-Origin $hv_cors_origin always;
+        add_header Access-Control-Expose-Headers "X-Request-Id, X-Proxy-Backups, Retry-After" always;
+        add_header X-Proxy-Backups "${PROXY_BACKUP_URLS}" always;
         proxy_connect_timeout 2s;
         proxy_read_timeout 30s;
     }
 
     # WebSocket del juego. El hub compara Origin con Host: Host debe llevar
     # el puerto ($http_host, no $host) o el navegador recibe un 403.
+    # Si el hub primario (${HUB_ADDR}) falla al conectar o responde 502/503/504
+    # (por ejemplo cuando está retirado/fenced o apagado), conmuta a @play_backup.
     location = /play {
         set $hub_upstream http://${HUB_ADDR};
         proxy_pass $hub_upstream;
@@ -126,6 +156,7 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_set_header Host $http_host;
+        proxy_set_header Origin $hv_ws_origin;
         # Igual que en /api: se sobrescribe, no se añade (único proxy).
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_connect_timeout 2s;
@@ -134,10 +165,28 @@ server {
         proxy_read_timeout 1h;
         proxy_send_timeout 1h;
         proxy_buffering off;
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @play_backup;
         # El registro de errores copia la línea de la petición completa
         # («request: "GET /play?token=…"»), y $uri no lo evita. En /play solo
         # se registran los errores críticos; los fallos del hub se ven en el
         # estado de la respuesta (registro de acceso) y en el propio hub.
+        error_log /dev/stderr crit;
+    }
+
+    location @play_backup {
+        set $hub_backup_upstream http://${HUB_BACKUP_ADDR};
+        proxy_pass $hub_backup_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $http_host;
+        proxy_set_header Origin $hv_ws_origin;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_buffering off;
         error_log /dev/stderr crit;
     }
 
@@ -149,6 +198,25 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_set_header Host $http_host;
+        proxy_set_header Origin $hv_ws_origin;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_buffering off;
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @chat_backup;
+        error_log /dev/stderr crit;
+    }
+
+    location @chat_backup {
+        set $chat_backup_upstream http://${CHAT_BACKUP_ADDR};
+        proxy_pass $chat_backup_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $http_host;
+        proxy_set_header Origin $hv_ws_origin;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_connect_timeout 2s;
         proxy_read_timeout 1h;

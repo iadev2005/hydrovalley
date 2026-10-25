@@ -109,3 +109,17 @@ func TestLogLevelFollowsTheRustNamesAndFallsBackToInfo(t *testing.T) {
 		}
 	}
 }
+
+func TestWorldModeDefaultsToActiveAndAcceptsStandby(t *testing.T) {
+	cfg, err := Load(env("PERSISTENCE_ADDR", "persistence:50051"))
+	if err != nil || cfg.Mode != ModeActive {
+		t.Fatalf("por omisión: (%+v, %v)", cfg, err)
+	}
+	cfg, err = Load(env("PERSISTENCE_ADDR", "persistence:50051", "WORLD_MODE", "STANDBY"))
+	if err != nil || cfg.Mode != ModeStandby {
+		t.Fatalf("standby: (%+v, %v)", cfg, err)
+	}
+	if _, err := Load(env("PERSISTENCE_ADDR", "persistence:50051", "WORLD_MODE", "otro")); err == nil {
+		t.Fatal("WORLD_MODE inválido debería fallar")
+	}
+}

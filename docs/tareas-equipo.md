@@ -145,7 +145,7 @@ Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o m�
 
 ### Resumen
 
-Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 hecha (Claude, PR #59) y ensayada en el laboratorio el 23 de octubre (Fer y el equipo; registro en `docs/registro-despliegue-laboratorio.md`); B8 en propuesta (Fer, `docs/decisiones/b8-orquestacion.md`, con decisiones del equipo pendientes); B3 hecha (Cristian Baczek, integrada por Claude); B5 hecha (Claude, PR #60–#65; `world-go` sustituye a Rust por configuración; comparativa medida bajo D-03).
+Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 en curso (Alfonso); B1 hecha (Claude, PR #59) y ensayada en el laboratorio el 23 de octubre (Fer y el equipo; registro en `docs/registro-despliegue-laboratorio.md`); B2 hecha (PR #62); B3 hecha (Cristian Baczek, integrada por Claude); B5 hecha (Claude, PR #60–#65; `world-go` sustituye a Rust por configuración; comparativa medida bajo D-03); B7 hecha (Cristian Baczek, integrada por Claude); B8 completada (Fer2703: Fases 0–5 cerradas; documento de decisión con mediciones en `docs/decisiones/b8-orquestacion.md`, tareas T1–T6 completadas y mediciones de aceptación registradas en `odd/tasks/b8-failover.md`).
 
 | ID | Tarea | Nivel | Tamaño | Depende de | Perfil |
 | --- | --- | --- | --- | --- | --- |
@@ -364,12 +364,14 @@ Cada uno es un PR pequeño:
 #### B8 · Mantener el juego con una máquina apagada (orquestación)
 
 - **Por qué:** el profesor sugirió la orquestación de contenedores. Hoy, si se apaga la máquina del hub, de nginx o de Rust, el juego se detiene hasta que vuelve (ver «Resultados medidos» en el documento).
-- **Depende de:** B1 (plan A funcionando) y, para Rust, B5.
-- **Qué hacer:** **investigar primero** y presentar opciones con pros y contras antes de construir nada:
-  - Un hub y un nginx en espera en otra máquina y una forma de pasar el tráfico.
-  - Para el simulador: el escritor único impide dos copias activas, así que el relevo sería una copia en espera (`world-go` o Rust) que arranca desde la última instantánea.
-  - Orquestadores: Kubernetes (k3s) o Swarm. `CLAUDE.md` descarta Swarm (puertos y Docker Desktop sobre WSL) y D-05 deja Kubernetes para cuando todo funcione.
-- **Aceptación:** un documento de decisión con la opción elegida y su prueba; luego, una tarea de implementación.
+- **Depende de:** B1 (plan A funcionando) y, para Rust, B5 (ambas listas).
+- **Decisión aprobada (`docs/decisiones/b8-orquestacion.md`):**
+  - **Topología (6 máquinas):** las 5 PCs del Plan A (`10.68.17.3` `db`, `10.68.17.9` `persistence`, `10.68.17.10` `world`, `10.68.17.12` `hub`, `10.68.17.80` `proxy`) más una **6.ª máquina física (`standby.yml`)** que aloja `proxy-standby` (`:8080`), `hub-standby` (`:8081`) y `world-standby` con `world-go` (`:50051`).
+  - **Entrada (`E2`):** segundo nodo `proxy` con el mismo certificado TLS multi-SAN y la misma `TOKEN_PRIVATE_KEY`, conmutación automática en el frontend y los bots y `upstream` de nginx con `backup` hacia `hub-standby`.
+  - **Simulador (`W2`):** `world-standby` corre `world-go` en modo `WORLD_MODE=standby` (carga la instantánea solo al recibir su primer `Step`, nunca al arrancar). Si la máquina de Rust (`10.68.17.10`) se despausa o vuelve, el campo `min_expected_tick` de `StepRequest` obliga a Rust a descartar su memoria vieja y recargar la instantánea escrita por `world-go`, permitiendo regresar de Go a Rust (*failback*) sin que el tick retroceda jamás.
+  - **Hub (`H2`):** `hub-standby` vigila `/healthz` del primario y se promueve con `hub_generation = 2` en `StepRequest`. Si el hub primario se despausa (`docker unpause`), recibe `FAILED_PRECONDITION`, detiene su bucle, responde `503` en `/healthz` y cierra sus WebSockets con `1001`.
+- **Desglose de implementación (`odd/tasks/b8-failover.md`):** `T1` (entrada doble y cliente con rotación automática), `T2` (simulador `standby` y regreso `world-go → Rust`), `T3` (hub `standby` y *fencing* con retirada al despausar), `T4` (`standby.yml`, `simulate.sh` y scripts del laboratorio), `T5` (casos e2e de failover y `unpause`), `T6` (documentación y diagramas 04 y 08). `T7` (`kind` multinodo) queda descartada por calendario.
+- **Aceptación:** apagar o pausar la máquina de `world`, `hub` o `proxy` mantiene el juego en marcha ($\le 50\text{ ticks}$ perdidos), sin que el jugador tenga que cambiar de IP y sin que despausar la máquina original genere dos escritores ni retroceda el tick.
 
 ---
 
