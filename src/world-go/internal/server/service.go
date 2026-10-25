@@ -35,6 +35,11 @@ func notReady() error {
 // Step no escribe nada.
 func (s *service) Step(ctx context.Context, request *worldv1.StepRequest) (*worldv1.StepResponse, error) {
 	id := requestid.FromContext(ctx)
+	if err := s.sim.CheckHubGeneration(request.GetHubGeneration()); errors.Is(err, simulator.ErrFenced) {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	} else if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 	if err := s.sim.EnsureActiveAndFresh(request.GetMinExpectedTick()); errors.Is(err, simulator.ErrNotReady) {
 		return nil, notReady()
 	} else if err != nil {

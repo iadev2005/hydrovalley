@@ -41,20 +41,32 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Listen != ":8081" || cfg.WorldAddr != "world:50051" || cfg.LogLevel != slog.LevelInfo {
+	if cfg.Listen != ":8081" || cfg.WorldAddr != "world:50051" || cfg.HubGeneration != 1 || cfg.PrimaryHealthURL != "" || cfg.LogLevel != slog.LevelInfo {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
 
 func TestOverrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"WORLD_ADDR": " 10.68.17.2:50051 ", "HUB_LISTEN": "0.0.0.0:9000", "LOG_LEVEL": "debug",
+		"WORLD_ADDR":             " 10.68.17.2:50051 ",
+		"HUB_LISTEN":             "0.0.0.0:9000",
+		"HUB_GENERATION":         " 2 ",
+		"HUB_PRIMARY_HEALTH_URL": " http://10.68.17.12:8081/healthz ",
+		"LOG_LEVEL":              "debug",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Listen != "0.0.0.0:9000" || cfg.WorldAddr != "10.68.17.2:50051" || cfg.LogLevel != slog.LevelDebug {
+	if cfg.Listen != "0.0.0.0:9000" || cfg.WorldAddr != "10.68.17.2:50051" || cfg.HubGeneration != 2 || cfg.PrimaryHealthURL != "http://10.68.17.12:8081/healthz" || cfg.LogLevel != slog.LevelDebug {
 		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestInvalidHubGeneration(t *testing.T) {
+	for _, bad := range []string{"0", "-1", "abc"} {
+		if _, err := Load(env(map[string]string{"WORLD_ADDR": "world:50051", "HUB_GENERATION": bad})); err == nil {
+			t.Fatalf("HUB_GENERATION=%q must be an error", bad)
+		}
 	}
 }
 

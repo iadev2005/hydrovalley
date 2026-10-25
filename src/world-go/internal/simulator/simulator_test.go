@@ -785,3 +785,29 @@ func TestMinExpectedTickHigherThanLocalTickForcesReloadAndRotatesBootID(t *testi
 		t.Fatalf("boot_id no rotó tras recarga: %q", resumed.BootID)
 	}
 }
+
+func TestCheckHubGenerationFencesLowerGenerationWithoutTouchingWorld(t *testing.T) {
+	s := ready(t, &fakeStore{})
+	// hub_generation = 0 (clientes antiguos) no altera ni se rechaza.
+	if err := s.CheckHubGeneration(0); err != nil {
+		t.Fatalf("CheckHubGeneration(0) = %v", err)
+	}
+	// Primera generación explícita (1) y luego promoción a 2.
+	if err := s.CheckHubGeneration(1); err != nil {
+		t.Fatalf("CheckHubGeneration(1) = %v", err)
+	}
+	if err := s.CheckHubGeneration(1); err != nil {
+		t.Fatalf("CheckHubGeneration(1 repetida) = %v", err)
+	}
+	if err := s.CheckHubGeneration(2); err != nil {
+		t.Fatalf("CheckHubGeneration(2) = %v", err)
+	}
+	// Si el Hub 1 vuelve de un docker pause, su generación 1 es rechazada con ErrFenced.
+	if err := s.CheckHubGeneration(1); !errors.Is(err, ErrFenced) {
+		t.Fatalf("CheckHubGeneration(1 tras 2) = %v, quiero ErrFenced", err)
+	}
+	// El Hub 2 sigue avanzando normalmente.
+	if err := s.CheckHubGeneration(2); err != nil {
+		t.Fatalf("CheckHubGeneration(2) = %v", err)
+	}
+}

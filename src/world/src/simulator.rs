@@ -43,6 +43,11 @@ impl Backoff {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotReady;
 
+/// El `Step` trae un `hub_generation` menor que el máximo visto por el
+/// simulador (D-B8-1): `Step` responde `FAILED_PRECONDITION` sin tocar el mundo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fenced;
+
 /// Lo que devuelve un paso, más lo que la capa de red quiera leer del
 /// mundo mientras sigue bloqueado.
 #[derive(Debug)]
@@ -82,6 +87,9 @@ pub struct Simulator<S> {
     /// Época interna de memoria para descartar guardados en vuelo previos a
     /// una recarga por despausado (`min_expected_tick`).
     epoch: Arc<AtomicU64>,
+    /// Mayor `hub_generation` visto en `Step` para hacer fencing de hubs
+    /// antiguos que despiertan de una pausa (D-B8-1).
+    max_hub_generation: AtomicU64,
 }
 
 /// Plazo para volver a pedir el catálogo al reiniciar el valle. Es la mitad
@@ -112,6 +120,7 @@ impl<S: PersistenceStore> Simulator<S> {
             saving: Arc::new(AtomicBool::new(false)),
             saved_tick: Arc::new(AtomicU64::new(0)),
             epoch: Arc::new(AtomicU64::new(1)),
+            max_hub_generation: AtomicU64::new(0),
         }
     }
 
@@ -130,6 +139,45 @@ impl<S: PersistenceStore> Simulator<S> {
 
     pub fn is_standby(&self) -> bool {
         matches!(*self.lock(), State::Standby)
+    }
+
+    /// Valida y actualiza la generación máxima de hub vista por el simulador
+    /// (D-B8-1). Si `hub_generation > 0` y es menor que la máxima vista,
+    /// devuelve `Err(Fenced)` sin tocar el mundo.
+    pub fn check_hub_generation(&self, hub_generation: u64) -> Result<(), Fenced> {
+        if hub_generation == 0 {
+            return Ok(());
+        }
+        let mut current = self.max_hub_generation.load(Ordering::Acquire);
+        loop {
+            if hub_generation < current {
+                tracing::warn!(
+                    hub_generation,
+                    max_hub_generation = current,
+                    "Step rechazado por fencing de hub_generation"
+                );
+                return Err(Fenced);
+            }
+            if hub_generation == current {
+                return Ok(());
+            }
+            match self.max_hub_generation.compare_exchange_weak(
+                current,
+                hub_generation,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    tracing::info!(
+                        previous_generation = current,
+                        hub_generation,
+                        "nueva generación de hub registrada"
+                    );
+                    return Ok(());
+                }
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     /// Si el simulador está en `Standby` o si su `tick` en memoria quedó por
@@ -1068,5 +1116,16 @@ mod tests {
         assert_eq!(resumed.restored_tick, 250);
         assert_eq!(resumed.outcome.tick, 251);
         assert_ne!(resumed.boot_id, original_boot_id);
+    }
+
+    #[tokio::test]
+    async fn check_hub_generation_fences_lower_generation() {
+        let (simulator, _) = ready(FakeStore::default()).await;
+        assert_eq!(simulator.check_hub_generation(0), Ok(()));
+        assert_eq!(simulator.check_hub_generation(1), Ok(()));
+        assert_eq!(simulator.check_hub_generation(1), Ok(()));
+        assert_eq!(simulator.check_hub_generation(2), Ok(()));
+        assert_eq!(simulator.check_hub_generation(1), Err(Fenced));
+        assert_eq!(simulator.check_hub_generation(2), Ok(()));
     }
 }

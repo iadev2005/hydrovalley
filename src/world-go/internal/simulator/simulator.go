@@ -23,6 +23,10 @@ import (
 // ErrNotReady: el mundo todavía no se ha cargado; Step responde UNAVAILABLE.
 var ErrNotReady = errors.New("el simulador todavía está cargando el mundo")
 
+// ErrFenced: Step trae un hub_generation menor que el máximo visto por el
+// simulador (D-B8-1); Step responde FAILED_PRECONDITION sin tocar el mundo.
+var ErrFenced = errors.New("hub desplazado por una generación superior")
+
 // Backoff son las esperas entre intentos de GetCatalog y LoadSnapshot al
 // arrancar: 1 s, 2 s, 4 s y luego 5 s indefinidamente.
 type Backoff struct {
@@ -79,14 +83,15 @@ type Simulator struct {
 	resetTimeout  time.Duration
 	log           *slog.Logger
 
-	// mu protege world, restoredTick, bootID y standby/loading, y serializa
-	// los pasos: dos Step nunca se solapan.
-	mu           sync.Mutex
-	standby      bool
-	loading      bool
-	world        *domain.World // nil mientras carga o está en standby
-	restoredTick uint64
-	bootID       string
+	// mu protege world, restoredTick, bootID, maxHubGeneration y
+	// standby/loading, y serializa los pasos: dos Step nunca se solapan.
+	mu               sync.Mutex
+	standby          bool
+	loading          bool
+	world            *domain.World // nil mientras carga o está en standby
+	restoredTick     uint64
+	bootID           string
+	maxHubGeneration uint64
 
 	// turn tiene un elemento mientras hay un guardado en curso (como mucho
 	// uno).
@@ -156,6 +161,28 @@ func (s *Simulator) IsStandby() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.standby
+}
+
+// CheckHubGeneration valida y actualiza la generación máxima de hub vista por
+// el simulador (D-B8-1). Si hubGeneration > 0 y es menor que la máxima vista,
+// devuelve ErrFenced sin tocar el mundo.
+func (s *Simulator) CheckHubGeneration(hubGeneration uint64) error {
+	if hubGeneration == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if hubGeneration < s.maxHubGeneration {
+		s.log.Warn("Step rechazado por fencing de hub_generation",
+			"hub_generation", hubGeneration, "max_hub_generation", s.maxHubGeneration)
+		return ErrFenced
+	}
+	if hubGeneration > s.maxHubGeneration {
+		s.log.Info("nueva generación de hub registrada",
+			"previous_generation", s.maxHubGeneration, "hub_generation", hubGeneration)
+		s.maxHubGeneration = hubGeneration
+	}
+	return nil
 }
 
 // EnsureActiveAndFresh comprueba bajo candado si el simulador está en Standby

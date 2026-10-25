@@ -10,7 +10,9 @@ import (
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/breaker"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/frames"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 var errInvalidResponse = errors.New("invalid Step response")
@@ -25,6 +27,10 @@ var errInvalidResponse = errors.New("invalid Step response")
 //  4. difunde el estado si toca (cada Config.BroadcastEvery).
 func (h *Hub) Tick(ctx context.Context) {
 	h.mu.Lock()
+	if h.fenced || h.standby {
+		h.mu.Unlock()
+		return
+	}
 	h.expireLocked()
 	if !h.breaker.Allow(h.clock.Now()) {
 		h.sweepIdlePlayersLocked()
@@ -37,6 +43,7 @@ func (h *Hub) Tick(ctx context.Context) {
 	h.queue = slices.Delete(h.queue, 0, n)
 	stepID := stepRequestID(h.tick)
 	minExpectedTick := h.tick
+	hubGen := h.cfg.HubGeneration
 	h.mu.Unlock()
 
 	cmds := make([]*worldv1.Command, len(batch))
@@ -49,6 +56,7 @@ func (h *Hub) Tick(ctx context.Context) {
 	stepStart := h.clock.Now()
 	resp, err := h.world.Step(stepCtx, &worldv1.StepRequest{
 		Commands:        cmds,
+		HubGeneration:   hubGen,
 		MinExpectedTick: minExpectedTick,
 	})
 	cancel()
@@ -121,6 +129,13 @@ func (h *Hub) stepFailedLocked(batch []queued, stepID string, err error) {
 	}
 	h.queue = append(batch, h.queue...)
 	h.paused = true
+	if status.Code(err) == codes.FailedPrecondition {
+		h.fenced = true
+		h.fenceOnce.Do(func() { close(h.fencedCh) })
+		h.log.Error("hub fenced by higher generation: retiring and closing open sessions",
+			"request_id", stepID, "hub_generation", h.cfg.HubGeneration, "err", err)
+		return
+	}
 	opened := h.breaker.Failure(h.clock.Now())
 	h.log.Warn("Step failed", "request_id", stepID, "err", err, "requeued", len(batch), "breaker", h.breaker.State().String())
 	if opened {
@@ -151,10 +166,14 @@ func (h *Hub) stepSucceededLocked(batch []queued, resp *worldv1.StepResponse) {
 	h.breaker.Success()
 	h.paused = false
 	h.succeeded = true
+	wasFirstBoot := h.bootID == ""
 	h.observeBootLocked(resp.GetBootId(), resp.GetRestoredTick())
 	h.restoredTick = resp.GetRestoredTick()
 	h.tick = resp.GetTick()
 	h.latestWorld = resp.GetState()
+	if wasFirstBoot && h.latestWorld.GetDemoMode() && h.acceptedDrops == 0 && h.latestWorld.GetHumidityContributed() > 0 {
+		h.acceptedDrops = h.latestWorld.GetHumidityContributed()
+	}
 
 	now := h.clock.Now()
 	for i, r := range resp.GetResults() {

@@ -49,6 +49,8 @@ type fakeWorld struct {
 	bootID   string
 	restored uint64
 	fail     bool
+	err      error
+	demoMode bool
 	// status por action_id; por defecto APPLIED.
 	statuses map[string]worldv1.CommandStatus
 	// motivo de rechazo por action_id; por defecto OUT_OF_BOUNDS.
@@ -93,13 +95,16 @@ func (w *fakeWorld) Step(ctx context.Context, req *worldv1.StepRequest) (*worldv
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.err != nil {
+		return nil, w.err
+	}
 	if w.fail {
 		return nil, errUnavailable
 	}
 	w.tick++
 	resp := &worldv1.StepResponse{
 		Tick: w.tick, RestoredTick: w.restored, BootId: w.bootID,
-		State: &worldv1.WorldState{Width: 32, Height: 32, Players: w.players, HumidityContributed: w.humidity},
+		State: &worldv1.WorldState{Width: 32, Height: 32, Players: w.players, HumidityContributed: w.humidity, DemoMode: w.demoMode},
 	}
 	for _, c := range req.GetCommands() {
 		status, ok := w.statuses[c.GetActionId()]

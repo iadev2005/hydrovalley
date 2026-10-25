@@ -10,6 +10,8 @@ import (
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/breaker"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func actionIDs(cmds []*worldv1.Command) []string {
@@ -350,5 +352,87 @@ func TestRunNeverOverlapsStepCalls(t *testing.T) {
 	defer h.world.mu.Unlock()
 	if h.world.maxInFly != 1 {
 		t.Fatalf("max concurrent Step calls = %d, want 1", h.world.maxInFly)
+	}
+}
+
+func TestStepSendsHubGenerationAndFencesOnFailedPrecondition(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.HubGeneration = 2 })
+	h.tick()
+	calls := h.world.calls()
+	if len(calls) != 1 || calls[0].GetHubGeneration() != 2 {
+		t.Fatalf("Step HubGeneration = %v, want 2", calls)
+	}
+
+	// Si el simulador devuelve FAILED_PRECONDITION, el hub entra en estado
+	// fenced, cierra Fenced() y detiene su bucle Run.
+	h.world.set(func(w *fakeWorld) {
+		w.err = status.Error(codes.FailedPrecondition, "fenced by higher generation")
+	})
+	ticks := make(chan time.Time, 2)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.hub.Run(context.Background(), ticks)
+	}()
+	ticks <- time.Now()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Run must exit as soon as the hub is fenced")
+	}
+	select {
+	case <-h.hub.Fenced():
+	default:
+		t.Fatal("Fenced() channel must be closed")
+	}
+	st := h.hub.Status()
+	if !st.Fenced || st.Ready {
+		t.Fatalf("status after fencing = %+v, want Fenced=true Ready=false", st)
+	}
+	// Nuevas llamadas a Tick no deben tocar el simulador.
+	before := len(h.world.calls())
+	h.tick()
+	if len(h.world.calls()) != before {
+		t.Fatal("fenced hub must not call Step again")
+	}
+}
+
+func TestStandbyHubDoesNotTickUntilPromotedByWatchPrimary(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.HubGeneration = 2 })
+	h.hub.SetStandby(true)
+	if st := h.hub.Status(); !st.Standby || st.Ready {
+		t.Fatalf("standby status = %+v", st)
+	}
+	h.tick()
+	if len(h.world.calls()) != 0 {
+		t.Fatal("standby hub must not call Step before promotion")
+	}
+
+	// WatchPrimary: 2 fallos seguidos seguidos de un 200 reinician la cuenta;
+	// 3 fallos seguidos promueven al hub-standby.
+	codesSeq := []int{503, 503, 200, 503, 500, 503}
+	idx := 0
+	promoted := WatchPrimary(context.Background(), "http://primary/healthz", time.Millisecond, 10*time.Millisecond, func(context.Context, string) (int, error) {
+		c := codesSeq[idx]
+		idx++
+		return c, nil
+	}, nil)
+	if !promoted || idx != len(codesSeq) {
+		t.Fatalf("promoted=%v calls=%d, want true after %d probes", promoted, idx, len(codesSeq))
+	}
+
+	h.hub.SetStandby(false)
+	h.world.set(func(w *fakeWorld) {
+		w.demoMode = true
+		w.humidity = 42
+	})
+	h.tick()
+	if st := h.hub.Status(); st.Standby || !st.Ready || st.Tick != 1 {
+		t.Fatalf("promoted status = %+v", st)
+	}
+	// S2: en modo demo, al observar por primera vez el mundo, acceptedDrops se
+	// alinea con humidity_contributed de la instantánea.
+	if got := h.hub.AcceptedDrops(); got != 42 {
+		t.Fatalf("acceptedDrops synced on promotion in demo mode = %d, want 42", got)
 	}
 }
