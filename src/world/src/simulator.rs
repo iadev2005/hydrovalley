@@ -12,7 +12,9 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::codec;
-use crate::domain::{Catalog, Command, CommandKind, StepOutcome, World, is_snapshot_tick};
+use crate::domain::{
+    Catalog, Command, CommandKind, SNAPSHOT_INTERVAL_TICKS, StepOutcome, World, is_snapshot_tick,
+};
 use crate::store::PersistenceStore;
 
 /// Esperas entre intentos de `GetCatalog` y `LoadSnapshot` al arrancar: 1 s, 2 s, 4 s y
@@ -87,6 +89,11 @@ pub struct Simulator<S> {
     /// Época interna de memoria para descartar guardados en vuelo previos a
     /// una recarga por despausado (`min_expected_tick`).
     epoch: Arc<AtomicU64>,
+    /// Mayor `min_expected_tick` para el que ya se solicitó una carga o
+    /// recarga desde persistencia, evitando bucles de recarga cuando la última
+    /// instantánea guardada en base de datos es anterior a `min_expected_tick`
+    /// dentro del margen RPO (`<= 50` ticks).
+    acknowledged_min_tick: AtomicU64,
     /// Mayor `hub_generation` visto en `Step` para hacer fencing de hubs
     /// antiguos que despiertan de una pausa (D-B8-1).
     max_hub_generation: AtomicU64,
@@ -120,6 +127,7 @@ impl<S: PersistenceStore> Simulator<S> {
             saving: Arc::new(AtomicBool::new(false)),
             saved_tick: Arc::new(AtomicU64::new(0)),
             epoch: Arc::new(AtomicU64::new(1)),
+            acknowledged_min_tick: AtomicU64::new(0),
             max_hub_generation: AtomicU64::new(0),
         }
     }
@@ -197,23 +205,39 @@ impl<S: PersistenceStore> Simulator<S> {
                     min_expected_tick,
                     "promoción de simulador standby: iniciando carga de instantánea"
                 );
+                self.acknowledged_min_tick
+                    .fetch_max(min_expected_tick, Ordering::AcqRel);
                 *state = State::Loading;
                 self.spawn_background_load(true);
                 Err(NotReady)
             }
             State::Loading => Err(NotReady),
-            State::Ready { world, .. } if min_expected_tick > world.tick() => {
-                tracing::warn!(
-                    local_tick = world.tick(),
-                    min_expected_tick,
-                    "estado en memoria desfasado tras pausa o relevo: descartando mundo y recargando instantánea"
-                );
-                self.epoch.fetch_add(1, Ordering::AcqRel);
-                *state = State::Loading;
-                self.spawn_background_load(true);
-                Err(NotReady)
+            State::Ready {
+                world,
+                restored_tick,
+                ..
+            } => {
+                let ack = self.acknowledged_min_tick.load(Ordering::Acquire);
+                let just_loaded_same_window = world.tick() == *restored_tick
+                    && min_expected_tick < restored_tick.saturating_add(SNAPSHOT_INTERVAL_TICKS);
+                if min_expected_tick > world.tick()
+                    && min_expected_tick > ack
+                    && !just_loaded_same_window
+                {
+                    tracing::warn!(
+                        local_tick = world.tick(),
+                        min_expected_tick,
+                        "estado en memoria desfasado tras pausa o relevo: descartando mundo y recargando instantánea"
+                    );
+                    self.acknowledged_min_tick
+                        .store(min_expected_tick, Ordering::Release);
+                    self.epoch.fetch_add(1, Ordering::AcqRel);
+                    *state = State::Loading;
+                    self.spawn_background_load(true);
+                    return Err(NotReady);
+                }
+                Ok(())
             }
-            State::Ready { .. } => Ok(()),
         }
     }
 
@@ -1111,11 +1135,32 @@ mod tests {
         })
         .await;
 
-        assert_eq!(simulator.ensure_active_and_fresh(250), Ok(()));
+        // El siguiente sondeo del hub sigue trayendo min_expected_tick = 260
+        // hasta que un Step completo devuelva el nuevo boot_id; no debe volver
+        // a disparar otra recarga en bucle infinito.
+        assert_eq!(simulator.ensure_active_and_fresh(260), Ok(()));
         let resumed = simulator.step(&[], |_| ()).unwrap();
         assert_eq!(resumed.restored_tick, 250);
         assert_eq!(resumed.outcome.tick, 251);
         assert_ne!(resumed.boot_id, original_boot_id);
+    }
+
+    #[tokio::test]
+    async fn freshly_loaded_simulator_after_crash_accepts_min_expected_tick_in_same_snapshot_window()
+     {
+        // Tras un SIGKILL en tick 1410, la última instantánea periódica en
+        // PostgreSQL es la del tick 1400 (ventana de 50 ticks). Al reiniciar,
+        // el primer Step trae min_expected_tick = 1410 y debe aceptarse sin
+        // recargar en bucle.
+        let store = Arc::new(FakeStore::with_loads(vec![Ok(Some(snapshot_at(1400)))]));
+        let simulator = Arc::new(Simulator::new(store.clone(), 0));
+        simulator.load(fast()).await;
+
+        assert_eq!(simulator.ensure_active_and_fresh(1410), Ok(()));
+        assert_eq!(store.load_calls.load(Ordering::SeqCst), 1);
+        let report = simulator.step(&[], |_| ()).unwrap();
+        assert_eq!(report.restored_tick, 1400);
+        assert_eq!(report.outcome.tick, 1401);
     }
 
     #[tokio::test]

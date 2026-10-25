@@ -83,15 +83,17 @@ type Simulator struct {
 	resetTimeout  time.Duration
 	log           *slog.Logger
 
-	// mu protege world, restoredTick, bootID, maxHubGeneration y
-	// standby/loading, y serializa los pasos: dos Step nunca se solapan.
-	mu               sync.Mutex
-	standby          bool
-	loading          bool
-	world            *domain.World // nil mientras carga o está en standby
-	restoredTick     uint64
-	bootID           string
-	maxHubGeneration uint64
+	// mu protege world, restoredTick, bootID, maxHubGeneration,
+	// acknowledgedMinTick y standby/loading, y serializa los pasos: dos Step
+	// nunca se solapan.
+	mu                  sync.Mutex
+	standby             bool
+	loading             bool
+	world               *domain.World // nil mientras carga o está en standby
+	restoredTick        uint64
+	bootID              string
+	maxHubGeneration    uint64
+	acknowledgedMinTick uint64
 
 	// turn tiene un elemento mientras hay un guardado en curso (como mucho
 	// uno).
@@ -196,6 +198,9 @@ func (s *Simulator) EnsureActiveAndFresh(minExpectedTick uint64) error {
 	defer s.mu.Unlock()
 	if s.standby {
 		s.log.Info("promoción de simulador standby: iniciando carga de instantánea", "min_expected_tick", minExpectedTick)
+		if minExpectedTick > s.acknowledgedMinTick {
+			s.acknowledgedMinTick = minExpectedTick
+		}
 		s.standby = false
 		s.loading = true
 		go func() { _ = s.loadInner(s.runCtx, true) }()
@@ -204,9 +209,18 @@ func (s *Simulator) EnsureActiveAndFresh(minExpectedTick uint64) error {
 	if s.world == nil {
 		return ErrNotReady
 	}
-	if minExpectedTick > s.world.Tick() {
+	// Si este simulador acaba de arrancar (world.Tick() == restoredTick) tras
+	// una caída abrupta (SIGKILL) antes del siguiente múltiplo de 50, la última
+	// instantánea en PostgreSQL puede estar hasta SnapshotIntervalTicks - 1
+	// por detrás de minExpectedTick. Tampoco se debe repetir la recarga en
+	// bucle si ya atendimos este minExpectedTick en una promoción o recarga
+	// previa (mientras el hub aún no ha observado el nuevo boot_id).
+	justLoadedSameWindow := s.world.Tick() == s.restoredTick &&
+		minExpectedTick < s.restoredTick+domain.SnapshotIntervalTicks
+	if minExpectedTick > s.world.Tick() && minExpectedTick > s.acknowledgedMinTick && !justLoadedSameWindow {
 		s.log.Warn("estado en memoria desfasado tras pausa o relevo: descartando mundo y recargando instantánea",
 			"local_tick", s.world.Tick(), "min_expected_tick", minExpectedTick)
+		s.acknowledgedMinTick = minExpectedTick
 		s.epoch.Add(1)
 		s.world = nil
 		s.loading = true

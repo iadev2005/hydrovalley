@@ -771,8 +771,10 @@ func TestMinExpectedTickHigherThanLocalTickForcesReloadAndRotatesBootID(t *testi
 	}
 	eventually(t, "recarga tras despausado completada", s.IsReady)
 
-	if err := s.EnsureActiveAndFresh(250); err != nil {
-		t.Fatalf("EnsureActiveAndFresh(250) tras recarga = %v", err)
+	// El siguiente sondeo del hub sigue trayendo min_expected_tick = 260 hasta
+	// que un Step completo devuelva el nuevo boot_id; no debe volver a recargar.
+	if err := s.EnsureActiveAndFresh(260); err != nil {
+		t.Fatalf("EnsureActiveAndFresh(260) tras recarga = %v", err)
 	}
 	resumed, err := s.Step(nil, nil, nil)
 	if err != nil {
@@ -783,6 +785,30 @@ func TestMinExpectedTickHigherThanLocalTickForcesReloadAndRotatesBootID(t *testi
 	}
 	if resumed.BootID == originalBootID {
 		t.Fatalf("boot_id no rotó tras recarga: %q", resumed.BootID)
+	}
+}
+
+func TestFreshlyLoadedSimulatorAfterCrashAcceptsMinExpectedTickInSameSnapshotWindow(t *testing.T) {
+	// Tras un SIGKILL en tick 1410, la última instantánea periódica en PostgreSQL
+	// es la del tick 1400 (ventana de 50 ticks). Al reiniciar, el primer Step
+	// trae min_expected_tick = 1410 y debe aceptarse sin recargar en bucle.
+	st := &fakeStore{
+		t:     t,
+		loads: []result[*persistencev1.Snapshot]{found(snapshotAt(t, 1400))},
+	}
+	s := ready(t, st)
+	if err := s.EnsureActiveAndFresh(1410); err != nil {
+		t.Fatalf("EnsureActiveAndFresh(1410) = %v, quiero nil", err)
+	}
+	if n := st.loadCalls.Load(); n != 1 {
+		t.Fatalf("LoadSnapshot = %d, quiero 1 (sin recarga redundante)", n)
+	}
+	report, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredTick != 1400 || report.Outcome.Tick != 1401 {
+		t.Fatalf("restored=%d tick=%d, quiero 1400 y 1401", report.RestoredTick, report.Outcome.Tick)
 	}
 }
 
