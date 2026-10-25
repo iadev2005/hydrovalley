@@ -386,11 +386,12 @@ Además encaja sin estorbar:
 
 | Opción | A favor | En contra |
 | --- | --- | --- |
-| **Docker Compose** | Se levanta con un comando, funciona siempre, no cuesta nada | Como “nativo en la nube” es defendible pero modesto |
-| Kubernetes local (k3s, kind) | Orquestación de verdad, se ve serio en la defensa | Curva de aprendizaje real; puede comerse una semana |
-| Nube pública gratuita | Es literalmente “nativo en la nube” | Límites, pagos y riesgo de que falle el día de la demo |
+| **Docker Compose repartido (Plan A, Elegida)** | Se levanta por nodo con Compose, reproduce la topología física del laboratorio (5 máquinas base + 1 máquina de respaldo con réplicas standby), sin depender de Kubernetes entre hosts Windows sin privilegios | Requiere configurar variables de red e IPs por nodo |
+| Docker Compose en una máquina (Plan B) | Todo en local en una sola máquina (`deploy/compose.yml`), ideal para desarrollo y contingencia rápida | No demuestra distribución física en máquinas distintas |
+| Kubernetes local (k3s, kind) multinodo | Orquestación nativa declarativa | Bloqueado entre hosts Windows por NAT de WSL 2 y puertos cerrados en el laboratorio (D-B8-5) |
+| Nube pública gratuita | Literalmente “nativo en la nube” | Límites, pagos y riesgo de que falle el día de la demo |
 
-**Propuesta: Docker Compose primero, y subir a Kubernetes solo si el sistema ya funciona.** El orden importa. Un Kubernetes precioso sin servicios que desplegar no vale nada, y el despliegue previsto es sobre las máquinas del laboratorio, no sobre una nube externa.
+**Decisión final:** Despliegue distribuido en el laboratorio con **Docker Compose repartido entre 6 máquinas físicas** (5 nodos principales del Plan A + 1 nodo `standby` que aloja `proxy-standby`, `hub-standby` y `world-standby` con `world-go`), con conmutación automática (*failover*) y blindaje de despausado (*failback* `world-go → Rust`), manteniendo `deploy/compose.yml` como Plan B en local. Detalle arquitectónico en [`docs/decisiones/b8-orquestacion.md`](decisiones/b8-orquestacion.md).
 
 ### D-06 · La base de datos
 
@@ -645,8 +646,7 @@ Medidos con las pruebas automáticas de `tests/e2e` (`faults*.test.mjs`) en el p
 | CP-07 | Persistencia parada, pausada o PostgreSQL parado, 10 s | Quien juega sigue jugando: p95 de 68–103 ms (< 200 ms). Un acceso nuevo recibe 503 con un aviso claro en 0,7–0,9 s (3,0 s con la máquina pausada). Sin fallos de `Step` |
 | CP-08 | Todo apagado y levantado en orden inverso, con 2 s entre servicios | Todo conectado 7,5 s después del último servicio (18,5 s desde el primero), sin reinicios de contenedores. En orden normal: 2,1 s y 13,4 s |
 | CP-12 | Persistencia parada sobre dos ticks de instantánea | El valle sigue a 10 ticks/s, sin pausa y con el *breaker* cerrado; la siguiente instantánea se guarda al volver la persistencia (comprobado matando Rust después) |
-
-Lo que estas pruebas **no** cubren: que el sistema siga jugando con Rust, el hub o nginx caídos. Con Rust caído el valle queda en pausa sin perder nada y se reanuda solo (escritor único, regla 1); con el hub o nginx caídos el juego se detiene hasta que vuelvan, y los jugadores se reconectan solos. Mantener un servicio en marcha cuando se apaga su máquina pide réplicas y un orquestador (D-05).
+| CP-B8 | Caída o pausa de máquina (`world`, `hub`, `proxy`) con conmutación al nodo de respaldo (B8) | Pausa breve ($\le 10\text{ s}$), RPO $\le 50\text{ ticks}$ ($5\text{ s}$). Si cae Rust, `world-standby` (`world-go`) toma el mando; al despausar Rust (`docker unpause`), el sistema regresa limpiamente a Rust sin retroceso de tick (*failback*). Si cae el hub primario, `hub-standby` toma el mando y el primario se retira automáticamente (*fencing* por `hub_generation`). Si cae el proxy, el frontend rota automáticamente sin perder la sesión JWT |
 
 ## El contrato: cómo se hablan los servicios
 

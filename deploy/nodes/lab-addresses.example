@@ -20,6 +20,7 @@ LAB_PERSISTENCE_HOST="[DATO: IP de la máquina del nodo persistence]"
 LAB_WORLD_HOST="[DATO: IP de la máquina del nodo world]"
 LAB_HUB_HOST="[DATO: IP de la máquina del nodo hub]"
 LAB_PROXY_HOST="[DATO: IP de la máquina del nodo proxy]"
+LAB_STANDBY_HOST="[DATO: IP de la 6.ª máquina del nodo standby (opcional)]"
 
 # Puertos publicados por cada nodo en su máquina (CLAUDE.md, «Entorno de
 # despliegue»). El mismo valor sirve para publicar y para llamar al nodo.
@@ -28,7 +29,14 @@ HV_PERSISTENCE_PORT=50051
 HV_WORLD_PORT=50051
 HV_HUB_PORT=8081
 HV_PROXY_PORT=8080
-# Chat (nivel 2, puerto 8082): todavía no existe el servicio.
+# Puertos para el nodo standby cuando se despliega en una máquina dedicada o
+# en puertos alternativos.
+HV_STANDBY_WORLD_PORT=50051
+HV_STANDBY_HUB_PORT=8081
+HV_STANDBY_PROXY_PORT=8080
+# Chat (nivel 2, puerto 8082).
+HV_CHAT_PORT=8082
+HV_CHAT_GRPC_PORT=50051
 
 # Imágenes: las publica el pipeline (dev al fusionar en dev; vX.Y al etiquetar
 # main). Nada se construye en el laboratorio.

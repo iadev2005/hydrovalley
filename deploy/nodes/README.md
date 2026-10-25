@@ -7,12 +7,13 @@ Guía paso a paso para el día del laboratorio. Cada máquina corre un nodo (dia
 | `db` | `db.yml` | PostgreSQL | 5433 (al 5432 del contenedor) | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
 | `persistence` | `persistence.yml` | Persistencia (Python) | 50051 | los de PostgreSQL y `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` |
 | `world` | `world.yml` | Simulador (Rust; o `world-go` con `HV_WORLD_IMAGE`) | 50051 | ninguno |
-| `hub` | `hub.yml` | Hub (Go) y, a demanda, bots | 8081 | `TOKEN_PUBLIC_KEY` (y, para los bots, `HV_ADMIN_*`) |
+| `hub` | `hub.yml` | Hub (Go), chat y, a demanda, bots | 8081, 8082, 50051 | `TOKEN_PUBLIC_KEY` (y, para los bots, `HV_ADMIN_*`) |
 | `proxy` | `proxy.yml` | nginx (HTTPS) y API | 8080 | `TOKEN_PRIVATE_KEY` |
+| `standby` | `standby.yml` | 6.ª máquina: proxy-standby, hub-standby y world-standby (Go) | 8080, 8081, 50051 | `TOKEN_PRIVATE_KEY`, `TOKEN_PUBLIC_KEY` |
 
-El chat (8082) es del nivel 2 y todavía no existe: no hay nodo ni puerto para él.
+El chat (8082 WS, 50051 gRPC) está desplegado junto al hub y corre también en el nodo de respaldo.
 
-Los puertos se pueden cambiar con `HV_DB_PORT`, `HV_PERSISTENCE_PORT`, `HV_WORLD_PORT`, `HV_HUB_PORT` y `HV_PROXY_PORT` en el archivo de direcciones. Esa misma variable es el puerto que publica el nodo y el que usan los demás para llamarlo.
+Los puertos se pueden cambiar con `HV_DB_PORT`, `HV_PERSISTENCE_PORT`, `HV_WORLD_PORT`, `HV_HUB_PORT`, `HV_PROXY_PORT`, `HV_STANDBY_WORLD_PORT`, `HV_STANDBY_HUB_PORT` y `HV_STANDBY_PROXY_PORT` en el archivo de direcciones. Esa misma variable es el puerto que publica el nodo y el que usan los demás para llamarlo.
 
 ## Antes de ir al laboratorio
 

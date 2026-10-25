@@ -12,7 +12,8 @@ $script:LabNodes = @(
     @{ Name = 'persistence'; HostKey = 'LAB_PERSISTENCE_HOST'; PortKey = 'HV_PERSISTENCE_PORT'; DefaultPort = 50051 },
     @{ Name = 'world';       HostKey = 'LAB_WORLD_HOST';       PortKey = 'HV_WORLD_PORT';       DefaultPort = 50051 },
     @{ Name = 'hub';         HostKey = 'LAB_HUB_HOST';         PortKey = 'HV_HUB_PORT';         DefaultPort = 8081  },
-    @{ Name = 'proxy';       HostKey = 'LAB_PROXY_HOST';       PortKey = 'HV_PROXY_PORT';       DefaultPort = 8080  }
+    @{ Name = 'proxy';       HostKey = 'LAB_PROXY_HOST';       PortKey = 'HV_PROXY_PORT';       DefaultPort = 8080  },
+    @{ Name = 'standby';     HostKey = 'LAB_STANDBY_HOST';     PortKey = 'HV_STANDBY_PROXY_PORT'; DefaultPort = 8080; Optional = $true }
 )
 
 # Regla de cortafuegos que debe crear el encargado del laboratorio, como

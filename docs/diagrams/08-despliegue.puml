@@ -58,16 +58,41 @@ node "Nodo 1 · Base de datos\nPC del laboratorio (10.68.17.x)" as N1 <<device>>
   }
 }
 
-Browser --> ProxyC : HTTPS / WSS :8080\n(única dirección; TLS en nginx)
+node "Nodo 6 · Respaldo (standby)\n6.ª PC del laboratorio (10.68.17.x)" as N6 <<device>> {
+  node "Windows 10 Pro\nDocker Desktop + WSL 2" as N6Env <<execution environment>> {
+    node "proxy-standby" as ProxyStandbyC <<container>> {
+      artifact "nginx + api (:8080)\nfailover transparente E2" as ProxyStandby
+    }
+    node "hub-standby" as HubStandbyC <<container>> {
+      artifact "Hub en tiempo real (Go :8081)\nHUB_GENERATION=2\nvigila healthz del primario" as HubStandby
+    }
+    node "world-standby" as WorldStandbyC <<container>> {
+      artifact "Simulador Go (world-go :50051)\nWORLD_MODE=standby (relevo Rust ↔ Go)" as WorldStandby
+    }
+  }
+}
+
+Browser --> ProxyC : HTTPS / WSS :8080\n(1. Primario; TLS multi-SAN)
+Browser ..> ProxyStandbyC : HTTPS / WSS :8080\n(2. Failover automático E2)
 ProxyC --> ApiC : /api\nHTTP (red de Docker)
-ProxyC --> HubC : /play\nWebSocket :8081
+ProxyC --> HubC : /play\nWebSocket :8081 (primary)
+ProxyC ..> HubStandbyC : /play\nWebSocket :8081 (backup)
+ProxyStandbyC --> HubC : /play\nWebSocket :8081 (primary)
+ProxyStandbyC ..> HubStandbyC : /play\nWebSocket :8081 (backup)
 ProxyC --> ChatC : /chat\nWebSocket :8082
 HubC --> ChatC : gRPC :50051\nChatService (red de Docker)
 BotsC --> ProxyC : HTTPS / WSS :8080\n(perfil bots de compose)
-HubC --> WorldC : gRPC :50051\nStep cada 100 ms
+BotsC ..> ProxyStandbyC : failover automático
+HubC --> WorldC : gRPC :50051\nStep gen=1 (primary)
+HubC ..> WorldStandbyC : gRPC :50051\nStep gen=1 (backup)
+HubStandbyC ..> WorldC : gRPC :50051\nStep gen=2 (primary)
+HubStandbyC ..> WorldStandbyC : gRPC :50051\nStep gen=2 (backup)
 ApiC --> WorldC : gRPC :50051\nGetRanking, Health.Check
+ApiC ..> WorldStandbyC : failover gRPC
 ApiC --> PersistenceC : gRPC :50051\nAccount, Catalog, Report, Health.Check
-ApiC --> HubC : HTTP :8081\nGET /stats (HUB_STATS_ADDR,\nsolo red interna)
+ApiC --> HubC : HTTP :8081\nGET /stats (primario)
+ApiC ..> HubStandbyC : HTTP :8081\nGET /stats (failover)
+WorldStandbyC --> PersistenceC : gRPC :50051\nSaveSnapshot, LoadSnapshot
 WorldC --> PersistenceC : gRPC :50051\nSaveSnapshot, LoadSnapshot,\nGetCatalog
 PersistenceC --> DbC : PostgreSQL :5433\n(host 5433 → contenedor 5432)
 

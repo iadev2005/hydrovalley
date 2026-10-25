@@ -4,6 +4,7 @@ title Rust se reinicia y recupera el mundo desde la instantánea
 actor "Jugadores" as Players
 participant "Hub (Go)" as Hub
 participant "Simulador\n(Rust)" as World
+participant "Simulador Respaldo\n(world-go)" as WorldGo
 participant "Persistencia\n(Python)" as Persistence
 database "PostgreSQL" as Db
 
@@ -37,49 +38,45 @@ note over Hub, Persistence
   esa instantánea se salta.
 end note
 
-== Rust se cae ==
+== Rust se cae o se pausa: relevo a world-go ==
 
-hnote over World #FFCCCC : el proceso muere
+hnote over World #FFCCCC : el proceso muere o entra en docker pause
 loop hasta 3 fallos seguidos (un intento por tick)
   Hub -> World : WorldService.Step(comandos)
   Hub <--x World : falla (sin respuesta en 200 ms)
   Hub -> Hub : valle en pausa desde el primer fallo:\nel tick no avanza y los comandos del Step fallido\nvuelven al frente de la cola (siguen en pending)
 end
 
-group Circuit Breaker: abierto
-  Hub -> Hub : abrir el circuito: dejar de llamar a Step
-  Hub -> Players : aviso: «valle en pausa»\n(nadie se desconecta, las sesiones siguen abiertas)
-  loop mientras el circuito está abierto
-    Players -> Hub : acciones
-    Hub -> Hub : filtrar (sesión, action_id en pending/confirmed, 15 gotas/s)
-    alt la cola tiene menos de 5.000 comandos
-      Hub -> Hub : guardar en la cola
-    else cola llena
-      Hub -> Players : al instante: {"type": "result", "status": "paused"}
-    end
-  end
+group Failover: conmutación a world-standby (world-go)
+  Hub -> Hub : Circuit Breaker conmuta al respaldo en WORLD_ADDR
+  Hub -> WorldGo : WorldService.Step(comandos, min_expected_tick)
+  WorldGo -> WorldGo : promueve Standby -> Loading
+  WorldGo -> Persistence : PersistenceService.LoadSnapshot()
+  Persistence -> Db : leer última instantánea de Rust
+  Db --> Persistence : instantánea (<= 50 ticks de pérdida)
+  Persistence --> WorldGo : instantánea
+  WorldGo -> WorldGo : rota boot_id, pasa a Ready y aplica Step
+  WorldGo --> Hub : StepResponse (tick avanza en Go)
+  Hub -> Hub : reanuda el valle en Go (Plan B D-03 activo)
 end
 
-== Rust vuelve ==
+== Rust vuelve o se despausa (unpause): regreso a Rust (Failback) ==
 
-World -> World : arranca y genera un boot_id nuevo (UUID)
-loop hasta cargar la instantánea
+alt Rust arrancó de nuevo
+  World -> World : arranca y genera un boot_id nuevo (UUID)
   World -> Persistence : PersistenceService.LoadSnapshot()
-  alt hay instantánea
-    Persistence -> Db : leer la última instantánea
-    Db --> Persistence : instantánea
-    Persistence --> World : instantánea
-    World -> World : recuperar el mundo, el estado del azar\ny los action_id recientes
-  else NOT_FOUND (tabla vacía: solo la primera vez)
-    Persistence --> World : NOT_FOUND
-    World -> World : empezar en el tick 0 (restored_tick = 0)
-  else UNAVAILABLE o DEADLINE_EXCEEDED (tras sus reintentos)
-    Persistence --x World : falla
-    World -> World : nunca arrancar vacío: esperar 1 s,\n2 s... (máximo 5 s) y volver a intentar
-    Hub -> World : WorldService.Step (llamada de prueba)
-    World --> Hub : UNAVAILABLE (el circuito sigue abierto)
-  end
+  Persistence -> Db : leer última instantánea (guardada por world-go)
+  Db --> Persistence : instantánea de Go
+  Persistence --> World : instantánea
+  World -> World : recuperar el mundo y pasar a Ready
+else Rust estuvo en docker pause y se despausa
+  Hub -> World : WorldService.Step(min_expected_tick = tick_actual_de_go)
+  World -> World : detecta tick_en_memoria < min_expected_tick:\ninvalida memoria, incrementa época (descarta saves viejos),\nrota boot_id y recarga instantánea desde persistencia
+  World -> Persistence : PersistenceService.LoadSnapshot()
+  Persistence --> World : instantánea guardada por world-go
+  World -> World : pasa a Ready con estado fresco
 end
+
 World -> Persistence : CatalogService.GetCatalog()
 Persistence --> World : catálogo
 
