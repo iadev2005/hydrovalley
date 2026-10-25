@@ -14,20 +14,29 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Addresses
+    [Parameter(Mandatory = $true)][string]$Addresses,
+    [switch]$Standby
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 
 $values = Read-LabEnvFile -Path $Addresses
-$proxy = Get-LabNodeEndpoint -Node ($script:LabNodes | Where-Object { $_.Name -eq 'proxy' }) -Addresses $values
-if (Test-LabPlaceholder $proxy.Address) {
+$targetHost = $values['LAB_PROXY_HOST']
+$targetPort = if ($values.ContainsKey('HV_PROXY_PORT')) { $values['HV_PROXY_PORT'] } else { '8080' }
+if ($Standby) {
+    if (-not $values.ContainsKey('LAB_STANDBY_HOST') -or (Test-LabPlaceholder $values['LAB_STANDBY_HOST'])) {
+        Write-Error "LAB_STANDBY_HOST no esta configurado en $Addresses"
+        exit 2
+    }
+    $targetHost = $values['LAB_STANDBY_HOST']
+    if ($values.ContainsKey('HV_STANDBY_PROXY_PORT')) { $targetPort = $values['HV_STANDBY_PROXY_PORT'] }
+} elseif (Test-LabPlaceholder $targetHost) {
     Write-Error "LAB_PROXY_HOST sigue sin rellenar en $Addresses"
     exit 2
 }
 
-$uri = "https://$($proxy.Address):$($proxy.Port)/api/system"
+$uri = "https://${targetHost}:${targetPort}/api/system"
 Write-Host "Consultando $uri"
 try {
     $system = Invoke-LabJson -Uri $uri

@@ -3,11 +3,13 @@
 //
 //   node deploy/nodes/simulate-check.mjs smoke   humo: acceso, catálogo y una gota por WSS
 //   node deploy/nodes/simulate-check.mjs fault   CP-07: la persistencia cae y se sigue jugando
+//   node deploy/nodes/simulate-check.mjs failover B8: failover simulado con standby
 //
 // Variables: HV_BASE_URL (https://localhost:<puerto>), ADMIN_USERNAME,
 // SIM_ADMIN_PASSWORD, NODE_EXTRA_CA_CERTS (certificado del proxy; la
 // verificación TLS nunca se omite). Solo en `fault`: SIM_STOP_PERSISTENCE y
 // SIM_START_PERSISTENCE, comandos de shell que paran y arrancan el nodo.
+// Solo en `failover`: SIM_PAUSE_WORLD, SIM_UNPAUSE_WORLD, SIM_PAUSE_HUB, SIM_UNPAUSE_HUB.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -159,7 +161,41 @@ async function fault() {
   }
 }
 
-const phases = { smoke, fault };
+async function failover() {
+  const pauseWorld = process.env.SIM_PAUSE_WORLD;
+  const unpauseWorld = process.env.SIM_UNPAUSE_WORLD;
+  const sh = (cmd) => run("sh", ["-c", cmd]);
+
+  log("iniciando verificación de failover B8");
+  const adminToken = await loginAdmin();
+  const session = await openPlay(await newPlayerToken(adminToken));
+  try {
+    const before = await drop(session, 10, 10);
+    log(`antes de pausar world: gota ${before.status}`);
+
+    if (pauseWorld && unpauseWorld) {
+      await sh(pauseWorld);
+      log("world (Rust) pausado; el hub conmuta a world-standby (Go)");
+      await sleep(1000);
+
+      const during = await drop(session, 10, 11);
+      log(`con world primario pausado (en world-go): gota ${during.status}`);
+
+      await sh(unpauseWorld);
+      log("world (Rust) despausado; blindaje unpause activo");
+      await sleep(1000);
+
+      const after = await drop(session, 10, 12);
+      log(`tras despausar world (failback): gota ${after.status}`);
+    } else {
+      log("SIM_PAUSE_WORLD no definido; omitiendo comandos docker pause directos");
+    }
+  } finally {
+    session.close();
+  }
+}
+
+const phases = { smoke, fault, failover };
 const phase = phases[process.argv[2]];
 if (!phase) {
   console.error(`uso: simulate-check.mjs <${Object.keys(phases).join("|")}>`);
