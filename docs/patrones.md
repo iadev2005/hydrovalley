@@ -139,7 +139,7 @@ El sistema distribuye sus responsabilidades entre servicios especializados (Prox
     - Archivo: `src/hub/internal/hub/tick.go`
     - Funciones: `Hub.maybeBroadcastLocked()` (línea 301) y `Hub.broadcastLocked()` (línea 313)
   - Despacho a suscriptores: `src/hub/internal/transport/transport.go` (`Session.writer` consumiendo del canal buffered `outbox`).
-  - Chat (Go): `src/chat/internal/hub/` (difusión de mensajes ordenados por secuencia a clientes conectados).
+  - Chat (Go): `src/chat/internal/transport/hub.go` (difusión de mensajes ordenados por secuencia a clientes conectados).
 - **Prueba que lo demuestra:**
   - Archivo: `src/hub/internal/hub/tick_test.go`
     - Prueba: `TestBroadcastsStateOncePerSecond(t *testing.T)`: simula 20 ticks (2 segundos de tiempo virtual) y verifica que se generan y entregan exactamente 2 tramas de tipo `state` a todas las sesiones suscritas conectadas.
@@ -160,7 +160,7 @@ El sistema distribuye sus responsabilidades entre servicios especializados (Prox
 - **Ubicación en el código:**
   - **Hub (Go):** `src/hub/internal/transport/transport.go` (línea 55: `GET /healthz` y `GET /readyz`).
   - **Simulador (Rust):** `src/world/src/server.rs` (línea 69: implementación de `grpc.health.v1.Health` vía `tonic_health::server::health_reporter()`).
-  - **Persistencia (Python):** `src/persistence/src/hydrovalley_persistence/servicer.py` (servicio estándar gRPC Health vinculado al pool de PostgreSQL).
+  - **Persistencia (Python):** `src/persistence/persistence/server.py` (servicio estándar gRPC Health vinculado al pool de PostgreSQL).
   - **Proxy (Nginx):** `deploy/nginx/templates/default.conf.template` (puerto local interno `127.0.0.1:8079/healthz`).
   - **API (TypeScript):** `src/api/src/system-routes.ts` (`GET /api/system` y healthchecks internos).
 - **Prueba que lo demuestra:**
@@ -241,7 +241,7 @@ El sistema distribuye sus responsabilidades entre servicios especializados (Prox
   - **Hub (Go):** `src/hub/internal/hub/hub.go`
     - Conjuntos de seguimiento por sesión: `pending` (acciones en vuelo o en cola) y `confirmed` (acciones aplicadas en los últimos 600 ticks).
     - Lógica de descarte: líneas 433–440 (`hasKey(p.confirmed, actionID) -> RejectedDuplicate`).
-  - **Simulador (Rust):** `src/world/src/domain/valley.rs`
+  - **Simulador (Rust):** `src/world/src/domain/world.rs`
     - Estructura: Registro persistente en memoria y en instantáneas de las acciones ejecutadas por jugador durante los últimos 600 ticks.
 - **Prueba que lo demuestra:**
   - Archivo: `src/hub/internal/hub/admission_test.go`
