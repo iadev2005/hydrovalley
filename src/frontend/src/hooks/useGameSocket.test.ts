@@ -221,6 +221,65 @@ describe("useGameSocket", () => {
     vi.useRealTimers();
   });
 
+  describe("offline summary", () => {
+    const stateWith = (summary?: Record<string, string>) =>
+      JSON.stringify({
+        type: "state",
+        tick: "10",
+        player: { water: "5", ...(summary ? { offline_summary: summary } : {}) },
+      });
+
+    it("keeps the summary of the first state until it is dismissed", () => {
+      const { result } = renderHook(() => useGameSocket({ session }));
+      const ws = MockWebSocket.instances[0];
+      if (!ws) throw new Error("no socket");
+      expect(result.current.offlineSummary).toBeNull();
+
+      act(() => {
+        ws.emit("open");
+        ws.emit("message", { data: stateWith({ tiles_grown: "38", fires_extinguished: "1" }) });
+      });
+      expect(result.current.offlineSummary?.tiles_grown).toBe(38n);
+
+      // Los estados siguientes ya no lo traen y no lo borran.
+      act(() => {
+        ws.emit("message", { data: stateWith() });
+      });
+      expect(result.current.offlineSummary?.tiles_grown).toBe(38n);
+
+      act(() => {
+        result.current.dismissOfflineSummary();
+      });
+      expect(result.current.offlineSummary).toBeNull();
+      act(() => {
+        ws.emit("message", { data: stateWith() });
+      });
+      expect(result.current.offlineSummary).toBeNull();
+    });
+
+    it("shows the summary again when a reconnection brings a new one", () => {
+      const { result } = renderHook(() => useGameSocket({ session }));
+      const ws = MockWebSocket.instances[0];
+      if (!ws) throw new Error("no socket");
+      act(() => {
+        ws.emit("open");
+        ws.emit("message", { data: stateWith({ tiles_grown: "1" }) });
+      });
+      act(() => {
+        result.current.dismissOfflineSummary();
+      });
+      act(() => {
+        ws.emit("message", { data: stateWith({ tiles_grown: "4" }) });
+      });
+      expect(result.current.offlineSummary?.tiles_grown).toBe(4n);
+    });
+
+    it("has no summary without a session", () => {
+      const { result } = renderHook(() => useGameSocket({ session: null }));
+      expect(result.current.offlineSummary).toBeNull();
+    });
+  });
+
   it("closes the socket and rotates to the backup host when no state arrives within STATE_SILENCE_MS", () => {
     vi.useFakeTimers();
     let now = 100_000;

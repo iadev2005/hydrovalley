@@ -33,6 +33,8 @@ def _totals_of(players: list[SnapshotPlayer]) -> ReportTotals:
         water_spent=sum(p.water_spent for p in players),
         leaves_earned=sum(p.leaves_earned for p in players),
         leaves_spent=sum(p.leaves_spent for p in players),
+        fires_extinguished=sum(p.fires_extinguished for p in players),
+        tiles_grown=sum(p.tiles_grown for p in players),
     )
 
 

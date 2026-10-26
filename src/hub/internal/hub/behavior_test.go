@@ -217,3 +217,96 @@ func TestStateBroadcastCarriesDemoCounters(t *testing.T) {
 		t.Fatal("map=false must still skip the map")
 	}
 }
+
+// El resumen al volver (RF-25) va en el primer estado de cada conexión y no
+// se repite: el cliente lo guarda hasta que el jugador lo cierre.
+func TestFirstStateOfAConnectionCarriesTheOfflineSummaryOnce(t *testing.T) {
+	h := newHarness(t)
+	h.world.set(func(w *fakeWorld) {
+		w.players = []*worldv1.PlayerState{{
+			PlayerId: ana, Water: 3,
+			OfflineSummary: &worldv1.OfflineSummary{LeavesEarned: 5, WaterReused: 450, FiresExtinguished: 1, TilesGrown: 38},
+		}}
+	})
+	s := h.hub.Connect(ana, auth.RolePlayer, false)
+	for range 25 {
+		h.tick()
+	}
+	got := states(drain(s))
+	if len(got) < 2 {
+		t.Fatalf("got %d state frames, want at least 2", len(got))
+	}
+	summary := got[0].GetPlayer().GetOfflineSummary()
+	if summary.GetTilesGrown() != 38 || summary.GetFiresExtinguished() != 1 ||
+		summary.GetLeavesEarned() != 5 || summary.GetWaterReused() != 450 {
+		t.Fatalf("first state summary = %v", summary)
+	}
+	for i, st := range got[1:] {
+		if st.GetPlayer().GetOfflineSummary() != nil {
+			t.Fatalf("state %d repeats the summary", i+1)
+		}
+	}
+
+	// Al reconectarse, el siguiente primer estado vuelve a llevarlo.
+	h.hub.Disconnect(s)
+	again := h.hub.Connect(ana, auth.RolePlayer, false)
+	for range 12 {
+		h.tick()
+	}
+	later := states(drain(again))
+	if len(later) == 0 || later[0].GetPlayer().GetOfflineSummary().GetTilesGrown() != 38 {
+		t.Fatalf("a reconnection must get the summary again, got %v", later)
+	}
+}
+
+func TestNoOfflineSummaryTravelsWhenItIsEmpty(t *testing.T) {
+	h := newHarness(t)
+	h.world.set(func(w *fakeWorld) {
+		w.players = []*worldv1.PlayerState{{PlayerId: ana, Water: 3}}
+	})
+	s := h.hub.Connect(ana, auth.RolePlayer, false)
+	for range 12 {
+		h.tick()
+	}
+	for _, st := range states(drain(s)) {
+		if st.GetPlayer().GetOfflineSummary() != nil {
+			t.Fatalf("an empty summary traveled: %v", st.GetPlayer())
+		}
+	}
+	// Con la conexión ya abierta, lo que hagan los aspersores después no es
+	// «mientras no estabas»: no llega como resumen.
+	h.world.set(func(w *fakeWorld) {
+		w.players = []*worldv1.PlayerState{{PlayerId: ana, OfflineSummary: &worldv1.OfflineSummary{TilesGrown: 1}}}
+	})
+	for range 12 {
+		h.tick()
+	}
+	for _, st := range states(drain(s)) {
+		if st.GetPlayer().GetOfflineSummary() != nil {
+			t.Fatalf("a summary that grew while connected traveled: %v", st.GetPlayer())
+		}
+	}
+}
+
+// Si el jugador todavía no está en el mundo cuando se difunde el primer
+// estado, el resumen espera al primer estado que sí lleve su vista.
+func TestTheSummaryWaitsForTheFirstStateWithThePlayer(t *testing.T) {
+	h := newHarness(t)
+	s := h.hub.Connect(ana, auth.RolePlayer, false)
+	for range 12 {
+		h.tick()
+	}
+	if first := states(drain(s)); len(first) == 0 || first[0].GetPlayer() != nil {
+		t.Fatalf("expected a state without the player first, got %v", first)
+	}
+	h.world.set(func(w *fakeWorld) {
+		w.players = []*worldv1.PlayerState{{PlayerId: ana, OfflineSummary: &worldv1.OfflineSummary{TilesGrown: 2}}}
+	})
+	for range 12 {
+		h.tick()
+	}
+	arrived := states(drain(s))
+	if len(arrived) == 0 || arrived[0].GetPlayer().GetOfflineSummary().GetTilesGrown() != 2 {
+		t.Fatalf("the summary did not arrive with the player view: %v", arrived)
+	}
+}

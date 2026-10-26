@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { AdminPanel } from "../components/AdminPanel.tsx";
 import { AuthPanel } from "../components/AuthPanel.tsx";
 import { ChatPanel } from "../components/ChatPanel.tsx";
+import { OfflineSummaryPanel } from "../components/OfflineSummaryPanel.tsx";
 import { LogConsole } from "../components/LogConsole.tsx";
 import { RankingTable } from "../components/RankingTable.tsx";
 import { ReportPanel } from "../components/ReportPanel.tsx";
@@ -158,6 +159,11 @@ export function GameApp({
       <p className="meta" id="state">
         {stateText}
       </p>
+
+      <OfflineSummaryPanel
+        summary={socketHook.offlineSummary}
+        onDismiss={socketHook.dismissOfflineSummary}
+      />
 
       <section id="game" aria-labelledby="valley-title">
         <h2 id="valley-title">Valle</h2>

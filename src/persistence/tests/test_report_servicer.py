@@ -65,6 +65,7 @@ def store(snapshots, tick, players, epoch=1):
                     leaves_earned=p.leaves_earned, leaves_spent=p.leaves_spent,
                     water_reduced=p.water_reduced, water_reused=p.water_reused,
                     water_recycled=p.water_recycled,
+                    fires_extinguished=p.fires_extinguished, tiles_grown=p.tiles_grown,
                 )
                 for p in players
             ),
@@ -108,6 +109,23 @@ def test_player_report_is_their_row_in_the_latest_snapshot(stub, snapshots, ana,
     t = response.totals
     assert (t.water_reduced, t.water_reused, t.water_recycled) == (5, 2, 3)
     assert (t.water_refilled, t.water_spent, t.leaves_earned, t.leaves_spent) == (40, 30, 8, 6)
+
+
+def test_report_carries_the_sprinkler_counters_as_u64(stub, snapshots, ana, beto):
+    big = 2**40
+    store(snapshots, 50, [player(ana, fires_extinguished=2, tiles_grown=big),
+                          player(beto, fires_extinguished=1, tiles_grown=4)])
+    mine = get_report(stub, player_id=str(ana)).totals
+    assert (mine.fires_extinguished, mine.tiles_grown) == (2, big)
+    everyone = get_report(stub).totals
+    assert (everyone.fires_extinguished, everyone.tiles_grown) == (3, big + 4)
+
+
+def test_period_report_subtracts_the_sprinkler_counters(stub, snapshots, ana):
+    store(snapshots, 50, [player(ana, fires_extinguished=1, tiles_grown=3)])
+    store(snapshots, 100, [player(ana, fires_extinguished=4, tiles_grown=10)])
+    totals = get_report(stub, player_id=str(ana), from_tick=50, to_tick=100).totals
+    assert (totals.fires_extinguished, totals.tiles_grown) == (3, 7)
 
 
 def test_global_report_sums_all_players(stub, snapshots, ana, beto):

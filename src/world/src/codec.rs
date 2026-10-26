@@ -8,8 +8,8 @@ use prost::Message;
 use crate::domain::catalog as dc;
 use crate::domain::{
     self, AppliedAction, Catalog, Command, CommandKind, CommandOutcome, CommandResult, Fire,
-    Installation, InstallationKind, Player, RejectReason, Tile, TileStage, UpgradeKind, World,
-    WorldParts,
+    Installation, InstallationKind, OfflineSummary, Player, RejectReason, Tile, TileStage,
+    UpgradeKind, World, WorldParts,
 };
 use crate::proto::persistence::v1 as persistence_pb;
 use crate::proto::world::v1 as pb;
@@ -257,6 +257,7 @@ fn player_state(world: &World, player: &Player) -> pb::PlayerState {
             leaves: world.next_price(player, kind),
         })
         .collect(),
+        offline_summary: offline_summary_to_proto(&player.offline_summary),
     }
 }
 
@@ -394,6 +395,29 @@ fn player_record(player: &Player) -> pb::PlayerRecord {
                 tick: applied.tick,
             })
             .collect(),
+        offline_summary: offline_summary_to_proto(&player.offline_summary),
+        fires_extinguished: player.fires_extinguished,
+        tiles_grown: player.tiles_grown,
+    }
+}
+
+/// Un resumen vacío no se escribe (queda sin mensaje): así los mundos sin
+/// resumen conservan exactamente los mismos bytes de instantánea.
+fn offline_summary_to_proto(summary: &OfflineSummary) -> Option<pb::OfflineSummary> {
+    (!summary.is_empty()).then_some(pb::OfflineSummary {
+        leaves_earned: summary.leaves_earned,
+        water_reused: summary.water_reused,
+        fires_extinguished: summary.fires_extinguished,
+        tiles_grown: summary.tiles_grown,
+    })
+}
+
+fn offline_summary_from_proto(summary: pb::OfflineSummary) -> OfflineSummary {
+    OfflineSummary {
+        leaves_earned: summary.leaves_earned,
+        water_reused: summary.water_reused,
+        fires_extinguished: summary.fires_extinguished,
+        tiles_grown: summary.tiles_grown,
     }
 }
 
@@ -424,6 +448,12 @@ fn player_from_record(record: pb::PlayerRecord) -> Result<Player, DecodeError> {
             .map(upgrade_from_proto)
             .collect::<Result<_, _>>()?,
         last_action_tick: record.last_action_tick,
+        offline_summary: record
+            .offline_summary
+            .map(offline_summary_from_proto)
+            .unwrap_or_default(),
+        fires_extinguished: record.fires_extinguished,
+        tiles_grown: record.tiles_grown,
         recent_actions: record
             .recent_actions
             .into_iter()
@@ -447,6 +477,8 @@ fn snapshot_player(player: &Player) -> persistence_pb::SnapshotPlayer {
         water_reduced: player.water_reduced,
         water_reused: player.water_reused,
         water_recycled: player.water_recycled,
+        fires_extinguished: player.fires_extinguished,
+        tiles_grown: player.tiles_grown,
     }
 }
 
@@ -1076,5 +1108,59 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    fn world_with_summary(summary: OfflineSummary) -> World {
+        let mut parts = World::new(Catalog::d01()).parts();
+        parts.players.push(Player {
+            offline_summary: summary,
+            fires_extinguished: 4,
+            tiles_grown: 9,
+            ..Player::starting(ANA, 20)
+        });
+        World::restore(Catalog::d01(), parts).unwrap()
+    }
+
+    fn non_empty_summary() -> OfflineSummary {
+        OfflineSummary {
+            leaves_earned: 7,
+            water_reused: 450,
+            fires_extinguished: 2,
+            tiles_grown: 3,
+        }
+    }
+
+    #[test]
+    fn an_empty_summary_is_not_written_so_old_snapshots_keep_their_bytes() {
+        let world = world_with_summary(OfflineSummary::default());
+        let snapshot = encode_snapshot(&world);
+        let record = pb::WorldSnapshot::decode(snapshot.world_state.as_slice()).unwrap();
+        assert!(record.players[0].offline_summary.is_none());
+        assert!(world_state(&world).players[0].offline_summary.is_none());
+    }
+
+    #[test]
+    fn a_summary_survives_the_snapshot_and_reaches_the_world_state() {
+        let world = world_with_summary(non_empty_summary());
+        let restored = decode_snapshot(encode_snapshot(&world), Catalog::d01()).unwrap();
+        assert_eq!(restored.parts(), world.parts());
+        let state = world_state(&restored);
+        let summary = state.players[0].offline_summary.as_ref().unwrap();
+        assert_eq!(
+            (
+                summary.leaves_earned,
+                summary.water_reused,
+                summary.fires_extinguished,
+                summary.tiles_grown
+            ),
+            (7, 450, 2, 3)
+        );
+    }
+
+    #[test]
+    fn the_snapshot_rows_for_persistence_carry_the_sprinkler_counters() {
+        let snapshot = encode_snapshot(&world_with_summary(non_empty_summary()));
+        let row = &snapshot.players[0];
+        assert_eq!((row.fires_extinguished, row.tiles_grown), (4, 9));
     }
 }

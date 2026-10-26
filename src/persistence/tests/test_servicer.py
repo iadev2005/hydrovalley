@@ -244,6 +244,16 @@ def test_players_are_stored_with_the_snapshot(stub, repository):
     assert (row.water_reduced, row.leaves_earned) == (7, 3)
 
 
+def test_the_sprinkler_counters_of_a_player_reach_the_repository_as_u64(stub, repository):
+    big = 2**40
+    save(stub, with_players(
+        snapshot_msg(50),
+        pb.SnapshotPlayer(player_id=PLAYER_A, fires_extinguished=3, tiles_grown=big),
+    ))
+    (row,) = repository.load_latest().players
+    assert (row.fires_extinguished, row.tiles_grown) == (3, big)
+
+
 @pytest.mark.parametrize("bad", ["", "no-uuid", "123"])
 def test_malformed_player_id_in_a_snapshot_is_invalid_argument(stub, repository, bad):
     message = with_players(snapshot_msg(50), pb.SnapshotPlayer(player_id=bad))

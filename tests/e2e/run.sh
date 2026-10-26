@@ -6,7 +6,8 @@
 #   2. cp01-concurrent-drops.test.mjs: CP-01 (100 gotas simultáneas, RF-08), en
 #      su propia invocación de `node --test` y con jugadores de
 #      POST /api/admin/bot-accounts, para no gastar el límite de registro.
-#   3. tls, request-id y los casos de fallos (CP-05 a CP-08 y CP-12).
+#   3. tls, request-id, el resumen al volver (offline-summary.test.mjs, B6) y los
+#      casos de fallos (CP-05 a CP-08 y CP-12).
 #   4. cp04-firefighter.test.mjs: CP-04 con incendios reales, siempre al final:
 #      baja el stack y lo levanta de nuevo, con base de datos vacía, sumando
 #      tests/e2e/compose.cp04.yml (monta tests/e2e/fixtures/catalog.test-fire.json,
@@ -137,6 +138,10 @@ node --test --test-reporter=spec "${repo_root}/tests/e2e/tls.test.mjs"
 # RNF-07: el identificador de petición se sigue en los registros de nginx, la
 # API, la persistencia y el simulador.
 node --test --test-reporter=spec "${repo_root}/tests/e2e/request-id.test.mjs"
+
+# B6 (RF-25): el resumen al volver llega en el primer estado de la conexión y se
+# borra con la siguiente acción. Espera unos 14 s de ausencia del jugador.
+node --test --test-reporter=spec "${repo_root}/tests/e2e/offline-summary.test.mjs"
 
 # CP-05 a CP-08, CP-12 y RF-15: fallos de servicios (faults*.test.mjs; CP-08, el más
 # disruptivo, va al final). Corren después de la prueba de

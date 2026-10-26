@@ -50,4 +50,7 @@ message ReportTotals {
   uint64 water_spent = 5;
   uint64 leaves_earned = 6;
   uint64 leaves_spent = 7;
+  // Fuegos apagados y casillas crecidas por los aspersores (RF-25).
+  uint64 fires_extinguished = 8;
+  uint64 tiles_grown = 9;
 }

@@ -51,6 +51,8 @@ func playerState(w *domain.World, player *domain.Player) *worldv1.PlayerState {
 		Leaves:       player.Leaves,
 		Upgrades:     upgrades,
 		NextPrices:   prices,
+		// Un resumen vacío no viaja.
+		OfflineSummary: offlineSummaryToProto(player.OfflineSummary),
 	}
 }
 
@@ -220,6 +222,23 @@ func playerRecord(player *domain.Player) *worldv1.PlayerRecord {
 		Upgrades:       upgrades,
 		LastActionTick: player.LastActionTick,
 		RecentActions:  recent,
+		// Un resumen vacío no se escribe: los mundos sin resumen conservan
+		// los mismos bytes de instantánea.
+		OfflineSummary:    offlineSummaryToProto(player.OfflineSummary),
+		FiresExtinguished: player.FiresExtinguished,
+		TilesGrown:        player.TilesGrown,
+	}
+}
+
+func offlineSummaryToProto(summary domain.OfflineSummary) *worldv1.OfflineSummary {
+	if summary.IsEmpty() {
+		return nil
+	}
+	return &worldv1.OfflineSummary{
+		LeavesEarned:      summary.LeavesEarned,
+		WaterReused:       summary.WaterReused,
+		FiresExtinguished: summary.FiresExtinguished,
+		TilesGrown:        summary.TilesGrown,
 	}
 }
 
@@ -237,6 +256,14 @@ func playerFromRecord(record *worldv1.PlayerRecord) (domain.Player, error) {
 		WaterReused:    record.GetWaterReused(),
 		WaterRecycled:  record.GetWaterRecycled(),
 		LastActionTick: record.GetLastActionTick(),
+		OfflineSummary: domain.OfflineSummary{
+			LeavesEarned:      record.GetOfflineSummary().GetLeavesEarned(),
+			WaterReused:       record.GetOfflineSummary().GetWaterReused(),
+			FiresExtinguished: record.GetOfflineSummary().GetFiresExtinguished(),
+			TilesGrown:        record.GetOfflineSummary().GetTilesGrown(),
+		},
+		FiresExtinguished: record.GetFiresExtinguished(),
+		TilesGrown:        record.GetTilesGrown(),
 	}
 	for _, count := range record.GetPurchases() {
 		kind, err := installationFromProto(count.GetKind(), "InstallationCount.kind")
@@ -263,15 +290,17 @@ func playerFromRecord(record *worldv1.PlayerRecord) (domain.Player, error) {
 
 func snapshotPlayer(player *domain.Player) *persistencev1.SnapshotPlayer {
 	return &persistencev1.SnapshotPlayer{
-		PlayerId:      player.PlayerID,
-		Water:         player.Water,
-		Leaves:        player.Leaves,
-		WaterRefilled: player.WaterRefilled,
-		WaterSpent:    player.WaterSpent,
-		LeavesEarned:  player.LeavesEarned,
-		LeavesSpent:   player.LeavesSpent,
-		WaterReduced:  player.WaterReduced,
-		WaterReused:   player.WaterReused,
-		WaterRecycled: player.WaterRecycled,
+		PlayerId:          player.PlayerID,
+		Water:             player.Water,
+		Leaves:            player.Leaves,
+		WaterRefilled:     player.WaterRefilled,
+		WaterSpent:        player.WaterSpent,
+		LeavesEarned:      player.LeavesEarned,
+		LeavesSpent:       player.LeavesSpent,
+		WaterReduced:      player.WaterReduced,
+		WaterReused:       player.WaterReused,
+		WaterRecycled:     player.WaterRecycled,
+		FiresExtinguished: player.FiresExtinguished,
+		TilesGrown:        player.TilesGrown,
 	}
 }

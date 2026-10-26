@@ -342,3 +342,55 @@ func TestStateForUnknownPlayerAndNoWorld(t *testing.T) {
 	}
 	var _ *playv1.StateMessage = empty
 }
+
+func worldWithSummary(summary *worldv1.OfflineSummary) *worldv1.WorldState {
+	return &worldv1.WorldState{
+		Width: 2, Height: 2,
+		Players: []*worldv1.PlayerState{{PlayerId: "ana", Water: 1, OfflineSummary: summary}},
+	}
+}
+
+// El resumen al volver (RF-25) no viaja en el For normal: el hub lo adjunta
+// solo al primer estado de cada conexión.
+func TestStateOmitsTheOfflineSummaryUnlessAttached(t *testing.T) {
+	world := worldWithSummary(&worldv1.OfflineSummary{TilesGrown: 3})
+	msg := NewStateBuilder(1, false, world, 0).For("ana", false)
+	if msg.GetPlayer().GetOfflineSummary() != nil {
+		t.Fatalf("For must not carry the summary, got %v", msg.GetPlayer().GetOfflineSummary())
+	}
+}
+
+func TestAttachOfflineSummaryMapsTheCountsAndTravelsAsText(t *testing.T) {
+	world := worldWithSummary(&worldv1.OfflineSummary{
+		LeavesEarned: 12, WaterReused: 1 << 40, FiresExtinguished: 1, TilesGrown: 38,
+	})
+	builder := NewStateBuilder(1, false, world, 0)
+	msg := builder.For("ana", false)
+	if !builder.AttachOfflineSummary(msg, "ana") {
+		t.Fatal("the summary was not attached")
+	}
+	got := msg.GetPlayer().GetOfflineSummary()
+	if got.GetLeavesEarned() != 12 || got.GetWaterReused() != 1<<40 || got.GetFiresExtinguished() != 1 || got.GetTilesGrown() != 38 {
+		t.Fatalf("summary = %v", got)
+	}
+	data, _ := Marshal(msg)
+	summary := decodeJSON(t, data)["player"].(map[string]any)["offline_summary"].(map[string]any)
+	if summary["tiles_grown"] != "38" || summary["water_reused"] != "1099511627776" {
+		t.Fatalf("counters must travel as text, got %#v", summary)
+	}
+}
+
+func TestAttachOfflineSummaryDoesNothingWhenThereIsNothingToShow(t *testing.T) {
+	for name, summary := range map[string]*worldv1.OfflineSummary{"missing": nil, "empty": {}} {
+		builder := NewStateBuilder(1, false, worldWithSummary(summary), 0)
+		msg := builder.For("ana", false)
+		if builder.AttachOfflineSummary(msg, "ana") || msg.GetPlayer().GetOfflineSummary() != nil {
+			t.Errorf("%s: a summary was attached", name)
+		}
+	}
+	// Sin jugador en el mundo tampoco hay nada que adjuntar.
+	builder := NewStateBuilder(1, false, worldWithSummary(&worldv1.OfflineSummary{TilesGrown: 1}), 0)
+	if builder.AttachOfflineSummary(builder.For("bob", false), "bob") {
+		t.Error("attached a summary for a player that is not in the world")
+	}
+}

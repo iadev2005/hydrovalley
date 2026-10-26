@@ -34,6 +34,7 @@ La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada indepen
 - Visualización de etapas de vegetación (tierra seca, pasto, arbusto, flores, árbol), fuego activo e instalaciones (A: Aspersor, G: Goteo, P: Planta de tratamiento).
 - Panel de recursos: agua disponible, capacidad del depósito, hojas ganadas y costos dinámicos de las siguientes instalaciones.
 - Botones de acción: **Soltar gota**, colocar instalaciones en la casilla seleccionada y adquirir mejoras de depósito/gota.
+- **Resumen al volver (RF-25, tarea B6; `<OfflineSummaryPanel />`)**: el hub manda lo que hicieron los aspersores del jugador desde su última acción aplicada (`player.offline_summary`) solo en el primer `state` de cada conexión y solo si no está vacío. El panel descartable dice, con las palabras del documento, «Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio», con las hojas ganadas y el agua reutilizada. El hook lo guarda hasta que el jugador lo cierra; la siguiente conexión lo vuelve a mostrar si el jugador no ha actuado. Los contadores son `u64` en texto (`BigInt`, nunca `Number`).
 - **Panel de administración (RF-31)**: visible solo para usuarios con rol `admin` (leído de la carga útil del JWT; validado autoritativamente por el hub), permitiendo activar/desactivar el modo demo y reiniciar el valle previa confirmación modal.
 
 ### 4. Ranking y Reportes 3R (RF-10, RF-11, RF-12)
@@ -81,6 +82,7 @@ src/frontend/
     │   ├── AdminPanel.tsx      # Controles de administración (modo demo / reinicio)
     │   ├── AuthPanel.tsx       # Formulario de registro y login
     │   ├── LogConsole.tsx      # Consola de eventos y avisos
+    │   ├── OfflineSummaryPanel.tsx # Resumen al volver (B6)
     │   ├── RankingTable.tsx    # Tabla del ranking de jugadores
     │   ├── ReportPanel.tsx     # Panel de reportes de sostenibilidad 3R
     │   ├── SessionBar.tsx      # Barra de usuario activo y botón salir
@@ -98,6 +100,7 @@ src/frontend/
     │   └── *.test.ts           # Pruebas unitarias de hooks
     └── logic/                  # Lógica de dominio pura sin dependencias de DOM
         ├── auth.ts             # Funciones de login, registro y parsing de JWT
+        ├── offlineSummary.ts   # Texto del resumen al volver (B6)
         ├── isometric.ts        # Matemáticas de proyección isométrica 2.5D (pantalla ↔ cuadrícula)
         ├── play.ts             # Protocolo WebSocket, backoff, UUIDs y frames
         ├── reports.ts          # Procesamiento numérico seguro de reportes 3R

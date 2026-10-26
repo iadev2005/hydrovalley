@@ -352,6 +352,7 @@ Cada uno es un PR pequeño:
 
 - **Por qué:** nivel 2 (escena del documento «Al día siguiente»).
 - **Qué hacer:** al volver, el jugador ve qué pasó desde su última conexión (instalaciones que trabajaron, incendios, hojas ganadas). Proponer el diseño (qué calcula Rust, qué guarda la persistencia, qué muestra el frontend) antes de programar.
+- **Estado:** hecha (Alfonso José Palma Alvarado, integrada por Claude). Rust y `world-go` acumulan, por jugador, lo que hicieron sus aspersores desde su última acción aplicada (casillas crecidas, hojas, agua reutilizada, fuegos apagados) y lo borra su siguiente acción; va en `PlayerRecord` (campo 16, solo si no está vacío) y en `PlayerState`. El hub lo manda en el primer `state` de cada conexión (`OfflineSummaryView`) y el frontend lo muestra en un panel descartable. La persistencia guarda además los acumulados de la época (`fires_extinguished`, `tiles_grown`, u64) para los reportes. El goteo y la planta no cuentan (D-01). Pruebas: guion de conformidad `09-resumen-offline` y `tests/e2e/offline-summary.test.mjs`.
 
 #### B7 · Prometheus y Grafana
 

@@ -186,6 +186,17 @@ function toBigInt(value: unknown): bigint {
 
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
+function parseOfflineSummary(value: unknown): OfflineSummary | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const rec = value as Record<string, unknown>;
+  return {
+    leaves_earned: toBigInt(rec["leaves_earned"]),
+    water_reused: toBigInt(rec["water_reused"]),
+    fires_extinguished: toBigInt(rec["fires_extinguished"]),
+    tiles_grown: toBigInt(rec["tiles_grown"]),
+  };
+}
+
 export interface FireState {
   x: number;
   y: number;
@@ -199,6 +210,18 @@ export interface PlacedInstallation {
   owner_id: string;
 }
 
+/**
+ * Lo que hicieron los aspersores del jugador mientras no estaba (RF-25;
+ * `OfflineSummaryView` de play.proto). Solo llega en el primer `state` de la
+ * conexión y solo si no está vacío.
+ */
+export interface OfflineSummary {
+  leaves_earned: bigint;
+  water_reused: bigint;
+  fires_extinguished: bigint;
+  tiles_grown: bigint;
+}
+
 export interface PlayerState {
   water: bigint;
   tank_capacity: bigint;
@@ -207,6 +230,7 @@ export interface PlayerState {
   next_sprinkler_price: bigint;
   next_drip_price: bigint;
   next_treatment_plant_price: bigint;
+  offline_summary: OfflineSummary | null;
 }
 
 export interface ResultFrame {
@@ -307,6 +331,7 @@ export function parseFrame(text: string): PlayFrame {
                 next_sprinkler_price: toBigInt(p["next_sprinkler_price"]),
                 next_drip_price: toBigInt(p["next_drip_price"]),
                 next_treatment_plant_price: toBigInt(p["next_treatment_plant_price"]),
+                offline_summary: parseOfflineSummary(p["offline_summary"]),
               }
             : null,
       };

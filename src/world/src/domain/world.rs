@@ -11,7 +11,7 @@ use super::command::{
 use super::fire;
 use super::growth;
 use super::limits::{RECENT_ACTIONS_WINDOW_TICKS, TICKS_PER_SECOND, VALLEY_HEIGHT, VALLEY_WIDTH};
-use super::player::{AppliedAction, Player};
+use super::player::{AppliedAction, OfflineSummary, Player};
 use super::rng::SplitMix64;
 use super::tile::{Installation, InstallationKind, Tile, UpgradeKind};
 
@@ -331,6 +331,7 @@ impl World {
             // El comando aplicado ya dio de alta al jugador si era nuevo.
             let slot = self.player_slot(&command.player_id);
             slot.record.last_action_tick = tick;
+            slot.record.offline_summary = OfflineSummary::default();
             slot.record.recent_actions.push(AppliedAction {
                 action_id: command.action_id.clone(),
                 tick,
@@ -552,6 +553,10 @@ impl World {
     /// el bono es de quien suelta la tercera gota, y el aspersor no cuenta
     /// gotas. Si el fuego tenía crecimiento pendiente, se resuelve ahí y las
     /// hojas son del dueño, como con cualquier riego.
+    ///
+    /// Lo que hace cada aspersor se suma además al resumen al volver de su
+    /// dueño (RF-25) y a sus acumulados de la época. Una casilla cuenta una
+    /// vez por riego aunque suba en las dos fases (riego y apagado).
     fn run_sprinklers(&mut self, tick: u64) {
         let rules = &self.catalog.sprinkler;
         let interval = u64::from(rules.interval_seconds).saturating_mul(TICKS_PER_SECOND);
@@ -562,25 +567,36 @@ impl World {
         for (index, owner) in self.active_installations(InstallationKind::Sprinkler, tick) {
             let (x, y) = self.tile_xy(index);
             let area = area_indices(x, y, side, self.width, self.height);
-            let mut leaves = 0u64;
+            let mut effect = OfflineSummary::default();
             for &index in &area {
                 let tile = &mut self.tiles[index];
-                leaves = leaves.saturating_add(growth::add_humidity(
+                let stage_before = tile.stage;
+                effect.leaves_earned = effect.leaves_earned.saturating_add(growth::add_humidity(
                     tile,
                     humidity,
                     &self.catalog.growth,
                 ));
                 if fire::extinguish(tile) {
-                    leaves =
-                        leaves.saturating_add(growth::add_humidity(tile, 0, &self.catalog.growth));
+                    effect.fires_extinguished = effect.fires_extinguished.saturating_add(1);
+                    // El crecimiento que quedó pendiente se resuelve ahora.
+                    effect.leaves_earned = effect
+                        .leaves_earned
+                        .saturating_add(growth::add_humidity(tile, 0, &self.catalog.growth));
+                }
+                if tile.stage != stage_before {
+                    effect.tiles_grown = effect.tiles_grown.saturating_add(1);
                 }
             }
+            effect.water_reused = humidity.saturating_mul(area.len() as u64);
             let player = &mut self.player_slot(&owner).record;
-            player.leaves = player.leaves.saturating_add(leaves);
-            player.leaves_earned = player.leaves_earned.saturating_add(leaves);
-            player.water_reused = player
-                .water_reused
-                .saturating_add(humidity.saturating_mul(area.len() as u64));
+            player.leaves = player.leaves.saturating_add(effect.leaves_earned);
+            player.leaves_earned = player.leaves_earned.saturating_add(effect.leaves_earned);
+            player.water_reused = player.water_reused.saturating_add(effect.water_reused);
+            player.fires_extinguished = player
+                .fires_extinguished
+                .saturating_add(effect.fires_extinguished);
+            player.tiles_grown = player.tiles_grown.saturating_add(effect.tiles_grown);
+            player.offline_summary.add(&effect);
         }
     }
 
@@ -2706,5 +2722,155 @@ mod tests {
         let mut resumed = World::restore(Catalog::d01(), interrupted.parts()).unwrap();
         run(&mut resumed, 151, 400);
         assert_eq!(resumed.parts(), straight.parts());
+    }
+
+    #[test]
+    fn offline_summary_accumulates_while_player_is_away_and_clears_on_new_action() {
+        let mut w = rich(&[(ANA, 100)]);
+        // Ana coloca un aspersor en el tick 1.
+        w.step(&[place_cmd(&action(1), ANA, Sprinkler, 5, 5)]);
+        assert_eq!(w.player(ANA).unwrap().last_action_tick, 1);
+        assert!(w.player(ANA).unwrap().offline_summary.is_empty());
+
+        // Colocar pasto y un fuego dentro del área del aspersor para probar crecimiento y extinción.
+        let target_idx = w.tile_index(5, 6).unwrap();
+        w.tiles[target_idx].stage = TileStage::Grass;
+        w.tiles[target_idx].humidity = 10;
+        let fire_idx = w.tile_index(6, 5).unwrap();
+        w.tiles[fire_idx].fire = Some(crate::domain::Fire {
+            drops_received: 0,
+            burning_ticks: 10,
+        });
+
+        // El aspersor activa cada 2 s (20 ticks). Para que la casilla
+        // alcance el umbral de crecimiento y genere hojas, hace falta más de
+        // dos activaciones: con humedad inicial 10, el primer crecimiento real
+        // llega al cuarto riego (20, 40, 60, 80 ticks).
+        for _ in 2..=100 {
+            w.step(&[]);
+        }
+
+        let ana = w.player(ANA).unwrap();
+        assert_eq!(ana.last_action_tick, 1);
+        assert!(ana.offline_summary.water_reused > 0);
+        assert!(ana.offline_summary.leaves_earned > 0);
+        assert_eq!(ana.offline_summary.fires_extinguished, 1);
+        assert!(ana.offline_summary.tiles_grown >= 1);
+
+        // Ana vuelve y suelta una gota: su offline_summary se limpia.
+        w.step(&[drop_cmd(&action(2), ANA, 0, 0)]);
+        let ana_after = w.player(ANA).unwrap();
+        assert_eq!(ana_after.last_action_tick, 101);
+        assert!(ana_after.offline_summary.is_empty());
+    }
+
+    /// Aspersor de Ana en (5, 5) con pasto en (5, 6) a punto de crecer (90 de
+    /// 100 de humedad: el primer riego de 25 lo sube de etapa) y un
+    /// fuego en (6, 5); devuelve el mundo justo después de colocarlo.
+    fn world_with_a_sprinkler_and_a_fire() -> World {
+        let mut w = rich(&[(ANA, 100)]);
+        w.step(&[place_cmd(&action(1), ANA, Sprinkler, 5, 5)]);
+        let grass = w.tile_index(5, 6).unwrap();
+        w.tiles[grass].stage = TileStage::Grass;
+        w.tiles[grass].humidity = 90;
+        let burning = w.tile_index(6, 5).unwrap();
+        w.tiles[burning].fire = Some(crate::domain::Fire {
+            drops_received: 0,
+            burning_ticks: 10,
+        });
+        w
+    }
+
+    #[test]
+    fn the_summary_counts_what_the_sprinklers_did_after_the_last_action() {
+        let mut w = world_with_a_sprinkler_and_a_fire();
+        assert!(w.player(ANA).unwrap().offline_summary.is_empty());
+        advance_to(&mut w, 20);
+        let ana = w.player(ANA).unwrap();
+        // Un riego: 25 de humedad en las 9 casillas del cuadrado.
+        assert_eq!(ana.offline_summary.water_reused, 9 * 25);
+        assert_eq!(ana.offline_summary.fires_extinguished, 1);
+        // Solo crece el pasto en (5, 6); la casilla del fuego no llega al umbral.
+        assert_eq!(ana.offline_summary.tiles_grown, 1);
+        assert_eq!(ana.tiles_grown, 1);
+        // `rich` da 100 hojas de entrada, que no cuentan como ganadas por riego.
+        assert!(ana.offline_summary.leaves_earned > 0);
+        assert_eq!(ana.offline_summary.leaves_earned, ana.leaves_earned - 100);
+    }
+
+    #[test]
+    fn the_summary_keeps_adding_up_and_the_next_applied_action_clears_it() {
+        let mut w = world_with_a_sprinkler_and_a_fire();
+        advance_to(&mut w, 20);
+        let first = w.player(ANA).unwrap().offline_summary.clone();
+        advance_to(&mut w, 40);
+        let second = w.player(ANA).unwrap().offline_summary.clone();
+        assert_eq!(second.water_reused, first.water_reused + 9 * 25);
+
+        w.step(&[drop_cmd(&action(2), ANA, 0, 0)]);
+        let ana = w.player(ANA).unwrap();
+        assert!(ana.offline_summary.is_empty());
+        // El acumulado de la época no se borra con la acción.
+        assert_eq!(ana.fires_extinguished, 1);
+        assert!(ana.tiles_grown >= 1);
+    }
+
+    #[test]
+    fn a_rejected_action_does_not_clear_the_summary() {
+        let mut w = world_with_a_sprinkler_and_a_fire();
+        advance_to(&mut w, 20);
+        // Fuera del valle: se rechaza y no cuenta como acción.
+        w.step(&[drop_cmd(&action(2), ANA, 99, 99)]);
+        assert!(!w.player(ANA).unwrap().offline_summary.is_empty());
+    }
+
+    #[test]
+    fn a_sprinkler_effect_in_the_tick_of_the_action_counts_after_it() {
+        let mut w = world_with_a_sprinkler_and_a_fire();
+        advance_to(&mut w, 19);
+        // En el tick 20 Ana actúa y el aspersor riega después de su comando.
+        w.step(&[drop_cmd(&action(2), ANA, 0, 0)]);
+        let ana = w.player(ANA).unwrap();
+        assert_eq!(ana.last_action_tick, 20);
+        assert_eq!(ana.offline_summary.water_reused, 9 * 25);
+    }
+
+    #[test]
+    fn drip_and_treatment_plants_do_not_feed_the_summary() {
+        let mut w = rich(&[(ANA, 100)]);
+        w.step(&[
+            place_cmd(&action(1), ANA, Drip, 10, 10),
+            place_cmd(&action(2), ANA, TreatmentPlant, 1, 1),
+        ]);
+        // Con el depósito lleno la planta no recicla nada: se gasta antes.
+        for n in 3..8 {
+            w.step(&[drop_cmd(&action(n), ANA, 20, 20)]);
+        }
+        set_humidity(&mut w, 10, 10, 10);
+        advance_to(&mut w, 100);
+        let ana = w.player(ANA).unwrap();
+        assert!(ana.water_reduced > 0 && ana.water_recycled > 0);
+        assert!(ana.offline_summary.is_empty());
+    }
+
+    #[test]
+    fn the_summary_stops_growing_when_the_sprinklers_stop() {
+        let mut w = world_with_a_sprinkler_and_a_fire();
+        // Pasadas las 2 h sin acciones el aspersor se para (RF-25).
+        advance_to(&mut w, 72_001 + 20);
+        let frozen = w.player(ANA).unwrap().offline_summary.clone();
+        assert!(!frozen.is_empty());
+        advance_to(&mut w, 72_001 + 100);
+        assert_eq!(w.player(ANA).unwrap().offline_summary, frozen);
+    }
+
+    #[test]
+    fn reset_valley_clears_the_summary_and_the_sprinkler_counters() {
+        let mut w = world_with_a_sprinkler_and_a_fire();
+        advance_to(&mut w, 20);
+        w.step(&[reset_cmd(&action(2))]);
+        let ana = w.player(ANA).unwrap();
+        assert!(ana.offline_summary.is_empty());
+        assert_eq!((ana.fires_extinguished, ana.tiles_grown), (0, 0));
     }
 }

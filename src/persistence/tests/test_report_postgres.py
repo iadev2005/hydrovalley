@@ -100,6 +100,8 @@ def test_migration_creates_snapshot_players_with_the_diagram_columns(repository)
         ("water_reduced", "numeric", "NO"),
         ("water_reused", "numeric", "NO"),
         ("water_recycled", "numeric", "NO"),
+        ("fires_extinguished", "numeric", "NO"),
+        ("tiles_grown", "numeric", "NO"),
     ]
 
 
@@ -175,17 +177,20 @@ def test_report_without_snapshots_raises_no_snapshot(repository, ana):
 def test_player_and_global_totals(repository, ana, beto):
     repository.save(snap(50, row(ana, water_reduced=5, water_reused=1, water_recycled=2,
                                  water_refilled=10, water_spent=4, leaves_earned=6,
-                                 leaves_spent=3),
-                         row(beto, water_reduced=7, leaves_earned=1)))
+                                 leaves_spent=3, fires_extinguished=2, tiles_grown=5),
+                         row(beto, water_reduced=7, leaves_earned=1, fires_extinguished=1,
+                             tiles_grown=2)))
     mine = repository.report(ana, None, None)
     assert (mine.player_id, mine.epoch, mine.from_tick, mine.to_tick) == (ana, 1, 0, 50)
     assert mine.totals == totals(water_reduced=5, water_reused=1, water_recycled=2,
                                  water_refilled=10, water_spent=4, leaves_earned=6,
-                                 leaves_spent=3)
+                                 leaves_spent=3, fires_extinguished=2, tiles_grown=5)
     everyone = repository.report(None, None, None)
     assert everyone.player_id is None
     assert everyone.totals.water_reduced == 12
     assert everyone.totals.leaves_earned == 7
+    assert everyone.totals.fires_extinguished == 3
+    assert everyone.totals.tiles_grown == 7
 
 
 @integration

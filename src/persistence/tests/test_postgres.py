@@ -351,7 +351,7 @@ def query(sql: str, params=None):
 @integration
 def test_migrations_create_the_table_and_are_idempotent(clean_database):
     with psycopg.connect(clean_database, autocommit=True) as conn:
-        assert apply_migrations(conn, DEFAULT_MIGRATIONS_DIR) == ["0001", "0002", "0003", "0004"]
+        assert apply_migrations(conn, DEFAULT_MIGRATIONS_DIR) == ["0001", "0002", "0003", "0004", "0005"]
         assert apply_migrations(conn, DEFAULT_MIGRATIONS_DIR) == []
     columns = query(
         "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
