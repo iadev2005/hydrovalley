@@ -10,7 +10,7 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_health::ServingStatus;
 
-use crate::config::seed_from_clock;
+use crate::config::{WorldMode, seed_from_clock};
 use crate::grpc::WorldGrpc;
 use crate::proto::world::v1::world_service_server::WorldServiceServer;
 use crate::simulator::{Backoff, Simulator};
@@ -29,6 +29,8 @@ pub struct Settings {
     pub shutdown_timeout: Duration,
     /// Semilla del azar para un valle que empieza de cero (`WORLD_SEED`).
     pub seed: u64,
+    /// Modo de arranque (`WORLD_MODE=active|standby`).
+    pub mode: WorldMode,
 }
 
 impl Settings {
@@ -40,6 +42,7 @@ impl Settings {
             load_backoff: Backoff::default(),
             shutdown_timeout: Duration::from_secs(5),
             seed: seed_from_clock(),
+            mode: WorldMode::Active,
         }
     }
 }
@@ -63,8 +66,19 @@ pub async fn serve(
         &settings.persistence_addr,
         settings.call_policy.clone(),
     )?);
-    let simulator = Arc::new(Simulator::new(store, settings.seed));
-    tracing::info!(boot_id = simulator.boot_id(), "simulador creado");
+    let simulator = match settings.mode {
+        WorldMode::Active => Arc::new(Simulator::new(store, settings.seed)),
+        WorldMode::Standby => Arc::new(Simulator::new_standby(
+            store,
+            settings.seed,
+            settings.load_backoff,
+        )),
+    };
+    tracing::info!(
+        boot_id = %simulator.boot_id(),
+        mode = ?settings.mode,
+        "simulador creado"
+    );
 
     let (reporter, health_service) = tonic_health::server::health_reporter();
     for name in ["", WORLD_SERVICE_NAME] {
@@ -76,14 +90,22 @@ pub async fn serve(
     let loader = {
         let simulator = Arc::clone(&simulator);
         let backoff = settings.load_backoff;
+        let mode = settings.mode;
         tokio::spawn(async move {
-            simulator.load(backoff).await;
-            for name in ["", WORLD_SERVICE_NAME] {
-                reporter
-                    .set_service_status(name, ServingStatus::Serving)
-                    .await;
+            if mode == WorldMode::Active {
+                simulator.load(backoff).await;
             }
-            tracing::info!("mundo listo: Step atiende");
+            loop {
+                let status = if simulator.is_ready() || simulator.is_standby() {
+                    ServingStatus::Serving
+                } else {
+                    ServingStatus::NotServing
+                };
+                for name in ["", WORLD_SERVICE_NAME] {
+                    reporter.set_service_status(name, status).await;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
         })
     };
 

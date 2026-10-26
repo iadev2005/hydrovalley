@@ -72,6 +72,9 @@ type Config struct {
 	// los registros inactivos. Las bajas por eventos (desconexión, resultado
 	// final, poda de confirmed) no esperan a este barrido.
 	SweepInterval time.Duration
+	// HubGeneration es la generación monótona enviada en StepRequest para el
+	// fencing de hubs (D-B8-1); por defecto 1.
+	HubGeneration uint64
 }
 
 // DefaultConfig devuelve las cifras de CLAUDE.md y del documento (Capa 3).
@@ -91,6 +94,7 @@ func DefaultConfig() Config {
 		BroadcastEvery:   time.Second,
 		OutboxSize:       256,
 		SweepInterval:    time.Second,
+		HubGeneration:    1,
 	}
 }
 
@@ -169,8 +173,15 @@ type Status struct {
 	Paused   bool
 	Breaker  string
 	QueueLen int
-	// Ready: el hub puede servir partidas (circuito cerrado y el último Step
-	// respondió).
+	// Fenced: el hub fue desplazado por otro con mayor hub_generation (recibió
+	// FAILED_PRECONDITION de Step). Cuando es verdadero, /healthz y /readyz
+	// responden 503 y las sesiones WebSocket se cierran con StatusGoingAway.
+	Fenced bool
+	// Standby: el hub está en espera vigilando al primario y todavía no ha
+	// sido promovido.
+	Standby bool
+	// Ready: el hub puede servir partidas (activo, no desplazado, circuito
+	// cerrado y el último Step respondió).
 	Ready bool
 }
 
@@ -230,6 +241,10 @@ type Hub struct {
 	breaker    *breaker.Breaker
 	paused     bool
 	succeeded  bool
+	fenced     bool
+	standby    bool
+	fencedCh   chan struct{}
+	fenceOnce  sync.Once
 	tick       uint64
 	bootID     string
 	// restoredTick es el tick del que Rust se recuperó en su arranque, tal como
@@ -258,21 +273,37 @@ type Hub struct {
 
 // New crea el hub. El bucle del tick arranca con Run.
 func New(world WorldClient, clock Clock, cfg Config, log *slog.Logger) *Hub {
+	if cfg.HubGeneration == 0 {
+		cfg.HubGeneration = 1
+	}
 	return &Hub{
-		world:   world,
-		clock:   clock,
-		cfg:     cfg,
-		log:     log,
-		debug:   log.Enabled(context.Background(), slog.LevelDebug),
-		players: make(map[string]*player),
-		breaker: breaker.New(cfg.BreakerThreshold, cfg.ProbeInterval),
-		ledger:  make(map[uint64]uint64),
+		world:    world,
+		clock:    clock,
+		cfg:      cfg,
+		log:      log,
+		debug:    log.Enabled(context.Background(), slog.LevelDebug),
+		players:  make(map[string]*player),
+		breaker:  breaker.New(cfg.BreakerThreshold, cfg.ProbeInterval),
+		ledger:   make(map[uint64]uint64),
+		fencedCh: make(chan struct{}),
 
 		admittedRate: metrics.NewRate(StatsWindowSeconds),
 		appliedRate:  metrics.NewRate(StatsWindowSeconds),
 		latency:      metrics.NewSamples(latencySamples, StatsWindowSeconds*time.Second),
 		stepTimes:    metrics.NewSamples(stepSamples, 0),
 	}
+}
+
+// Fenced devuelve un canal que se cierra cuando el hub recibe
+// FAILED_PRECONDITION de Step (fue desplazado por una generación superior).
+func (h *Hub) Fenced() <-chan struct{} { return h.fencedCh }
+
+// SetStandby marca o desmarca el hub como en espera (hub-standby antes de ser
+// promovido).
+func (h *Hub) SetStandby(standby bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.standby = standby
 }
 
 // Session es una conexión WebSocket registrada en el hub.
@@ -482,6 +513,51 @@ func hasKey[V any](m map[string]V, k string) bool {
 	return ok
 }
 
+const (
+	// PrimaryFailThreshold son los fallos seguidos de /healthz del hub primario
+	// tras los cuales el hub-standby se promueve y arranca su bucle de tick.
+	PrimaryFailThreshold = 3
+)
+
+// WatchPrimary vigila la URL de salud del hub primario (con sondas HTTP GET
+// cada interval y plazo timeout) y devuelve true cuando acumula
+// PrimaryFailThreshold fallos consecutivos, o false si ctx termina antes.
+func WatchPrimary(ctx context.Context, healthURL string, interval, timeout time.Duration, doGet func(context.Context, string) (int, error), log *slog.Logger) bool {
+	if interval <= 0 {
+		interval = 500 * time.Millisecond
+	}
+	if timeout <= 0 {
+		timeout = 500 * time.Millisecond
+	}
+	failures := 0
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		probeCtx, cancel := context.WithTimeout(ctx, timeout)
+		code, err := doGet(probeCtx, healthURL)
+		cancel()
+		if err != nil || code != 200 {
+			failures++
+			if log != nil {
+				log.Warn("primary hub health check failed", "url", healthURL, "consecutive_failures", failures, "status", code, "err", err)
+			}
+			if failures >= PrimaryFailThreshold {
+				if log != nil {
+					log.Info("promoting standby hub after primary health failures", "url", healthURL, "consecutive_failures", failures)
+				}
+				return true
+			}
+		} else {
+			failures = 0
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
 // Run ejecuta el bucle del tick: una vuelta por cada valor de ticks (en
 // producción, un time.Ticker de 100 ms). Como es un solo bucle y Step es
 // síncrono, nunca hay dos llamadas a Step a la vez; si una tarda más de
@@ -490,6 +566,8 @@ func (h *Hub) Run(ctx context.Context, ticks <-chan time.Time) {
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-h.fencedCh:
 			return
 		case <-ticks:
 			h.Tick(ctx)
@@ -512,7 +590,9 @@ func (h *Hub) Status() Status {
 	state := h.breaker.State()
 	return Status{
 		Tick: h.tick, Paused: h.paused, Breaker: state.String(), QueueLen: len(h.queue),
-		Ready: h.succeeded && !h.paused && state == breaker.Closed,
+		Fenced:  h.fenced,
+		Standby: h.standby,
+		Ready:   !h.fenced && !h.standby && h.succeeded && !h.paused && state == breaker.Closed,
 	}
 }
 

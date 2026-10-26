@@ -21,6 +21,8 @@ import (
 	worldv1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/world/v1"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/auth"
 	"github.com/iadev2005/hydrovalley/src/hub/internal/hub"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -35,12 +37,16 @@ type applyAll struct {
 	mu   sync.Mutex
 	tick uint64
 	fail bool
+	err  error
 	last []*worldv1.Command
 }
 
 func (w *applyAll) Step(_ context.Context, req *worldv1.StepRequest) (*worldv1.StepResponse, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.err != nil {
+		return nil, w.err
+	}
 	if w.fail {
 		return nil, errors.New("down")
 	}
@@ -567,5 +573,43 @@ func TestInvalidPurchasesGetErrorsAndQueueNothing(t *testing.T) {
 	}
 	if n := e.hub.Status().QueueLen; n != 0 {
 		t.Fatalf("queue = %d", n)
+	}
+}
+
+func TestFencedHubReturns503OnHealthzReadyzStatsAndClosesWebSocketsWithGoingAway(t *testing.T) {
+	e := newEnv(t)
+	conn := e.dial(e.as(ana))
+	e.waitSessions(1)
+	e.tick()
+	next(t, conn, "state")
+
+	// Simula que este Hub vuelve de un docker pause después de que un Hub de
+	// generación superior tomó el mando: Step responde FAILED_PRECONDITION.
+	e.world.mu.Lock()
+	e.world.err = status.Error(codes.FailedPrecondition, "fenced")
+	e.world.mu.Unlock()
+	e.tick()
+
+	// El WebSocket abierto debe cerrarse con StatusGoingAway (1001).
+	expectClose(t, conn, websocket.StatusGoingAway)
+
+	// /healthz, /readyz y /stats deben responder 503 Service Unavailable.
+	for _, path := range []string{"/healthz", "/readyz", "/stats"} {
+		if resp := e.get(path); resp.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("%s on fenced hub = %d, want 503", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestStandbyHubReturns503OnStatsUntilPromoted(t *testing.T) {
+	e := newEnv(t)
+	e.hub.SetStandby(true)
+	if resp := e.get("/stats"); resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("/stats while standby = %d, want 503", resp.StatusCode)
+	}
+	e.hub.SetStandby(false)
+	e.tick()
+	if resp := e.get("/stats"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("/stats after promotion = %d, want 200", resp.StatusCode)
 	}
 }

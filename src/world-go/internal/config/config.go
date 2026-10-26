@@ -17,6 +17,17 @@ import (
 // DefaultListen es la dirección de escucha por omisión.
 const DefaultListen = "0.0.0.0:50051"
 
+// WorldMode define el modo de arranque del simulador (WORLD_MODE, B8 W2).
+type WorldMode string
+
+const (
+	// ModeActive carga el catálogo y la instantánea al arrancar el proceso.
+	ModeActive WorldMode = "active"
+	// ModeStandby arranca en espera sin cargar la instantánea hasta recibir su
+	// primer Step de promoción.
+	ModeStandby WorldMode = "standby"
+)
+
 // Config es la configuración del proceso.
 type Config struct {
 	// Listen (WORLD_LISTEN): dirección y puerto del gRPC.
@@ -30,6 +41,8 @@ type Config struct {
 	// la partida.
 	Seed        uint64
 	SeedFromEnv bool
+	// Mode (WORLD_MODE): active o standby (por omisión active).
+	Mode WorldMode
 	// LogLevel (LOG_LEVEL): trace, debug, info, warn o error. Un valor que no
 	// se entiende deja info, como en Rust.
 	LogLevel slog.Level
@@ -54,7 +67,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if persistence == "" {
 		return Config{}, fmt.Errorf("falta la variable de entorno PERSISTENCE_ADDR")
 	}
-	cfg := Config{Listen: listen, PersistenceAddr: persistence, LogLevel: parseLevel(read("LOG_LEVEL"))}
+	cfg := Config{Listen: listen, PersistenceAddr: persistence, Mode: ModeActive, LogLevel: parseLevel(read("LOG_LEVEL"))}
 	if text := read("WORLD_SEED"); text != "" {
 		seed, err := strconv.ParseUint(text, 10, 64)
 		if err != nil {
@@ -63,6 +76,16 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.Seed, cfg.SeedFromEnv = seed, true
 	} else {
 		cfg.Seed = SeedFromTime(time.Now())
+	}
+	if modeText := read("WORLD_MODE"); modeText != "" {
+		switch strings.ToLower(modeText) {
+		case string(ModeActive):
+			cfg.Mode = ModeActive
+		case string(ModeStandby):
+			cfg.Mode = ModeStandby
+		default:
+			return Config{}, fmt.Errorf("WORLD_MODE no es válida: %q", modeText)
+		}
 	}
 	return cfg, nil
 }

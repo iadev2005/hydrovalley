@@ -715,3 +715,125 @@ func TestConcurrentStepsNeverOverlap(t *testing.T) {
 		t.Fatalf("tick %d, quiero 161 (cada Step avanza uno)", report.Outcome.Tick)
 	}
 }
+
+func TestStandbyModeDoesNotLoadSnapshotUntilFirstStepPromotion(t *testing.T) {
+	st := &fakeStore{t: t, loads: []result[*persistencev1.Snapshot]{found(snapshotAt(t, 200))}}
+	s := New(st, Options{Seed: 0, Standby: true, Backoff: fast()})
+	t.Cleanup(func() { s.Shutdown(100 * time.Millisecond) })
+
+	if !s.IsStandby() || s.IsReady() {
+		t.Fatalf("debe arrancar en standby y no listo: standby=%v ready=%v", s.IsStandby(), s.IsReady())
+	}
+	if n := st.loadCalls.Load(); n != 0 {
+		t.Fatalf("no debe llamar a LoadSnapshot en standby: %d llamadas", n)
+	}
+
+	// El primer intento promueve Standby -> Loading y devuelve ErrNotReady.
+	if err := s.EnsureActiveAndFresh(0); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("EnsureActiveAndFresh en standby debe devolver ErrNotReady, dio %v", err)
+	}
+	eventually(t, "promoción de standby completada", s.IsReady)
+	if n := st.loadCalls.Load(); n != 1 {
+		t.Fatalf("LoadSnapshot tras promoción = %d, quiero 1", n)
+	}
+
+	report, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredTick != 200 || report.Outcome.Tick != 201 {
+		t.Fatalf("restored=%d tick=%d, quiero 200 y 201", report.RestoredTick, report.Outcome.Tick)
+	}
+}
+
+func TestMinExpectedTickHigherThanLocalTickForcesReloadAndRotatesBootID(t *testing.T) {
+	st := &fakeStore{
+		t: t,
+		loads: []result[*persistencev1.Snapshot]{
+			found(snapshotAt(t, 100)),
+			found(snapshotAt(t, 250)),
+		},
+	}
+	s := ready(t, st)
+	first, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Outcome.Tick != 101 {
+		t.Fatalf("tick = %d, quiero 101", first.Outcome.Tick)
+	}
+	originalBootID := first.BootID
+
+	// Estuvo pausado mientras otro simulador avanzó hasta el tick 260 y guardó
+	// la instantánea del tick 250.
+	if err := s.EnsureActiveAndFresh(260); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("EnsureActiveAndFresh(260) = %v, quiero ErrNotReady", err)
+	}
+	eventually(t, "recarga tras despausado completada", s.IsReady)
+
+	// El siguiente sondeo del hub sigue trayendo min_expected_tick = 260 hasta
+	// que un Step completo devuelva el nuevo boot_id; no debe volver a recargar.
+	if err := s.EnsureActiveAndFresh(260); err != nil {
+		t.Fatalf("EnsureActiveAndFresh(260) tras recarga = %v", err)
+	}
+	resumed, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.RestoredTick != 250 || resumed.Outcome.Tick != 251 {
+		t.Fatalf("restored=%d tick=%d, quiero 250 y 251", resumed.RestoredTick, resumed.Outcome.Tick)
+	}
+	if resumed.BootID == originalBootID {
+		t.Fatalf("boot_id no rotó tras recarga: %q", resumed.BootID)
+	}
+}
+
+func TestFreshlyLoadedSimulatorAfterCrashAcceptsMinExpectedTickInSameSnapshotWindow(t *testing.T) {
+	// Tras un SIGKILL en tick 1410, la última instantánea periódica en PostgreSQL
+	// es la del tick 1400 (ventana de 50 ticks). Al reiniciar, el primer Step
+	// trae min_expected_tick = 1410 y debe aceptarse sin recargar en bucle.
+	st := &fakeStore{
+		t:     t,
+		loads: []result[*persistencev1.Snapshot]{found(snapshotAt(t, 1400))},
+	}
+	s := ready(t, st)
+	if err := s.EnsureActiveAndFresh(1410); err != nil {
+		t.Fatalf("EnsureActiveAndFresh(1410) = %v, quiero nil", err)
+	}
+	if n := st.loadCalls.Load(); n != 1 {
+		t.Fatalf("LoadSnapshot = %d, quiero 1 (sin recarga redundante)", n)
+	}
+	report, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredTick != 1400 || report.Outcome.Tick != 1401 {
+		t.Fatalf("restored=%d tick=%d, quiero 1400 y 1401", report.RestoredTick, report.Outcome.Tick)
+	}
+}
+
+func TestCheckHubGenerationFencesLowerGenerationWithoutTouchingWorld(t *testing.T) {
+	s := ready(t, &fakeStore{})
+	// hub_generation = 0 (clientes antiguos) no altera ni se rechaza.
+	if err := s.CheckHubGeneration(0); err != nil {
+		t.Fatalf("CheckHubGeneration(0) = %v", err)
+	}
+	// Primera generación explícita (1) y luego promoción a 2.
+	if err := s.CheckHubGeneration(1); err != nil {
+		t.Fatalf("CheckHubGeneration(1) = %v", err)
+	}
+	if err := s.CheckHubGeneration(1); err != nil {
+		t.Fatalf("CheckHubGeneration(1 repetida) = %v", err)
+	}
+	if err := s.CheckHubGeneration(2); err != nil {
+		t.Fatalf("CheckHubGeneration(2) = %v", err)
+	}
+	// Si el Hub 1 vuelve de un docker pause, su generación 1 es rechazada con ErrFenced.
+	if err := s.CheckHubGeneration(1); !errors.Is(err, ErrFenced) {
+		t.Fatalf("CheckHubGeneration(1 tras 2) = %v, quiero ErrFenced", err)
+	}
+	// El Hub 2 sigue avanzando normalmente.
+	if err := s.CheckHubGeneration(2); err != nil {
+		t.Fatalf("CheckHubGeneration(2) = %v", err)
+	}
+}

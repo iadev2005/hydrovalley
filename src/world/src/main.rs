@@ -45,6 +45,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     let mut settings = Settings::new(config.persistence_addr);
     settings.seed = seed;
+    settings.mode = config.mode;
     serve(settings, listener, shutdown_signal()).await
 }
 

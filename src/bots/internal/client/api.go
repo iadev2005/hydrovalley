@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,7 +70,10 @@ type RankingResponse struct {
 
 // API es el cliente REST de la API del juego.
 type API struct {
-	base *url.URL
+	mu     sync.Mutex
+	bases  []*url.URL
+	active int
+
 	HTTP *http.Client
 	// Sleep espera d o hasta que ctx termine; las pruebas lo sustituyen.
 	Sleep func(ctx context.Context, d time.Duration) error
@@ -76,20 +81,56 @@ type API struct {
 	MaxRetries int
 }
 
-// NewAPI crea el cliente. baseURL es la dirección del proxy, p. ej.
-// http://nginx:8080.
+// NewAPI crea el cliente. baseURL es la dirección del proxy (o una lista de
+// direcciones separadas por comas, p. ej.
+// https://10.68.17.80:8080,https://10.68.17.99:8080).
 func NewAPI(baseURL string) (*API, error) {
-	u, err := url.Parse(baseURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	var bases []*url.URL
+	seen := make(map[string]struct{})
+	for _, part := range strings.Split(baseURL, ",") {
+		raw := strings.TrimSpace(part)
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("invalid base URL %q: want http(s)://host[:port]", raw)
+		}
+		if _, ok := seen[u.String()]; !ok {
+			seen[u.String()] = struct{}{}
+			bases = append(bases, u)
+		}
+	}
+	if len(bases) == 0 {
 		return nil, fmt.Errorf("invalid base URL %q: want http(s)://host[:port]", baseURL)
 	}
 	return &API{
-		base: u,
+		bases: bases,
 		// 100 cuentas con Argon2id tardan varios segundos (src/api/README.md).
 		HTTP:       &http.Client{Timeout: 60 * time.Second},
 		Sleep:      sleepCtx,
 		MaxRetries: 6,
 	}, nil
+}
+
+func (a *API) currentBase() *url.URL {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.bases[a.active%len(a.bases)]
+}
+
+func (a *API) advanceBase() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.bases) > 1 {
+		a.active = (a.active + 1) % len(a.bases)
+	}
+}
+
+func (a *API) baseCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.bases)
 }
 
 // UseTLS fija la configuración TLS del cliente (certificado de confianza
@@ -180,13 +221,45 @@ func (a *API) post(ctx context.Context, path, token string, body, out any) (http
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base.JoinPath(path).String(), bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	hdr, _, err := a.do(req, token, out)
+	hdr, _, err := a.doWithFailover(ctx, token, out, func(base *url.URL) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, base.JoinPath(path).String(), bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
 	return hdr, err
+}
+
+func isGatewayDown(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *HTTPError
+	if errors.As(err, &he) {
+		return he.Status == http.StatusBadGateway || he.Status == http.StatusServiceUnavailable || he.Status == http.StatusGatewayTimeout
+	}
+	return true
+}
+
+func (a *API) doWithFailover(ctx context.Context, token string, out any, buildReq func(base *url.URL) (*http.Request, error)) (http.Header, time.Duration, error) {
+	total := a.baseCount()
+	var lastHdr http.Header
+	var lastLat time.Duration
+	var lastErr error
+	for attempt := 0; attempt < total; attempt++ {
+		req, err := buildReq(a.currentBase())
+		if err != nil {
+			return nil, 0, err
+		}
+		lastHdr, lastLat, lastErr = a.do(req, token, out)
+		if lastErr == nil || ctx.Err() != nil || !isGatewayDown(lastErr) || attempt+1 >= total {
+			return lastHdr, lastLat, lastErr
+		}
+		a.advanceBase()
+	}
+	return lastHdr, lastLat, lastErr
 }
 
 // do envía la petición con el token (si hay) y decodifica en out una
@@ -245,9 +318,7 @@ func (a *API) get(ctx context.Context, path, token string, out any) (http.Header
 	if err != nil {
 		return nil, 0, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.base.ResolveReference(u).String(), nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	return a.do(req, token, out)
+	return a.doWithFailover(ctx, token, out, func(base *url.URL) (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, base.ResolveReference(u).String(), nil)
+	})
 }

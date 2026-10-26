@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,6 +81,10 @@ type SessionConfig struct {
 	Backoff func(attempt int) time.Duration
 	// MaxResendAge: por defecto DefaultMaxResendAge.
 	MaxResendAge time.Duration
+	// ReadTimeout limita cuánto tiempo puede pasar conn.Read sin recibir
+	// ningún marco (por ejemplo cuando el contenedor del proxy o del hub está
+	// en docker pause y no envía TCP RST). Si es 0, se usa el ctx de Run.
+	ReadTimeout time.Duration
 }
 
 type pendingAction struct {
@@ -93,7 +98,8 @@ type pendingAction struct {
 // pendientes, entrega resultados y estados por canales y se reconecta sola.
 type Session struct {
 	cfg       SessionConfig
-	url       string
+	urls      []string
+	activeURL int
 	states    chan State
 	outcomes  chan Outcome
 	unmatched chan Frame
@@ -103,11 +109,27 @@ type Session struct {
 	pending map[string]*pendingAction
 }
 
-// NewSession valida la configuración y arma la URL de /play.
+// NewSession valida la configuración y arma las URLs de /play (admite varias
+// URLs separadas por comas en BaseURL para conmutación automática).
 func NewSession(cfg SessionConfig) (*Session, error) {
-	u, err := playURL(cfg.BaseURL, cfg.Token, cfg.Map)
-	if err != nil {
-		return nil, err
+	var urls []string
+	seen := make(map[string]struct{})
+	for _, part := range strings.Split(cfg.BaseURL, ",") {
+		raw := strings.TrimSpace(part)
+		if raw == "" {
+			continue
+		}
+		u, err := playURL(raw, cfg.Token, cfg.Map)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[u]; !ok {
+			seen[u] = struct{}{}
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("invalid base URL %q", cfg.BaseURL)
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -126,7 +148,7 @@ func NewSession(cfg SessionConfig) (*Session, error) {
 	}
 	return &Session{
 		cfg:       cfg,
-		url:       u,
+		urls:      urls,
 		states:    make(chan State, 1),
 		outcomes:  make(chan Outcome, 256),
 		unmatched: make(chan Frame, 64),
@@ -278,7 +300,8 @@ func (s *Session) dialOptions() *websocket.DialOptions {
 func (s *Session) Run(ctx context.Context) error {
 	attempt := 0
 	for {
-		conn, resp, err := websocket.Dial(ctx, s.url, s.dialOptions())
+		targetURL := s.urls[s.activeURL%len(s.urls)]
+		conn, resp, err := websocket.Dial(ctx, targetURL, s.dialOptions())
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -286,7 +309,10 @@ func (s *Session) Run(ctx context.Context) error {
 			if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 				return ErrUnauthorized
 			}
-			s.cfg.Logger.Debug("dial failed", "err", err)
+			s.cfg.Logger.Debug("dial failed", "url", targetURL, "err", err)
+			if len(s.urls) > 1 {
+				s.activeURL = (s.activeURL + 1) % len(s.urls)
+			}
 		} else {
 			var gotMessage bool
 			gotMessage, err = s.serve(ctx, conn)
@@ -299,7 +325,10 @@ func (s *Session) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			s.cfg.Logger.Debug("connection lost", "err", err)
+			s.cfg.Logger.Debug("connection lost", "url", targetURL, "err", err)
+			if len(s.urls) > 1 {
+				s.activeURL = (s.activeURL + 1) % len(s.urls)
+			}
 		}
 		if err := sleepCtx(ctx, s.cfg.Backoff(attempt)); err != nil {
 			return nil
@@ -328,7 +357,15 @@ func (s *Session) serve(ctx context.Context, conn *websocket.Conn) (gotMessage b
 	}
 
 	for {
-		_, data, err := conn.Read(ctx)
+		readCtx := ctx
+		var cancel context.CancelFunc
+		if s.cfg.ReadTimeout > 0 {
+			readCtx, cancel = context.WithTimeout(ctx, s.cfg.ReadTimeout)
+		}
+		_, data, err := conn.Read(readCtx)
+		if cancel != nil {
+			cancel()
+		}
 		if err != nil {
 			if websocket.CloseStatus(err) == closeUnauthorized {
 				return gotMessage, ErrUnauthorized

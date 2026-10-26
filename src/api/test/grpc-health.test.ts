@@ -97,4 +97,21 @@ describe("gRPC health probe", () => {
       detail: "unavailable",
     });
   });
+
+  it("fails over to the backup address when the primary is down (B8 W2)", async () => {
+    const deadServer = new TestGrpcServer();
+    const deadAddr = await deadServer.start(Health, {});
+    await deadServer.stop();
+
+    const standbyAddr = await server.start(Health, {
+      check: () => ({ status: ServingStatus.SERVING }),
+    });
+
+    const probe = createGrpcHealthProbe({
+      address: `${deadAddr},${standbyAddr}`,
+      service: "hydrovalley.world.v1.WorldService",
+      timeoutMs: 300,
+    });
+    expect(await probe()).toEqual({ status: "up" });
+  });
 });

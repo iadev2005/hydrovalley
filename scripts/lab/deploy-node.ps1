@@ -39,7 +39,7 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('db', 'persistence', 'world', 'hub', 'proxy')][string]$Node,
+    [Parameter(Mandatory = $true)][ValidateSet('db', 'persistence', 'world', 'hub', 'proxy', 'standby')][string]$Node,
     [Parameter(Mandatory = $true)][string]$Addresses,
     [string]$Secrets,
     [string]$Tag,
@@ -67,6 +67,7 @@ $needsAddresses = @{
     world       = @('LAB_PERSISTENCE_HOST')
     hub         = @('LAB_WORLD_HOST', 'LAB_PROXY_HOST')
     proxy       = @('LAB_PERSISTENCE_HOST', 'LAB_WORLD_HOST', 'LAB_HUB_HOST', 'LAB_PROXY_HOST')
+    standby     = @('LAB_PERSISTENCE_HOST', 'LAB_WORLD_HOST', 'LAB_HUB_HOST', 'LAB_PROXY_HOST', 'LAB_STANDBY_HOST')
 }
 $needsSecrets = @{
     db          = @('POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB')
@@ -74,6 +75,7 @@ $needsSecrets = @{
     world       = @()
     hub         = @('TOKEN_PUBLIC_KEY')
     proxy       = @('TOKEN_PRIVATE_KEY')
+    standby     = @('TOKEN_PRIVATE_KEY', 'TOKEN_PUBLIC_KEY')
 }
 
 # 1. Archivos.

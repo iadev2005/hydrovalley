@@ -6,6 +6,8 @@ import {
   buildResetValleyFrame,
   buildSetDemoModeFrame,
   buildPlayUrl,
+  createEndpointRotator,
+  createFailoverFetch,
   createReconnectBackoff,
   describeFrame,
   GRID_SIZE,
@@ -13,11 +15,13 @@ import {
   decideOnClose,
   shouldReconnect,
   newUuid,
+  parseBackupHosts,
   parseFrame,
   RECONNECT_BASE_MS,
   RECONNECT_CAP_MS,
   RECONNECT_STABLE_MS,
   reconnectDelay,
+  STATE_SILENCE_MS,
   type StateFrame,
 } from "./play.ts";
 
@@ -429,5 +433,66 @@ describe("decideOnClose", () => {
 
   it("prefers 4401 over expiry (same outcome for the user, one clear reason)", () => {
     expect(decideOnClose({ ...base, code: 4401, now: 20_000 })).toBe("show_access");
+  });
+});
+
+describe("STATE_SILENCE_MS and endpoint failover (B8 E2)", () => {
+  it("defines a 3.5 s silence watchdog for missing state frames", () => {
+    expect(STATE_SILENCE_MS).toBe(3_500);
+  });
+
+  it("parses backup hosts from comma-separated strings or full URLs and deduplicates", () => {
+    expect(
+      parseBackupHosts("10.68.17.80:8080", "https://10.68.17.99:8080, 10.68.17.80:8080, 10.68.17.100:8080/"),
+    ).toEqual(["10.68.17.80:8080", "10.68.17.99:8080", "10.68.17.100:8080"]);
+  });
+
+  it("rotates across hosts on advance and keeps sticky affinity while healthy", () => {
+    const rotator = createEndpointRotator("10.68.17.80:8080", ["10.68.17.99:8080"]);
+    expect(rotator.currentHost()).toBe("10.68.17.80:8080");
+    expect(rotator.hosts()).toEqual(["10.68.17.80:8080", "10.68.17.99:8080"]);
+    expect(rotator.advance()).toBe("10.68.17.99:8080");
+    expect(rotator.currentHost()).toBe("10.68.17.99:8080");
+    expect(rotator.advance()).toBe("10.68.17.80:8080");
+  });
+
+  it("allows adding discovered backup hosts dynamically without losing current affinity", () => {
+    const rotator = createEndpointRotator("10.68.17.80:8080");
+    rotator.addBackups("https://10.68.17.99:8080");
+    expect(rotator.hosts()).toEqual(["10.68.17.80:8080", "10.68.17.99:8080"]);
+    expect(rotator.advance()).toBe("10.68.17.99:8080");
+  });
+
+  it("creates a failover fetch that retries on the backup host when the primary throws or returns 502/504", async () => {
+    const rotator = createEndpointRotator("10.68.17.80:8080", ["10.68.17.99:8080"]);
+    const calledUrls: string[] = [];
+    const baseFetch = async (input: string | URL | Request) => {
+      const url = String(input);
+      calledUrls.push(url);
+      if (url.includes("10.68.17.80:8080")) {
+        throw new TypeError("Failed to fetch");
+      }
+      return new Response('{"ok":true}', {
+        status: 200,
+        headers: { "X-Proxy-Backups": "10.68.17.100:8080" },
+      });
+    };
+    const failoverFetch = createFailoverFetch({
+      baseFetch,
+      rotator,
+      protocol: "https:",
+    });
+    const res = await failoverFetch("/api/system");
+    expect(res.status).toBe(200);
+    expect(calledUrls).toEqual([
+      "https://10.68.17.80:8080/api/system",
+      "https://10.68.17.99:8080/api/system",
+    ]);
+    expect(rotator.currentHost()).toBe("10.68.17.99:8080");
+    expect(rotator.hosts()).toEqual([
+      "10.68.17.80:8080",
+      "10.68.17.99:8080",
+      "10.68.17.100:8080",
+    ]);
   });
 });

@@ -111,9 +111,16 @@ export function parseHubStats(raw: unknown): HubStats | null {
 export function createHubStatsSource(options: HubStatsOptions): () => Promise<HubResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const doFetch = options.fetch ?? fetch;
-  const url = `http://${options.address}/stats`;
+  const addresses = options.address
+    .split(",")
+    .map((a) => a.trim())
+    .filter((a) => a !== "");
+  const urls = (addresses.length > 0 ? addresses : [options.address]).map(
+    (addr) => `http://${addr}/stats`,
+  );
+  let active = 0;
 
-  return async () => {
+  async function queryOne(url: string): Promise<HubResult> {
     try {
       const res = await doFetch(url, {
         signal: AbortSignal.timeout(timeoutMs),
@@ -135,6 +142,22 @@ export function createHubStatsSource(options: HubStatsOptions): () => Promise<Hu
     } catch (err) {
       return { ok: false, detail: isTimeout(err) ? "timeout" : "unavailable" };
     }
+  }
+
+  return async () => {
+    let lastFail: HubResult = { ok: false, detail: "unavailable" };
+    for (let i = 0; i < urls.length; i++) {
+      const idx = (active + i) % urls.length;
+      const url = urls[idx];
+      if (!url) continue;
+      const res = await queryOne(url);
+      if (res.ok) {
+        active = idx;
+        return res;
+      }
+      lastFail = res;
+    }
+    return lastFail;
   };
 }
 

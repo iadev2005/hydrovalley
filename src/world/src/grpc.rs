@@ -30,8 +30,17 @@ impl<S: PersistenceStore> WorldGrpc<S> {
         &self,
         request: Request<pb::StepRequest>,
     ) -> Result<Response<pb::StepResponse>, Status> {
-        let commands: Vec<_> = request
-            .into_inner()
+        let inner = request.into_inner();
+        self.simulator
+            .check_hub_generation(inner.hub_generation)
+            .map_err(|_| {
+                Status::failed_precondition("hub desplazado por una generación superior")
+            })?;
+        let min_expected_tick = inner.min_expected_tick;
+        self.simulator
+            .ensure_active_and_fresh(min_expected_tick)
+            .map_err(|_| Status::unavailable("el simulador todavía está cargando el mundo"))?;
+        let commands: Vec<_> = inner
             .commands
             .into_iter()
             .map(codec::command_from_proto)
@@ -53,7 +62,7 @@ impl<S: PersistenceStore> WorldGrpc<S> {
                 .map(codec::result_to_proto)
                 .collect(),
             state: Some(report.view),
-            boot_id: self.simulator.boot_id().to_string(),
+            boot_id: report.boot_id,
         }))
     }
 }
@@ -195,6 +204,8 @@ mod tests {
                 player_id: ANA.to_string(),
                 kind: Some(pb::command::Kind::Drop(pb::DropCommand { x: 0, y: 0 })),
             }],
+            hub_generation: 0,
+            min_expected_tick: 0,
         });
         if let Some(id) = id {
             crate::request_id::tag(&mut request, id);
@@ -250,5 +261,28 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("GetRanking"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn step_rejects_lower_hub_generation_with_failed_precondition() {
+        let grpc = ready().await;
+        let step_gen = |hub_generation: u64| {
+            Request::new(pb::StepRequest {
+                commands: Vec::new(),
+                hub_generation,
+                min_expected_tick: 0,
+            })
+        };
+        let r1 = grpc.step(step_gen(1)).await.unwrap().into_inner();
+        assert_eq!(r1.tick, 1);
+
+        let r2 = grpc.step(step_gen(2)).await.unwrap().into_inner();
+        assert_eq!(r2.tick, 2);
+
+        let err = grpc.step(step_gen(1)).await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+
+        let r3 = grpc.step(step_gen(2)).await.unwrap().into_inner();
+        assert_eq!(r3.tick, 3);
     }
 }

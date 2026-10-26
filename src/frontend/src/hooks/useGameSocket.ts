@@ -7,11 +7,14 @@ import {
   buildPlayUrl,
   buildResetValleyFrame,
   buildSetDemoModeFrame,
+  createEndpointRotator,
   createReconnectBackoff,
   decideOnClose,
   describeFrame,
   newUuid,
   parseFrame,
+  STATE_SILENCE_MS,
+  type EndpointRotator,
   type PlayFrame,
   type OfflineSummary,
   type StateFrame,
@@ -21,6 +24,7 @@ import {
   describeActionResult,
   type PendingActionsManager,
 } from "../logic/valley.ts";
+import { sharedEndpointRotator } from "./browserFetch.ts";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
@@ -38,6 +42,9 @@ export interface UseGameSocketOptions {
   random?: () => number;
   now?: () => number;
   location?: { protocol: string; host: string };
+  backupHosts?: readonly string[];
+  rotator?: EndpointRotator;
+  silenceTimeoutMs?: number;
 }
 
 export interface UseGameSocketReturn {
@@ -71,6 +78,9 @@ export function useGameSocket({
   random = Math.random,
   now = Date.now,
   location = typeof window !== "undefined" ? window.location : { protocol: "http:", host: "localhost:8080" },
+  backupHosts,
+  rotator,
+  silenceTimeoutMs = STATE_SILENCE_MS,
 }: UseGameSocketOptions): UseGameSocketReturn {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [statusText, setStatusText] = useState<string>("desconectado");
@@ -82,8 +92,16 @@ export function useGameSocket({
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<PendingActionsManager>(createPendingActions({ now }));
   const backoffRef = useRef(createReconnectBackoff({ random, now }));
+  const backupHostsKey = backupHosts ? backupHosts.join(",") : "";
+  const rotatorRef = useRef<EndpointRotator>(
+    rotator ??
+      (backupHosts
+        ? createEndpointRotator(location.host, backupHosts)
+        : sharedEndpointRotator),
+  );
 
   const addLog = useCallback((line: string) => {
     const time = new Date().toISOString().slice(11, 19);
@@ -162,8 +180,32 @@ export function useGameSocket({
     let isEffectActive = true;
     pendingRef.current = createPendingActions({ now });
     backoffRef.current = createReconnectBackoff({ random, now });
+    rotatorRef.current =
+      rotator ??
+      (backupHostsKey
+        ? createEndpointRotator(location.host, backupHostsKey)
+        : typeof window !== "undefined" && location.host === window.location.host
+          ? sharedEndpointRotator
+          : createEndpointRotator(location.host));
 
     const currentSession = session;
+
+    function clearSilenceTimer() {
+      if (silenceTimerRef.current !== null) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+    }
+
+    function armSilenceTimer(ws: WebSocket) {
+      clearSilenceTimer();
+      if (silenceTimeoutMs <= 0) return;
+      silenceTimerRef.current = setTimeout(() => {
+        if (!isEffectActive || socketRef.current !== ws) return;
+        addLog(`sin estado tras ${(silenceTimeoutMs / 1000).toFixed(1)} s: cerrando conexión para conmutar`);
+        ws.close(4000);
+      }, silenceTimeoutMs);
+    }
 
     function connect() {
       if (!isEffectActive || !currentSession) return;
@@ -171,11 +213,13 @@ export function useGameSocket({
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
+      clearSilenceTimer();
 
       setStatus("connecting");
       setStatusText("conectando…");
 
-      const playUrl = buildPlayUrl(location, currentSession.token);
+      const activeHost = rotatorRef.current.currentHost() || location.host;
+      const playUrl = buildPlayUrl({ protocol: location.protocol, host: activeHost }, currentSession.token);
       const ws = new WebSocket(playUrl);
       socketRef.current = ws;
 
@@ -184,6 +228,7 @@ export function useGameSocket({
         backoffRef.current.opened();
         setStatus("connected");
         setStatusText("conectado");
+        armSilenceTimer(ws);
 
         const plan = pendingRef.current.planReconnect();
         setPendingCount(pendingRef.current.size);
@@ -203,6 +248,7 @@ export function useGameSocket({
 
       ws.addEventListener("message", (event) => {
         if (!isEffectActive || socketRef.current !== ws) return;
+        armSilenceTimer(ws);
         const frame: PlayFrame = parseFrame(String(event.data));
         const line = describeFrame(frame);
         addLog(line);
@@ -243,6 +289,7 @@ export function useGameSocket({
         });
 
         if (decision === "ignore") return;
+        clearSilenceTimer();
         backoffRef.current.closed();
         onResetPending?.();
         setStatus("disconnected");
@@ -254,6 +301,7 @@ export function useGameSocket({
           return;
         }
 
+        rotatorRef.current.advance();
         const delay = backoffRef.current.nextDelay();
         setStatusText(`desconectado (reintento en ${(delay / 1000).toFixed(1)} s)`);
         reconnectTimerRef.current = setTimeout(connect, delay);
@@ -264,6 +312,7 @@ export function useGameSocket({
 
     return () => {
       isEffectActive = false;
+      clearSilenceTimer();
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -274,7 +323,7 @@ export function useGameSocket({
         ws.close();
       }
     };
-  }, [session, location, random, now, onSessionExpired, addLog, onActionResult, onResetPending]);
+  }, [session, location.protocol, location.host, backupHostsKey, rotator, silenceTimeoutMs, random, now, onSessionExpired, addLog, onActionResult, onResetPending]);
 
   const effectiveStatus = session ? status : "disconnected";
   const effectiveStatusText = session ? statusText : "desconectado";

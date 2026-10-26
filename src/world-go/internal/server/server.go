@@ -34,6 +34,9 @@ type Settings struct {
 	// Seed es la semilla del azar para un valle que empieza de cero
 	// (WORLD_SEED).
 	Seed uint64
+	// Standby (WORLD_MODE=standby) pospone la carga de la instantánea hasta el
+	// primer Step de promoción.
+	Standby bool
 	// Log puede ser nil.
 	Log *slog.Logger
 }
@@ -69,8 +72,13 @@ func Serve(ctx context.Context, settings Settings, listener net.Listener) error 
 		return err
 	}
 	defer func() { _ = persistence.Close() }()
-	sim := simulator.New(persistence, simulator.Options{Seed: settings.Seed, Backoff: settings.LoadBackoff, Log: log})
-	log.Info("simulador creado", "boot_id", sim.BootID())
+	sim := simulator.New(persistence, simulator.Options{
+		Seed:    settings.Seed,
+		Standby: settings.Standby,
+		Backoff: settings.LoadBackoff,
+		Log:     log,
+	})
+	log.Info("simulador creado", "boot_id", sim.BootID(), "standby", settings.Standby)
 
 	healthServer := health.NewServer()
 	setHealth := func(value healthpb.HealthCheckResponse_ServingStatus) {
@@ -78,7 +86,11 @@ func Serve(ctx context.Context, settings Settings, listener net.Listener) error 
 			healthServer.SetServingStatus(name, value)
 		}
 	}
-	setHealth(healthpb.HealthCheckResponse_NOT_SERVING)
+	if settings.Standby {
+		setHealth(healthpb.HealthCheckResponse_SERVING)
+	} else {
+		setHealth(healthpb.HealthCheckResponse_NOT_SERVING)
+	}
 
 	loadCtx, cancelLoad := context.WithCancel(ctx)
 	defer cancelLoad()
@@ -86,11 +98,27 @@ func Serve(ctx context.Context, settings Settings, listener net.Listener) error 
 	loader.Add(1)
 	go func() {
 		defer loader.Done()
-		if err := sim.Load(loadCtx); err != nil {
-			return // parada antes de terminar la carga
+		if !settings.Standby {
+			if err := sim.Load(loadCtx); err != nil {
+				return // parada antes de terminar la carga
+			}
+			setHealth(healthpb.HealthCheckResponse_SERVING)
+			log.Info("mundo listo: Step atiende")
 		}
-		setHealth(healthpb.HealthCheckResponse_SERVING)
-		log.Info("mundo listo: Step atiende")
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-loadCtx.Done():
+				return
+			case <-ticker.C:
+				if sim.IsReady() || sim.IsStandby() {
+					setHealth(healthpb.HealthCheckResponse_SERVING)
+				} else {
+					setHealth(healthpb.HealthCheckResponse_NOT_SERVING)
+				}
+			}
+		}
 	}()
 
 	server := grpc.NewServer()

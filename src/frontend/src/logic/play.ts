@@ -365,6 +365,151 @@ export const RECONNECT_BASE_MS = 500;
 export const RECONNECT_CAP_MS = 10_000;
 /** Una conexión que dura al menos esto reinicia la secuencia de esperas. */
 export const RECONNECT_STABLE_MS = 5_000;
+/**
+ * Silencio máximo sin recibir un mensaje en `/play` antes de dar la conexión
+ * por muerta y forzar la reconexión (el hub difunde `state` cada 1 s; cuando
+ * se apaga una máquina o se pausa un contenedor, TCP no envía `FIN` ni `RST`).
+ */
+export const STATE_SILENCE_MS = 3_500;
+
+/**
+ * Normaliza una entrada de dirección de respaldo (`https://10.68.17.99:8080/`,
+ * `10.68.17.99:8080`, etc.) a `host[:puerto]`.
+ */
+function normalizeHostEntry(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    if (trimmed.includes("://")) {
+      return new URL(trimmed).host;
+    }
+    return new URL(`http://${trimmed}`).host;
+  } catch {
+    return trimmed.replace(/^\/+|\/+$/g, "");
+  }
+}
+
+/**
+ * Construye una lista ordenada y sin duplicados de `host[:puerto]` a partir
+ * del host primario y de una o varias listas de respaldos (separadas por comas
+ * o en arreglo).
+ */
+export function parseBackupHosts(
+  primaryHost: string,
+  ...sources: (string | readonly string[] | null | undefined)[]
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const push = (entry: string) => {
+    const host = normalizeHostEntry(entry);
+    if (host && !seen.has(host)) {
+      seen.add(host);
+      result.push(host);
+    }
+  };
+  push(primaryHost);
+  for (const src of sources) {
+    if (!src) continue;
+    const items = typeof src === "string" ? src.split(",") : src;
+    for (const item of items) {
+      push(item);
+    }
+  }
+  return result;
+}
+
+export interface EndpointRotator {
+  currentHost(): string;
+  hosts(): readonly string[];
+  advance(): string;
+  addBackups(...sources: (string | readonly string[] | null | undefined)[]): void;
+}
+
+/**
+ * Rotador con afinidad al nodo activo (*sticky*) para conmutar entre el proxy
+ * primario y los de respaldo sin cambiar la URL de la barra del navegador.
+ */
+export function createEndpointRotator(
+  primaryHost: string,
+  ...initialBackups: (string | readonly string[] | null | undefined)[]
+): EndpointRotator {
+  let hostList = parseBackupHosts(primaryHost, ...initialBackups);
+  if (hostList.length === 0 && primaryHost) {
+    hostList = [primaryHost];
+  }
+  let index = 0;
+
+  return {
+    currentHost(): string {
+      return hostList[index] ?? primaryHost;
+    },
+    hosts(): readonly string[] {
+      return [...hostList];
+    },
+    advance(): string {
+      if (hostList.length > 1) {
+        index = (index + 1) % hostList.length;
+      }
+      return hostList[index] ?? primaryHost;
+    },
+    addBackups(...sources: (string | readonly string[] | null | undefined)[]): void {
+      const current = hostList[index] ?? primaryHost;
+      hostList = parseBackupHosts(hostList[0] ?? primaryHost, hostList, ...sources);
+      const found = hostList.indexOf(current);
+      index = found >= 0 ? found : 0;
+    },
+  };
+}
+
+/**
+ * Envuelve `fetch` para reintentar automáticamente contra el siguiente proxy
+ * del rotador cuando la petición falla por red o recibe `502`/`503`/`504`
+ * de una pasarela caída, y aprende respaldos anunciados en `X-Proxy-Backups`.
+ */
+export function createFailoverFetch({
+  baseFetch,
+  rotator,
+  protocol,
+  onBackupsDiscovered,
+}: {
+  baseFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  rotator: EndpointRotator;
+  protocol: string;
+  onBackupsDiscovered?: (headerValue: string) => void;
+}): (input: string | URL | Request, init?: RequestInit) => Promise<Response> {
+  return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const isRelative = rawUrl.startsWith("/");
+    const totalHosts = Math.max(1, rotator.hosts().length);
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < totalHosts; attempt++) {
+      const host = rotator.currentHost();
+      const targetUrl = isRelative && host ? `${protocol}//${host}${rawUrl}` : rawUrl;
+      try {
+        const res = await baseFetch(targetUrl, init);
+        const backupsHeader = res.headers?.get?.("X-Proxy-Backups");
+        if (backupsHeader) {
+          rotator.addBackups(backupsHeader);
+          onBackupsDiscovered?.(backupsHeader);
+        }
+        if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt + 1 < Math.max(totalHosts, rotator.hosts().length)) {
+          rotator.advance();
+          continue;
+        }
+        return res;
+      } catch (err) {
+        lastError = err;
+        if (attempt + 1 < Math.max(totalHosts, rotator.hosts().length)) {
+          rotator.advance();
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new TypeError("Failed to fetch");
+  };
+}
 
 /**
  * Espera antes del reintento número `attempt` (desde 0): espera exponencial

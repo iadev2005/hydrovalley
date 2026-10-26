@@ -19,6 +19,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -115,7 +116,8 @@ func runNeighbors() error {
 	if err != nil {
 		return err
 	}
-	api, err := client.NewAPI(cfg.BaseURL)
+	baseURLs := strings.Join(cfg.BaseURLs, ",")
+	api, err := client.NewAPI(baseURLs)
 	if err != nil {
 		return err
 	}
@@ -139,11 +141,12 @@ func runNeighbors() error {
 	sessions := make([]neighbors.Session, 0, len(accounts))
 	for _, acc := range accounts {
 		s, err := client.NewSession(client.SessionConfig{
-			BaseURL: cfg.BaseURL,
-			TLS:     tlsCfg,
-			Token:   acc.Token,
-			Map:     true,
-			Logger:  log.With("player", acc.Username),
+			BaseURL:     baseURLs,
+			TLS:         tlsCfg,
+			Token:       acc.Token,
+			Map:         true,
+			ReadTimeout: 4 * time.Second,
+			Logger:      log.With("player", acc.Username),
 		})
 		if err != nil {
 			return err
@@ -192,7 +195,8 @@ func runLoad() (passed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	api, err := client.NewAPI(cfg.BaseURL)
+	baseURLs := strings.Join(cfg.BaseURLs, ",")
+	api, err := client.NewAPI(baseURLs)
 	if err != nil {
 		return false, err
 	}
@@ -209,13 +213,13 @@ func runLoad() (passed bool, err error) {
 
 	// Sin mapa: la prueba solo necesita el tamaño del valle y los contadores,
 	// y así cada estado pesa unos pocos bytes.
-	adminSession, err := client.NewSession(client.SessionConfig{BaseURL: cfg.BaseURL, TLS: tlsCfg, Token: adminToken, Logger: log.With("player", "admin")})
+	adminSession, err := client.NewSession(client.SessionConfig{BaseURL: baseURLs, TLS: tlsCfg, Token: adminToken, ReadTimeout: 4 * time.Second, Logger: log.With("player", "admin")})
 	if err != nil {
 		return false, err
 	}
 	sessions := make([]load.Session, 0, len(accounts))
 	for _, acc := range accounts {
-		s, err := client.NewSession(client.SessionConfig{BaseURL: cfg.BaseURL, TLS: tlsCfg, Token: acc.Token, Logger: log.With("player", acc.Username)})
+		s, err := client.NewSession(client.SessionConfig{BaseURL: baseURLs, TLS: tlsCfg, Token: acc.Token, ReadTimeout: 4 * time.Second, Logger: log.With("player", acc.Username)})
 		if err != nil {
 			return false, err
 		}
@@ -293,7 +297,7 @@ func provision(ctx context.Context, count int) (provisioned, error) {
 	if err != nil {
 		return provisioned{}, err
 	}
-	api, err := client.NewAPI(cfg.BaseURL)
+	api, err := client.NewAPI(strings.Join(cfg.BaseURLs, ","))
 	if err != nil {
 		return provisioned{}, err
 	}
@@ -335,7 +339,7 @@ func runCheater() (passed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	s, err := client.NewSession(client.SessionConfig{BaseURL: p.cfg.BaseURL, TLS: p.tls, Token: p.accounts[0].Token, Logger: p.log.With("player", p.accounts[0].Username)})
+	s, err := client.NewSession(client.SessionConfig{BaseURL: strings.Join(p.cfg.BaseURLs, ","), TLS: p.tls, Token: p.accounts[0].Token, ReadTimeout: 4 * time.Second, Logger: p.log.With("player", p.accounts[0].Username)})
 	if err != nil {
 		return false, err
 	}
@@ -367,7 +371,7 @@ func runFirefighter() (passed bool, err error) {
 	for _, acc := range p.accounts {
 		// Con mapa: el bot necesita las etapas para distinguir un fuego
 		// apagado de uno consumido.
-		s, err := client.NewSession(client.SessionConfig{BaseURL: p.cfg.BaseURL, TLS: p.tls, Token: acc.Token, Map: true, Logger: p.log.With("player", acc.Username)})
+		s, err := client.NewSession(client.SessionConfig{BaseURL: strings.Join(p.cfg.BaseURLs, ","), TLS: p.tls, Token: acc.Token, Map: true, ReadTimeout: 4 * time.Second, Logger: p.log.With("player", acc.Username)})
 		if err != nil {
 			return false, err
 		}

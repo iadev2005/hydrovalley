@@ -183,6 +183,7 @@ async fn start_with(persistence: Arc<FakePersistence>) -> Harness {
         },
         shutdown_timeout: Duration::from_secs(5),
         seed: 7,
+        mode: world::config::WorldMode::Active,
     };
     let server = tokio::spawn(async move {
         serve(settings, world_listener, async {
@@ -216,8 +217,20 @@ impl Harness {
     }
 
     async fn step(&mut self, commands: Vec<pb::Command>) -> Result<pb::StepResponse, Status> {
+        self.step_with_min_tick(commands, 0).await
+    }
+
+    async fn step_with_min_tick(
+        &mut self,
+        commands: Vec<pb::Command>,
+        min_expected_tick: u64,
+    ) -> Result<pb::StepResponse, Status> {
         self.world
-            .step(pb::StepRequest { commands })
+            .step(pb::StepRequest {
+                commands,
+                hub_generation: 0,
+                min_expected_tick,
+            })
             .await
             .map(Response::into_inner)
     }

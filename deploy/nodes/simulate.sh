@@ -40,7 +40,10 @@ port_persistence="${SIM_PORT_PERSISTENCE:-50071}"
 port_world="${SIM_PORT_WORLD:-50061}"
 port_hub="${SIM_PORT_HUB:-18081}"
 port_proxy="${SIM_PORT_PROXY:-18480}"
-nodes=(db persistence world hub proxy)
+port_standby_world="${SIM_PORT_STANDBY_WORLD:-50062}"
+port_standby_hub="${SIM_PORT_STANDBY_HUB:-18082}"
+port_standby_proxy="${SIM_PORT_STANDBY_PROXY:-18481}"
+nodes=(db persistence world hub proxy standby)
 wait_limit=300
 
 # Certificado, claves y administrador efímeros: las mismas piezas que la e2e.
@@ -97,10 +100,10 @@ if [[ "${SIM_SKIP_BUILD:-0}" != "1" ]]; then
   BUILDX_BAKE_ENTITLEMENTS_FS=0 POSTGRES_USER=bake POSTGRES_PASSWORD=bake POSTGRES_DB=bake \
     TOKEN_PRIVATE_KEY=bake TOKEN_PUBLIC_KEY=bake \
     docker buildx bake -f deploy/compose.yml --set '*.context=.' --progress=quiet --load \
-    persistence world hub api nginx
+    persistence world hub world-go api nginx
   build_s=$((SECONDS - t))
 fi
-for svc in persistence world hub api proxy; do
+for svc in persistence world world-go hub api proxy; do
   if ! docker image inspect "${HV_REGISTRY}/hydrovalley-${svc}:${HV_TAG}" >/dev/null 2>&1; then
     echo "simulate.sh: falta la imagen ${HV_REGISTRY}/hydrovalley-${svc}:${HV_TAG}" >&2
     exit 1
@@ -115,11 +118,15 @@ LAB_PERSISTENCE_HOST=host.docker.internal
 LAB_WORLD_HOST=host.docker.internal
 LAB_HUB_HOST=host.docker.internal
 LAB_PROXY_HOST=host.docker.internal
+LAB_STANDBY_HOST=host.docker.internal
 HV_DB_PORT=${port_db}
 HV_PERSISTENCE_PORT=${port_persistence}
 HV_WORLD_PORT=${port_world}
 HV_HUB_PORT=${port_hub}
 HV_PROXY_PORT=${port_proxy}
+HV_STANDBY_WORLD_PORT=${port_standby_world}
+HV_STANDBY_HUB_PORT=${port_standby_hub}
+HV_STANDBY_PROXY_PORT=${port_standby_proxy}
 ADDR
 
 stack_init_keys
@@ -144,6 +151,7 @@ services_of() {
   case "$1" in
     db) echo "postgres" ;;
     proxy) echo "api nginx" ;;
+    standby) echo "api nginx hub world" ;;
     *) echo "$1" ;;
   esac
 }
@@ -158,10 +166,10 @@ for node in "${nodes[@]}"; do
   } > "${tmp}/${node}.override.yml"
 done
 
-# 3. Los cinco nodos, en cualquier orden y sin esperar entre ellos (RNF-09).
-echo "== Levantando los cinco nodos (proyectos hv-sim-*, publicados en el anfitrión)"
+# 3. Los seis nodos, en cualquier orden y sin esperar entre ellos (RNF-09).
+echo "== Levantando los seis nodos (proyectos hv-sim-*, publicados en el anfitrión)"
 up_start=$SECONDS
-for node in proxy hub world persistence db; do
+for node in standby proxy hub world persistence db; do
   node_compose "${node}" up -d --quiet-pull
 done
 
