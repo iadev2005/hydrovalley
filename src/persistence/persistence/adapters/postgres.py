@@ -406,7 +406,8 @@ class PostgresSnapshotRepository:
             cursor.executemany(
                 "INSERT INTO snapshot_players (tick, player_id, water, leaves, water_refilled,"
                 " water_spent, leaves_earned, leaves_spent, water_reduced, water_reused,"
-                " water_recycled) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                " water_recycled, fires_extinguished, tiles_grown) VALUES (%s, %s, %s, %s, %s,"
+                " %s, %s, %s, %s, %s, %s, %s, %s)",
                 [
                     (
                         Decimal(snapshot.tick),
@@ -414,7 +415,7 @@ class PostgresSnapshotRepository:
                         *(Decimal(v) for v in (
                             p.water, p.leaves, p.water_refilled, p.water_spent,
                             p.leaves_earned, p.leaves_spent, p.water_reduced, p.water_reused,
-                            p.water_recycled,
+                            p.water_recycled, p.fires_extinguished, p.tiles_grown,
                         )),
                     )
                     for p in rows
@@ -459,7 +460,8 @@ class PostgresSnapshotRepository:
         "SELECT COALESCE(sum(water_reduced), 0), COALESCE(sum(water_reused), 0),"
         " COALESCE(sum(water_recycled), 0), COALESCE(sum(water_refilled), 0),"
         " COALESCE(sum(water_spent), 0), COALESCE(sum(leaves_earned), 0),"
-        " COALESCE(sum(leaves_spent), 0) FROM snapshot_players WHERE tick = %s"
+        " COALESCE(sum(leaves_spent), 0), COALESCE(sum(fires_extinguished), 0),"
+        " COALESCE(sum(tiles_grown), 0) FROM snapshot_players WHERE tick = %s"
     )
 
     def report(

@@ -23,6 +23,7 @@ const mockState: StateFrame = {
     next_sprinkler_price: 50n,
     next_drip_price: 120n,
     next_treatment_plant_price: 300n,
+    offline_summary: null,
   },
 };
 

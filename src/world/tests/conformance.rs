@@ -561,3 +561,73 @@ fn the_propagation_scenario_depends_on_the_spread() {
         burned(&without_spread)
     );
 }
+
+/// Los identificadores de `PLAYERS` en `generate_scenarios.py`.
+fn player_id(name: &str) -> &'static str {
+    match name {
+        "ana" => "6f1c1a52-2d0e-4f4e-9c1e-0c6c2d9b8a01",
+        "beto" => "9a0b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c02",
+        "caro" => "c3a5e2f0-1b4d-4c6e-8f7a-2d9b0c1e3f03",
+        other => panic!("jugador desconocido: {other}"),
+    }
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+/// El guion del resumen al volver tiene que producir resúmenes de verdad:
+/// los de Ana y Caro quedan con lo que hicieron sus aspersores (fuegos
+/// apagados y casillas crecidas) y el de Beto, que actúa todo el tiempo y
+/// solo tiene goteo y planta, queda vacío. Si dejara de ser así, la
+/// conformidad de esa regla estaría vacía.
+#[test]
+fn the_offline_summary_scenario_ends_with_summaries() {
+    let path = scenario_files()
+        .into_iter()
+        .find(|p| p.file_stem().is_some_and(|n| n == "09-resumen-offline"))
+        .expect("falta el guion 09-resumen-offline");
+    let scenario = load_scenario(&path);
+    let output = run(&scenario, &[]);
+
+    let state = pb::WorldState::decode(unhex(&output.final_world_state_hex).as_slice()).unwrap();
+    let summary_of = |name: &str| {
+        let id = player_id(name);
+        state
+            .players
+            .iter()
+            .find(|p| p.player_id == id)
+            .unwrap()
+            .offline_summary
+    };
+    let ana = summary_of("ana").expect("Ana se ausentó con un aspersor");
+    assert!(ana.fires_extinguished >= 1, "{ana:?}");
+    assert!(ana.tiles_grown >= 1 && ana.leaves_earned >= 1 && ana.water_reused >= 1);
+    assert!(
+        summary_of("caro").is_some(),
+        "Caro volvió y su aspersor siguió"
+    );
+    assert!(
+        summary_of("beto").is_none(),
+        "Beto actúa todo el guion: su resumen se borra con cada acción"
+    );
+
+    // El acumulado de la época va en las filas de persistencia.
+    let snapshot = world::proto::persistence::v1::Snapshot::decode(
+        unhex(&output.final_snapshot_hex).as_slice(),
+    )
+    .unwrap();
+    let row = |name: &str| {
+        let id = player_id(name);
+        snapshot
+            .players
+            .iter()
+            .find(|p| p.player_id == id)
+            .unwrap()
+            .clone()
+    };
+    assert!(row("ana").fires_extinguished >= 1 && row("ana").tiles_grown >= 1);
+}

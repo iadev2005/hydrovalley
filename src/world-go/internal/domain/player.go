@@ -7,6 +7,34 @@ type AppliedAction struct {
 	Tick     uint64
 }
 
+// OfflineSummary es lo que hicieron los aspersores de un jugador desde su
+// última acción aplicada (RF-25, «resumen al volver»). Las demás
+// instalaciones no aportan: el goteo y la planta de tratamiento no hacen
+// crecer casillas ni apagan fuegos, y su agua ya va en los contadores de las
+// 3R. Se borra con la siguiente acción aplicada del jugador.
+type OfflineSummary struct {
+	// LeavesEarned son las hojas ganadas por las casillas que crecieron con
+	// sus aspersores.
+	LeavesEarned uint64
+	// WaterReused es la humedad entregada por sus aspersores.
+	WaterReused uint64
+	// FiresExtinguished son los fuegos que sus aspersores apagaron.
+	FiresExtinguished uint64
+	// TilesGrown son las casillas que subieron de etapa por sus aspersores.
+	TilesGrown uint64
+}
+
+// IsEmpty dice si todavía no hay nada que contar.
+func (s OfflineSummary) IsEmpty() bool { return s == OfflineSummary{} }
+
+// add suma other con saturación.
+func (s *OfflineSummary) add(other OfflineSummary) {
+	s.LeavesEarned = satAdd(s.LeavesEarned, other.LeavesEarned)
+	s.WaterReused = satAdd(s.WaterReused, other.WaterReused)
+	s.FiresExtinguished = satAdd(s.FiresExtinguished, other.FiresExtinguished)
+	s.TilesGrown = satAdd(s.TilesGrown, other.TilesGrown)
+}
+
 // Purchase cuenta las instalaciones de un tipo que ha comprado un jugador.
 type Purchase struct {
 	Kind  InstallationKind
@@ -31,6 +59,12 @@ type Player struct {
 	Upgrades      []UpgradeKind
 	// LastActionTick es el tick de su última acción aplicada.
 	LastActionTick uint64
+	// OfflineSummary es lo que hicieron sus aspersores desde esa acción.
+	OfflineSummary OfflineSummary
+	// FiresExtinguished y TilesGrown son el acumulado de la época de lo que
+	// hicieron sus aspersores.
+	FiresExtinguished uint64
+	TilesGrown        uint64
 	// RecentActions son los aplicados dentro de la ventana, en orden de tick.
 	RecentActions []AppliedAction
 }

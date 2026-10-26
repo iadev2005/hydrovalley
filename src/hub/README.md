@@ -72,7 +72,7 @@ El hub arranca aunque el simulador no esté (regla 5 de portabilidad): el canal 
 | JSON inválido, sin `type`, con campos desconocidos, `action_id` que no es UUID, coordenadas negativas, una `installation` o un `upgrade` ausente o que no es exactamente uno de los nombres de arriba, o un mensaje binario | `{"type": "error", "code": "invalid_message"}`, con `action_id` si se pudo leer |
 | Un `type` desconocido | `{"type": "error", "code": "unknown_type"}` |
 
-Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`, `paused`, `demo_mode`, el tamaño y el mapa del valle (sin mapa con `map=false`) y la vista de su jugador (`player`) cuando ya está en el mundo.
+Cada conexión recibe una vez por segundo un `{"type": "state", …}` con `tick`, `paused`, `demo_mode`, el tamaño y el mapa del valle (sin mapa con `map=false`) y la vista de su jugador (`player`) cuando ya está en el mundo. El **primer** `state` de cada conexión que lleva esa vista añade `player.offline_summary` (resumen al volver, RF-25) si no está vacío: lo que hicieron los aspersores del jugador desde su última acción aplicada (`leaves_earned`, `water_reused`, `fires_extinguished` y `tiles_grown`, `u64` como texto). Los estados siguientes de esa conexión no lo repiten (el cliente lo guarda hasta que el jugador lo cierre), y si el primero ya llega vacío no se agrega después; una reconexión lo vuelve a recibir mientras el jugador no actúe.
 
 ## Token y roles
 

@@ -80,6 +80,29 @@ func (b *StateBuilder) For(playerID string, withMap bool) *playv1.StateMessage {
 	return msg
 }
 
+// AttachOfflineSummary agrega a msg el resumen al volver del jugador (RF-25),
+// si el mundo lo trae y no está vacío, y dice si lo agregó. El hub lo pide
+// solo para el primer estado de cada conexión: el cliente lo guarda hasta que
+// el jugador lo cierre. msg tiene que ser de este mismo builder y jugador.
+func (b *StateBuilder) AttachOfflineSummary(msg *playv1.StateMessage, playerID string) bool {
+	p, ok := b.players[playerID]
+	summary := p.GetOfflineSummary()
+	if !ok || msg.GetPlayer() == nil || summary == nil {
+		return false
+	}
+	view := &playv1.OfflineSummaryView{
+		LeavesEarned:      summary.GetLeavesEarned(),
+		WaterReused:       summary.GetWaterReused(),
+		FiresExtinguished: summary.GetFiresExtinguished(),
+		TilesGrown:        summary.GetTilesGrown(),
+	}
+	if view.LeavesEarned == 0 && view.WaterReused == 0 && view.FiresExtinguished == 0 && view.TilesGrown == 0 {
+		return false
+	}
+	msg.Player.OfflineSummary = view
+	return true
+}
+
 func playerView(p *worldv1.PlayerState) *playv1.PlayerView {
 	view := &playv1.PlayerView{Water: p.GetWater(), TankCapacity: p.GetTankCapacity(), Leaves: p.GetLeaves()}
 	for _, u := range p.GetUpgrades() {

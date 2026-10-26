@@ -32,6 +32,7 @@ Los dos ejecutores hacen lo mismo, tick a tick, pasando por el codec (`catalog_f
 | `06-restauraciones-con-fuego` | Cinco restauraciones, incendios, semilla de 64 bits y un reinicio: debe dar lo mismo que sin restaurar |
 | `07-cifras-extremas` | Cifras en el límite de 64 bits sin signo: toda la aritmética satura igual en Rust y en Go |
 | `08-propagacion` | Propagación del fuego (B3): ignición baja y propagación alta sobre un campo denso y dos esquinas del valle; sorteos por filas antes de la ignición, 4-vecindad sin desbordes en los bordes, un paso por tick, tres gotas contra el frente, un aspersor y una restauración con el frente encendido |
+| `09-resumen-offline` | Resumen al volver (B6, RF-25): aspersores que apagan fuegos y hacen crecer casillas mientras el dueño está ausente, aspersores que se paran a los 200 ticks y se reactivan con una acción, goteo y planta que no aportan al resumen, el borrado del resumen con la siguiente acción y su ida y vuelta por la instantánea (dos restauraciones). Las instantáneas llevan el resumen solo si no está vacío |
 
 Los guiones que no cambian las cifras de `fire.*` usan la propagación del catálogo real (2.000 ppm), así que sus fuegos también se propagan. El de Rust además exige que `08-propagacion` dependa de verdad de la propagación: con la misma semilla y los mismos comandos pero con `propagation_chance_ppm` a 0, tiene que arder mucho menos.
 

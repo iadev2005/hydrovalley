@@ -654,3 +654,66 @@ func TestAnIncompleteOrImpossibleCatalogIsRejected(t *testing.T) {
 		})
 	}
 }
+
+// ---- Resumen al volver (RF-25) --------------------------------------------
+
+func worldWithSummary(t *testing.T, summary domain.OfflineSummary) *domain.World {
+	t.Helper()
+	parts := newWorld().Parts()
+	parts.Players = []domain.Player{{
+		PlayerID: ana, Water: 20, TankCapacity: 20, WaterRefilled: 20,
+		OfflineSummary: summary, FiresExtinguished: 4, TilesGrown: 9,
+	}}
+	return mustRestore(t, d01(), parts)
+}
+
+var nonEmptySummary = domain.OfflineSummary{LeavesEarned: 7, WaterReused: 450, FiresExtinguished: 2, TilesGrown: 3}
+
+func TestAnEmptySummaryIsNotWrittenSoOldSnapshotsKeepTheirBytes(t *testing.T) {
+	w := worldWithSummary(t, domain.OfflineSummary{})
+	snapshot, err := EncodeSnapshot(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := &worldv1.WorldSnapshot{}
+	if err := proto.Unmarshal(snapshot.GetWorldState(), message); err != nil {
+		t.Fatal(err)
+	}
+	if message.GetPlayers()[0].OfflineSummary != nil {
+		t.Error("the record carries an empty offline summary")
+	}
+	if WorldState(w).GetPlayers()[0].OfflineSummary != nil {
+		t.Error("the state carries an empty offline summary")
+	}
+}
+
+func TestASummarySurvivesTheSnapshotAndReachesTheWorldState(t *testing.T) {
+	w := worldWithSummary(t, nonEmptySummary)
+	snapshot, err := EncodeSnapshot(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := DecodeSnapshot(snapshot, d01())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Parts(), w.Parts()) {
+		t.Error("the restored world differs from the original")
+	}
+	summary := WorldState(restored).GetPlayers()[0].GetOfflineSummary()
+	got := [4]uint64{summary.GetLeavesEarned(), summary.GetWaterReused(), summary.GetFiresExtinguished(), summary.GetTilesGrown()}
+	if got != [4]uint64{7, 450, 2, 3} {
+		t.Errorf("summary in the state = %v, want [7 450 2 3]", got)
+	}
+}
+
+func TestTheSnapshotRowsForPersistenceCarryTheSprinklerCounters(t *testing.T) {
+	snapshot, err := EncodeSnapshot(worldWithSummary(t, nonEmptySummary))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := snapshot.GetPlayers()[0]
+	if row.GetFiresExtinguished() != 4 || row.GetTilesGrown() != 9 {
+		t.Errorf("row = %d/%d, want 4/9", row.GetFiresExtinguished(), row.GetTilesGrown())
+	}
+}

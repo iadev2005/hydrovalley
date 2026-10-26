@@ -43,8 +43,17 @@ class Jugador {
   water_reduced: u64
   water_reused: u64
   water_recycled: u64
+  fires_extinguished: u64
+  tiles_grown: u64
   last_action_tick: u64
   recent_actions: (action_id, tick)[]
+}
+
+class ResumenOffline {
+  leaves_earned: u64
+  water_reused: u64
+  fires_extinguished: u64
+  tiles_grown: u64
 }
 
 class Instalacion {
@@ -90,6 +99,7 @@ Casilla "1" *-- "0..1" Incendio : está ardiendo
 Jugador "1" ..> "*" Instalacion : es dueño (owner_id)
 Instalacion --> "1" TipoInstalacion
 Casilla "1" *-- "0..1" Instalacion : colocada en ella\n(como mucho una por casilla)
+Jugador "1" *-- "1" ResumenOffline : desde su última\nacción aplicada
 Jugador "1" --> "0..2" Mejora
 Comando "*" --> "1" Jugador : emitido por
 Comando "*" ..> "0..1" Casilla : apunta a
@@ -115,6 +125,15 @@ note right of Jugador
   water_reused (aspersores), water_recycled (planta).
   Si una instalación hace crecer una casilla,
   las hojas son para su dueño (owner_id).
+end note
+
+note bottom of ResumenOffline
+  Resumen al volver (RF-25, nivel 2): lo que hicieron los
+  <b>aspersores</b> del jugador desde su última acción aplicada.
+  Se borra con su siguiente acción aplicada; el goteo y la planta
+  no aportan. Va en la instantánea solo si no está vacío.
+  fires_extinguished y tiles_grown de Jugador son el acumulado
+  de la época (reportes).
 end note
 
 note right of Comando

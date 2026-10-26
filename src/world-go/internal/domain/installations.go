@@ -133,6 +133,10 @@ func (w *World) runTreatmentPlants(tick uint64) {
 // bono es de quien suelta la tercera gota, y el aspersor no cuenta gotas. Si
 // el fuego tenía crecimiento pendiente, se resuelve ahí y las hojas son del
 // dueño, como con cualquier riego.
+//
+// Lo que hace cada aspersor se suma además al resumen al volver de su dueño
+// (RF-25) y a sus acumulados de la época: una casilla cuenta una vez por
+// riego aunque sume en dos fases (el riego y el apagado).
 func (w *World) runSprinklers(tick uint64) {
 	rules := w.catalog.Sprinkler
 	interval := satMul(uint64(rules.IntervalSeconds), TicksPerSecond)
@@ -142,18 +146,28 @@ func (w *World) runSprinklers(tick uint64) {
 	for _, sprinkler := range w.activeInstallations(Sprinkler, tick) {
 		x, y := w.tileXY(sprinkler.index)
 		area := areaIndices(x, y, rules.AreaSide, w.width, w.height)
-		var leaves uint64
+		var effect OfflineSummary
 		for _, index := range area {
 			tile := &w.tiles[index]
-			leaves = satAdd(leaves, AddHumidity(tile, rules.Humidity, w.catalog.Growth))
+			stageBefore := tile.Stage
+			effect.LeavesEarned = satAdd(effect.LeavesEarned, AddHumidity(tile, rules.Humidity, w.catalog.Growth))
 			if Extinguish(tile) {
-				leaves = satAdd(leaves, AddHumidity(tile, 0, w.catalog.Growth))
+				effect.FiresExtinguished = satAdd(effect.FiresExtinguished, 1)
+				// El crecimiento que quedó pendiente se resuelve ahora.
+				effect.LeavesEarned = satAdd(effect.LeavesEarned, AddHumidity(tile, 0, w.catalog.Growth))
+			}
+			if tile.Stage != stageBefore {
+				effect.TilesGrown = satAdd(effect.TilesGrown, 1)
 			}
 		}
+		effect.WaterReused = satMul(rules.Humidity, uint64(len(area)))
 		player := &w.playerSlot(sprinkler.owner).record
-		player.Leaves = satAdd(player.Leaves, leaves)
-		player.LeavesEarned = satAdd(player.LeavesEarned, leaves)
-		player.WaterReused = satAdd(player.WaterReused, satMul(rules.Humidity, uint64(len(area))))
+		player.Leaves = satAdd(player.Leaves, effect.LeavesEarned)
+		player.LeavesEarned = satAdd(player.LeavesEarned, effect.LeavesEarned)
+		player.WaterReused = satAdd(player.WaterReused, effect.WaterReused)
+		player.FiresExtinguished = satAdd(player.FiresExtinguished, effect.FiresExtinguished)
+		player.TilesGrown = satAdd(player.TilesGrown, effect.TilesGrown)
+		player.OfflineSummary.add(effect)
 	}
 }
 
