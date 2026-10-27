@@ -24,6 +24,19 @@ Para lograr una perspectiva isométrica limpia y fiel al documento del proyecto,
 | `tile_4_flowers.png` | 4 (Flores) | $32 \times 32\text{ px}$ | Overlay (Planta) | Ramillete de flores rosadas con tallo que se apoya sobre el pasto. |
 | `tile_5_tree.png` | 5 (Árbol) | $64 \times 80\text{ px}$ | Overlay (Planta) | Árbol frondoso con tronco de madera y copa escalonada anclado al centro del pasto. |
 
+### 2.1b Terreno natural, estructuras urbanas y basura (`tiles/`, expansión de jugabilidad)
+
+Se dibujan cuando el valle trae agua, roca, edificios o basura (`docs/plan-expansion-mecanicas.md`). En la vista cenital de emergencia los mismos elementos tienen su propio color (`ValleyCanvas.tsx`).
+
+| Archivo | Se usa en | Dimensiones | Capa | Descripción visual |
+| :--- | :--- | :--- | :--- | :--- |
+| `tile_water.png` | Etapa 6 (agua) | $32 \times 16\text{ px}$ | Base (Suelo) | Rombo de agua azul con destellos. |
+| `tile_rock.png` | Etapa 7 (roca) | $32 \times 32\text{ px}$ | Overlay (Terreno) | Formación rocosa que se apoya sobre un rombo de tierra seca. |
+| `building_house.png` | Casilla con edificio | $32 \times 32\text{ px}$ | Overlay (Estructura) | Casa urbana de una casilla. |
+| `tile_polluted_soil.png` | Suelo bajo la basura | $32 \times 16\text{ px}$ | Base (Suelo) | Rombo de tierra contaminada. |
+| `trash_1_small.png`, `trash_2_medium.png`, `trash_3_large.png` | Basura de nivel 1, 2 y 3 | $32 \times 32\text{ px}$ | Overlay (Desecho) | Pila pequeña, montón mediano y montículo grande. |
+| `trash_water.png` | Reservado: basura sobre agua | $32 \times 32\text{ px}$ | Overlay (Desecho) | Hoy no se usa: la basura nunca cae en el agua. |
+
 ### 2.2 Instalaciones de las 3R (`installations/`)
 
 | Archivo | Instalación | Dimensiones | Capa | Descripción visual |
@@ -31,6 +44,7 @@ Para lograr una perspectiva isométrica limpia y fiel al documento del proyecto,
 | `sprinkler.png` | `sprinkler` (Aspersor - Reutilizar) | $32 \times 32\text{ px}$ | Overlay | Aspersor metálico con boquilla giratoria y agua pulverizada. |
 | `drip.png` | `drip` (Riego por goteo - Reducir) | $32 \times 16\text{ px}$ | Overlay | Tubería diagonal con válvula y gotas de precisión que bordea el rombo. |
 | `treatment_plant.png` | `treatment_plant` (Planta - Reciclar) | $32 \times 32\text{ px}$ | Overlay | Depósito de filtrado y tratamiento con grifería sobre suelo técnico. |
+| `trash_bin.png` | `trash_bin` (Cesto de reciclaje, expansión de jugabilidad) | $32 \times 32\text{ px}$ | Overlay | Contenedor de reciclaje coordinado en escala con `sprinkler.png`. |
 
 ### 2.3 Efectos, Fuego e Indicadores (`effects/`)
 
@@ -41,6 +55,7 @@ Para lograr una perspectiva isométrica limpia y fiel al documento del proyecto,
 | `droplet.png` | Gota en el aire (acción pendiente) | $16 \times 16\text{ px}$ | Entidad flotante | Gota de agua en trayectoria aérea. |
 | `splash.png` | Salpicadura de gota aplicada | $32 \times 16\text{ px}$ | Overlay en suelo | Onda expansiva de impacto de agua sobre el rombo. |
 | `tile_selector.png` | Cursor de selección | $32 \times 16\text{ px}$ | Overlay en suelo | Rombo amarillo brillante para resaltar la casilla seleccionada. |
+| `clean_sparkle.png` | Destello al bajar un nivel de basura | $16 \times 16\text{ px}$ | Efecto visual | Partículas de limpieza que suben y se desvanecen. |
 
 ---
 
@@ -57,3 +72,8 @@ Conforme a las reglas del repositorio (`CLAUDE.md`) y los criterios de aceptaci�
    - **Licencia derivada**: CC0 1.0 Universal / Libre distribución para el proyecto educativo Hydrovalley.
 3. **Efectos generados**:
    - `fire_sheet.png`, `droplet.png`, `splash.png`: Adaptados y generados para las animaciones y feedback visual de Hydrovalley (CC0).
+4. **Activos de la expansión de jugabilidad** (`tile_water.png`, `tile_rock.png`, `tile_polluted_soil.png`, `building_house.png`, `trash_1_small.png`, `trash_2_medium.png`, `trash_3_large.png`, `trash_water.png`, `trash_bin.png`, `clean_sparkle.png`):
+   - **Incorporados por**: Fer2703 (commit `38d7add`, rama `feature/new-assets`), siguiendo las especificaciones de `docs/plan-expansion-mecanicas.md` (rombo de $32 \times 16$, overlays alineados al pie, paleta de `design_tokens.json`).
+   - **Autoría del dibujo**: `[FUENTE: confirmar con Fer2703 y FonsoP si los sprites son originales o derivan de Simple Cozy - Farm Assets, y quién los dibujó]`.
+   - **Licencia**: `[FUENTE: confirmar la licencia de estos sprites; si derivan del paquete base, aplica la de la sección 1]`.
+5. **Herramientas de validación**: `design_tokens.json` (paleta de referencia por categoría) y `scripts/audit_assets.py` (comprueba dimensiones, proporción 2:1, canal alfa y colores contra esa paleta) son del equipo (`feature/new-assets`); el segundo necesita Pillow.
