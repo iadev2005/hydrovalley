@@ -70,6 +70,14 @@ pub struct Installation {
     pub remaining_durability: u32,
 }
 
+impl Tile {
+    /// La casilla no admite plantas ni humedad: terreno natural, edificio o
+    /// basura encima.
+    pub fn is_blocked(&self) -> bool {
+        self.stage.is_natural() || self.has_building || self.trash_level > 0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Tile {
     pub stage: TileStage,

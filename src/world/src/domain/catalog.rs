@@ -26,6 +26,8 @@ pub struct Catalog {
     pub drip: DripRules,
     pub treatment_plant: TreatmentPlantRules,
     pub trash_bin: TrashBinRules,
+    pub terrain: TerrainRules,
+    pub urban: UrbanRules,
     /// Aumento de precio por cada compra del mismo tipo de instalación.
     pub installation_price_increase_percent: u32,
     pub bigger_drop: BiggerDropRules,
@@ -166,6 +168,8 @@ pub struct DripRules {
     pub area_side: u32,
     pub evaporation_divisor: u32,
     pub durability: u32,
+    /// Segundos de trabajo activo que cuestan un punto de durabilidad.
+    pub wear_interval_seconds: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,6 +186,33 @@ pub struct TrashBinRules {
     pub area_side: u32,
     pub interval_seconds: u32,
     pub durability: u32,
+}
+
+/// Terreno natural que se genera al crear o reiniciar el valle (Fase 3). Con
+/// los dos valores en cero el valle empieza vacío.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerrainRules {
+    /// Ancho del río en casillas; 0 = sin río ni lago.
+    pub river_width: u32,
+    /// Rocas sueltas que se intentan colocar; 0 = sin rocas.
+    pub rock_count: u32,
+}
+
+/// Presión urbana (Fase 4): edificios que ensucian el valle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UrbanRules {
+    /// Árboles en el valle a partir de los cuales aparece el primer edificio...
+    pub building_tree_threshold: u32,
+    /// ...o humedad total aportada a partir de la cual aparece.
+    pub building_humidity_threshold: u64,
+    /// Tope de edificios en el valle.
+    pub max_buildings: u32,
+    /// Segundos entre dos emisiones de basura de un edificio.
+    pub trash_interval_seconds: u32,
+    /// Segundos entre dos propagaciones de la basura de nivel 3.
+    pub trash_spread_interval_seconds: u32,
+    /// Hojas de quien deja limpia una casilla.
+    pub clean_reward_leaves: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,6 +278,7 @@ impl Catalog {
                 area_side: 5,
                 evaporation_divisor: 2,
                 durability: 30,
+                wear_interval_seconds: 2,
             },
             treatment_plant: TreatmentPlantRules {
                 price: 40,
@@ -259,6 +291,19 @@ impl Catalog {
                 area_side: 3,
                 interval_seconds: 2,
                 durability: 30,
+            },
+            // Valle vacío: las pruebas ponen sus propias casillas.
+            terrain: TerrainRules {
+                river_width: 0,
+                rock_count: 0,
+            },
+            urban: UrbanRules {
+                building_tree_threshold: 2,
+                building_humidity_threshold: 500,
+                max_buildings: 2,
+                trash_interval_seconds: 5,
+                trash_spread_interval_seconds: 10,
+                clean_reward_leaves: 2,
             },
             installation_price_increase_percent: 15,
             bigger_drop: BiggerDropRules {

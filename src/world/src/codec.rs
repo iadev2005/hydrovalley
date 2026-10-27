@@ -6,6 +6,7 @@
 use prost::Message;
 
 use crate::domain::catalog as dc;
+use crate::domain::limits::{MAX_BUILDINGS, MAX_RIVER_WIDTH, MAX_ROCK_COUNT};
 use crate::domain::{
     self, AppliedAction, Catalog, Command, CommandKind, CommandOutcome, CommandResult, Fire,
     Installation, InstallationKind, OfflineSummary, Player, RejectReason, Tile, TileStage,
@@ -68,6 +69,14 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
         }
         Ok(())
     }
+    fn at_most(value: u32, limit: u32, name: &str) -> Result<(), DecodeError> {
+        if value > limit {
+            return Err(DecodeError::InvalidCatalog(format!(
+                "{name} no puede pasar de {limit}"
+            )));
+        }
+        Ok(())
+    }
     if catalog.catalog_version.is_empty() {
         return Err(DecodeError::InvalidCatalog(
             "catalog_version está vacía".to_string(),
@@ -82,6 +91,8 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     let drip = section(catalog.drip, "drip")?;
     let plant = section(catalog.treatment_plant, "treatment_plant")?;
     let trash_bin = section(catalog.trash_bin, "trash_bin")?;
+    let terrain = section(catalog.terrain, "terrain")?;
+    let urban = section(catalog.urban, "urban")?;
     let bigger_drop = section(catalog.bigger_drop, "bigger_drop")?;
     let bigger_tank = section(catalog.bigger_tank, "bigger_tank")?;
 
@@ -100,11 +111,21 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     positive(drip.area_side, "drip.area_side")?;
     positive(drip.evaporation_divisor, "drip.evaporation_divisor")?;
     positive(drip.durability, "drip.durability")?;
+    positive(drip.wear_interval_seconds, "drip.wear_interval_seconds")?;
     positive(plant.interval_seconds, "treatment_plant.interval_seconds")?;
     positive(plant.durability, "treatment_plant.durability")?;
+    positive(trash_bin.area_side, "trash_bin.area_side")?;
     positive(trash_bin.interval_seconds, "trash_bin.interval_seconds")?;
     positive(trash_bin.durability, "trash_bin.durability")?;
     positive(bigger_drop.area_side, "bigger_drop.area_side")?;
+    positive(urban.trash_interval_seconds, "urban.trash_interval_seconds")?;
+    positive(
+        urban.trash_spread_interval_seconds,
+        "urban.trash_spread_interval_seconds",
+    )?;
+    at_most(terrain.river_width, MAX_RIVER_WIDTH, "terrain.river_width")?;
+    at_most(terrain.rock_count, MAX_ROCK_COUNT, "terrain.rock_count")?;
+    at_most(urban.max_buildings, MAX_BUILDINGS, "urban.max_buildings")?;
 
     Ok(Catalog {
         version: catalog.catalog_version,
@@ -149,6 +170,7 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
             area_side: drip.area_side,
             evaporation_divisor: drip.evaporation_divisor,
             durability: drip.durability,
+            wear_interval_seconds: drip.wear_interval_seconds,
         },
         treatment_plant: dc::TreatmentPlantRules {
             price: plant.price,
@@ -161,6 +183,18 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
             area_side: trash_bin.area_side,
             interval_seconds: trash_bin.interval_seconds,
             durability: trash_bin.durability,
+        },
+        terrain: dc::TerrainRules {
+            river_width: terrain.river_width,
+            rock_count: terrain.rock_count,
+        },
+        urban: dc::UrbanRules {
+            building_tree_threshold: urban.building_tree_threshold,
+            building_humidity_threshold: urban.building_humidity_threshold,
+            max_buildings: urban.max_buildings,
+            trash_interval_seconds: urban.trash_interval_seconds,
+            trash_spread_interval_seconds: urban.trash_spread_interval_seconds,
+            clean_reward_leaves: urban.clean_reward_leaves,
         },
         installation_price_increase_percent: catalog.installation_price_increase_percent,
         bigger_drop: dc::BiggerDropRules {
@@ -772,7 +806,10 @@ mod tests {
             installation: Some(Installation {
                 kind: InstallationKind::Drip,
                 owner_id: ANA.to_string(),
+                remaining_durability: 17,
             }),
+            has_building: false,
+            trash_level: 2,
         };
         let player = &mut parts.players[0];
         player.leaves = 9;
@@ -1053,12 +1090,31 @@ mod tests {
                 area_side: c.drip.area_side,
                 evaporation_divisor: c.drip.evaporation_divisor,
                 durability: c.drip.durability,
+                wear_interval_seconds: c.drip.wear_interval_seconds,
             }),
             treatment_plant: Some(p::TreatmentPlantRules {
                 price: c.treatment_plant.price,
                 refill_amount: c.treatment_plant.refill_amount,
                 interval_seconds: c.treatment_plant.interval_seconds,
                 durability: c.treatment_plant.durability,
+            }),
+            trash_bin: Some(p::TrashBinRules {
+                price: c.trash_bin.price,
+                area_side: c.trash_bin.area_side,
+                interval_seconds: c.trash_bin.interval_seconds,
+                durability: c.trash_bin.durability,
+            }),
+            terrain: Some(p::TerrainRules {
+                river_width: c.terrain.river_width,
+                rock_count: c.terrain.rock_count,
+            }),
+            urban: Some(p::UrbanRules {
+                building_tree_threshold: c.urban.building_tree_threshold,
+                building_humidity_threshold: c.urban.building_humidity_threshold,
+                max_buildings: c.urban.max_buildings,
+                trash_interval_seconds: c.urban.trash_interval_seconds,
+                trash_spread_interval_seconds: c.urban.trash_spread_interval_seconds,
+                clean_reward_leaves: c.urban.clean_reward_leaves,
             }),
             installation_price_increase_percent: c.installation_price_increase_percent,
             bigger_drop: Some(p::BiggerDropRules {
