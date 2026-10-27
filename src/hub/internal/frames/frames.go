@@ -110,7 +110,7 @@ var (
 		"sprinkler":       worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER,
 		"drip":            worldv1.InstallationKind_INSTALLATION_KIND_DRIP,
 		"treatment_plant": worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT,
-		"trash_bin":       worldv1.InstallationKind(4),
+		"trash_bin":       worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN,
 	}
 	upgradeKinds = map[string]worldv1.UpgradeKind{
 		"bigger_drop": worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_DROP,

@@ -73,6 +73,7 @@ func TestDecodePlaceInstallation(t *testing.T) {
 		{"sprinkler", worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER},
 		{"drip", worldv1.InstallationKind_INSTALLATION_KIND_DRIP},
 		{"treatment_plant", worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT},
+		{"trash_bin", worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN},
 	}
 	for _, tc := range cases {
 		cmd, errMsg := DecodeClient([]byte(`{"type":"place_installation","action_id":"` + actionID + `","installation":"` + tc.name + `","x":14,"y":9}`))
@@ -87,6 +88,33 @@ func TestDecodePlaceInstallation(t *testing.T) {
 	cmd, errMsg := DecodeClient([]byte(`{"type":"place_installation","action_id":"` + actionID + `","installation":"drip"}`))
 	if errMsg != nil || cmd.Place == nil || cmd.Place.X != 0 || cmd.Place.Y != 0 {
 		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
+	}
+}
+
+func TestDecodeCleanTrash(t *testing.T) {
+	cmd, errMsg := DecodeClient([]byte(`{"type":"clean_trash","action_id":"` + actionID + `","x":3,"y":31}`))
+	if errMsg != nil || cmd.CleanTrash == nil || cmd.Drop != nil || cmd.Place != nil || cmd.Buy != nil || cmd.Admin != nil {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
+	}
+	if c := cmd.CleanTrash; c.ActionID != actionID || c.X != 3 || c.Y != 31 {
+		t.Fatalf("clean = %+v", c)
+	}
+	// Coordenadas ausentes se leen como 0 (protojson omite los ceros).
+	cmd, errMsg = DecodeClient([]byte(`{"type":"clean_trash","action_id":"` + actionID + `"}`))
+	if errMsg != nil || cmd.CleanTrash == nil || cmd.CleanTrash.X != 0 || cmd.CleanTrash.Y != 0 {
+		t.Fatalf("cmd = %+v, error frame: %v", cmd, errMsg)
+	}
+	// Sin action_id válido es un mensaje mal formado: no se encola.
+	for _, data := range []string{
+		`{"type":"clean_trash","x":1,"y":1}`,
+		`{"type":"clean_trash","action_id":"no-es-uuid","x":1,"y":1}`,
+		`{"type":"clean_trash","action_id":"` + actionID + `","x":-1,"y":1}`,
+		`{"type":"clean_trash","action_id":"` + actionID + `","x":"uno","y":1}`,
+	} {
+		cmd, errMsg := DecodeClient([]byte(data))
+		if cmd.CleanTrash != nil || errMsg == nil || errMsg.GetCode() != CodeInvalidMessage {
+			t.Errorf("%s → %+v, %v; want invalid_message", data, cmd, errMsg)
+		}
 	}
 }
 
@@ -249,7 +277,9 @@ func sampleWorld() *worldv1.WorldState {
 	}
 	tiles[1] = &worldv1.Tile{Stage: worldv1.TileStage_TILE_STAGE_GRASS, Humidity: 25}
 	tiles[2].Fire = &worldv1.Fire{DropsReceived: 2}
-	tiles[3].Installation = &worldv1.Installation{Kind: worldv1.InstallationKind_INSTALLATION_KIND_DRIP, OwnerId: "owner"}
+	tiles[3].Installation = &worldv1.Installation{Kind: worldv1.InstallationKind_INSTALLATION_KIND_DRIP, OwnerId: "owner", RemainingDurability: 17}
+	tiles[0].HasBuilding = true
+	tiles[2].TrashLevel = 2
 	return &worldv1.WorldState{
 		Width: 2, Height: 2, Tiles: tiles, DemoMode: true, HumidityContributed: 42,
 		Players: []*worldv1.PlayerState{{
@@ -259,6 +289,7 @@ func sampleWorld() *worldv1.WorldState {
 				{Kind: worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER, Leaves: 10},
 				{Kind: worldv1.InstallationKind_INSTALLATION_KIND_DRIP, Leaves: 20},
 				{Kind: worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT, Leaves: 30},
+				{Kind: worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN, Leaves: 15},
 			},
 		}},
 	}
@@ -278,13 +309,19 @@ func TestStateWithMapAndPlayer(t *testing.T) {
 	if f := msg.GetFires(); len(f) != 1 || f[0].GetX() != 0 || f[0].GetY() != 1 || f[0].GetDropsReceived() != 2 {
 		t.Fatalf("fires = %v", f)
 	}
-	if in := msg.GetInstallations(); len(in) != 1 || in[0].GetX() != 1 || in[0].GetY() != 1 || in[0].GetInstallation() != "drip" || in[0].GetOwnerId() != "owner" {
+	if in := msg.GetInstallations(); len(in) != 1 || in[0].GetX() != 1 || in[0].GetY() != 1 || in[0].GetInstallation() != "drip" || in[0].GetOwnerId() != "owner" || in[0].GetRemainingDurability() != 17 {
 		t.Fatalf("installations = %v", in)
+	}
+	if b := msg.GetBuildings(); len(b) != 4 || !b[0] || b[1] || b[2] || b[3] {
+		t.Fatalf("buildings = %v", b)
+	}
+	if tr := msg.GetTrash(); len(tr) != 4 || tr[2] != 2 || tr[0] != 0 || tr[1] != 0 || tr[3] != 0 {
+		t.Fatalf("trash = %v", tr)
 	}
 	p := msg.GetPlayer()
 	if p.GetWater() != 19 || p.GetTankCapacity() != 20 || p.GetLeaves() != 3 ||
 		len(p.GetUpgrades()) != 1 || p.GetUpgrades()[0] != "bigger_tank" ||
-		p.GetNextSprinklerPrice() != 10 || p.GetNextDripPrice() != 20 || p.GetNextTreatmentPlantPrice() != 30 {
+		p.GetNextSprinklerPrice() != 10 || p.GetNextDripPrice() != 20 || p.GetNextTreatmentPlantPrice() != 30 || p.GetNextTrashBinPrice() != 15 {
 		t.Fatalf("player = %v", p)
 	}
 	data, _ := Marshal(msg)
