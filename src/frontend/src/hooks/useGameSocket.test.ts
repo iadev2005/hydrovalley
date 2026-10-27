@@ -274,6 +274,37 @@ describe("useGameSocket", () => {
       expect(result.current.offlineSummary?.tiles_grown).toBe(4n);
     });
 
+    it("clears the offline duration when the summary is dismissed", () => {
+      vi.useFakeTimers();
+      let now = 100_000;
+      const getNow = () => now;
+      const { result } = renderHook(() => useGameSocket({ session, now: getNow }));
+      const ws1 = MockWebSocket.instances[0];
+      if (!ws1) throw new Error("no socket");
+      act(() => {
+        ws1.emit("open");
+        ws1.close(1006);
+      });
+      now += 7_000;
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+      const ws2 = MockWebSocket.instances[1];
+      if (!ws2) throw new Error("no reconnect socket");
+      act(() => {
+        ws2.emit("open");
+        ws2.emit("message", { data: stateWith({ tiles_grown: "2" }) });
+      });
+      expect(result.current.offlineDurationMs).toBe(7_000);
+
+      act(() => {
+        result.current.dismissOfflineSummary();
+      });
+      expect(result.current.offlineSummary).toBeNull();
+      expect(result.current.offlineDurationMs).toBeNull();
+      vi.useRealTimers();
+    });
+
     it("has no summary without a session", () => {
       const { result } = renderHook(() => useGameSocket({ session: null }));
       expect(result.current.offlineSummary).toBeNull();

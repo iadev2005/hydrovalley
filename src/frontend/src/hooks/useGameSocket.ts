@@ -53,7 +53,7 @@ export interface UseGameSocketReturn {
   gameState: StateFrame | null;
   /** Resumen al volver (RF-25) todavía sin cerrar, o null. */
   offlineSummary: OfflineSummary | null;
-  /** Tiempo transcurrido entre la desconexión y la reconexión, en milisegundos. */
+  /** Tiempo que el WebSocket estuvo sin conexión (no la ausencia del jugador), en ms. Se borra al cerrar el resumen. */
   offlineDurationMs: number | null;
   actionMessage: ActionMessage | null;
   pendingCount: number;
@@ -113,7 +113,10 @@ export function useGameSocket({
   }, []);
 
   const clearActionMessage = useCallback(() => setActionMessage(null), []);
-  const dismissOfflineSummary = useCallback(() => setOfflineSummary(null), []);
+  const dismissOfflineSummary = useCallback(() => {
+    setOfflineSummary(null);
+    setOfflineDurationMs(null);
+  }, []);
 
   const sendAction = useCallback(
     (label: string, build: (actionId: string) => string): boolean => {

@@ -28,7 +28,7 @@ const mockState: StateFrame = {
 };
 
 describe("ValleyControls", () => {
-  it("renders player panel water, leaves and prices", () => {
+  it("renders the water, leaves, next prices, pending count and action message", () => {
     render(
       <ValleyControls
         gameState={mockState}
@@ -51,7 +51,7 @@ describe("ValleyControls", () => {
     expect(screen.getByText("Gota aceptada")).toBeDefined();
   });
 
-  it("disables tile action buttons when no tile is selected or socket closed", () => {
+  it("disables the drop button when no tile is selected or the socket is closed", () => {
     const { rerender } = render(
       <ValleyControls
         gameState={mockState}
