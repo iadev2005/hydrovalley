@@ -7,6 +7,7 @@ import {
   planResend,
   selectionView,
   isAdminRole,
+  isTileInDripArea,
   playerPanel,
   stageName,
   tileAt,
@@ -34,8 +35,16 @@ describe("tokenRole / isAdminRole", () => {
 });
 
 describe("stageName", () => {
-  it("names the five stages and falls back to dry land", () => {
-    expect([1, 2, 3, 4, 5].map(stageName)).toEqual(["tierra seca", "pasto", "arbusto", "flores", "árbol"]);
+  it("names the seven stages and falls back to dry land", () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map(stageName)).toEqual([
+      "tierra seca",
+      "pasto",
+      "arbusto",
+      "flores",
+      "árbol",
+      "agua",
+      "roca",
+    ]);
     expect(stageName(0)).toBe("tierra seca");
     expect(stageName(99)).toBe("tierra seca");
   });
@@ -61,6 +70,8 @@ describe("buildTiles", () => {
       humidity: 75n,
       fire: { drops_received: 2 },
       installation: null,
+      has_building: false,
+      trash_level: 0,
     });
     expect(tiles[2]?.installation).toEqual({ kind: "sprinkler", owner_id: "p1" });
     expect(tiles[2]?.fire).toBeNull();
@@ -99,12 +110,13 @@ describe("playerPanel", () => {
       next_sprinkler_price: 10n,
       next_drip_price: 25n,
       next_treatment_plant_price: 40n,
+      next_trash_bin_price: 15n,
     });
     expect(panel).toEqual({
       water: "5 / 20",
       waterRatio: 0.25,
       leaves: "3",
-      prices: { sprinkler: "10", drip: "25", treatment_plant: "40" },
+      prices: { sprinkler: "10", drip: "25", treatment_plant: "40", trash_bin: "15" },
       owned: { bigger_drop: true, bigger_tank: false },
     });
   });
@@ -282,5 +294,28 @@ describe("selectionView", () => {
 
   it("says there is no map data when the state has no map", () => {
     expect(selectionView(null, { x: 3, y: 3 }).info).toBe("Sin datos del mapa todavía.");
+  });
+});
+
+describe("isTileInDripArea", () => {
+  const drips = [{ x: 5, y: 5 }];
+
+  it("returns true for tiles within the 5x5 square area", () => {
+    expect(isTileInDripArea(5, 5, drips)).toBe(true);
+    expect(isTileInDripArea(3, 3, drips)).toBe(true);
+    expect(isTileInDripArea(7, 7, drips)).toBe(true);
+    expect(isTileInDripArea(4, 6, drips)).toBe(true);
+  });
+
+  it("returns false for tiles outside the 5x5 square area", () => {
+    expect(isTileInDripArea(2, 5, drips)).toBe(false);
+    expect(isTileInDripArea(8, 5, drips)).toBe(false);
+    expect(isTileInDripArea(5, 2, drips)).toBe(false);
+    expect(isTileInDripArea(5, 8, drips)).toBe(false);
+    expect(isTileInDripArea(10, 10, drips)).toBe(false);
+  });
+
+  it("returns false when there are no drip installations", () => {
+    expect(isTileInDripArea(5, 5, [])).toBe(false);
   });
 });

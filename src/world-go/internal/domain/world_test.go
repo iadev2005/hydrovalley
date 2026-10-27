@@ -111,9 +111,9 @@ func TestNewWorldIsAnEmpty32x32ValleyAtTickZero(t *testing.T) {
 	if w.Width() != 32 || w.Height() != 32 || len(w.Tiles()) != 1024 {
 		t.Errorf("valley is %dx%d with %d tiles", w.Width(), w.Height(), len(w.Tiles()))
 	}
-	for i, tile := range w.Tiles() {
+	for _, tile := range w.Tiles() {
 		if tile != (Tile{}) {
-			t.Fatalf("tile %d is not empty: %+v", i, tile)
+			t.Fatal("a new world has non-empty tiles")
 		}
 	}
 	if mustTile(t, w, 0, 0).Stage != DrySoil {
@@ -737,5 +737,191 @@ func TestASnapshotOfACustomSizeValleyIsNotRestorableInTheGame(t *testing.T) {
 	w := NewWorldWithSize(d01(), 0, 64, 64)
 	if _, err := Restore(d01(), w.Parts()); err == nil {
 		t.Error("Restore accepted a 64x64 valley")
+	}
+}
+
+func TestNaturalTerrainRejectsDropAndInstallation(t *testing.T) {
+	w := NewWorld(d01(), 42)
+	var waterPos, rockPos [2]uint32
+	foundWater, foundRock := false, false
+	for i, tile := range w.Tiles() {
+		if tile.Stage == Water && !foundWater {
+			waterPos = [2]uint32{uint32(i % 32), uint32(i / 32)}
+			foundWater = true
+		}
+		if tile.Stage == Rock && !foundRock {
+			rockPos = [2]uint32{uint32(i % 32), uint32(i / 32)}
+			foundRock = true
+		}
+	}
+	if !foundWater || !foundRock {
+		t.Fatal("expected water and rock tiles in new world")
+	}
+
+	// Drop on water/rock rejected
+	out := w.Step([]Command{
+		dropCmd(action(1), ana, waterPos[0], waterPos[1]),
+		dropCmd(action(2), ana, rockPos[0], rockPos[1]),
+	})
+	wantOutcomes(t, outcomes(out), RejectedOutcome(TileOccupied), RejectedOutcome(TileOccupied))
+
+	// Place installation on water/rock rejected
+	w.players[ana] = &playerSlot{record: startingPlayer(ana, 100), recentIDs: make(map[string]struct{})}
+	w.players[ana].record.Leaves = 1000
+	out2 := w.Step([]Command{
+		placeCmd(action(3), ana, Sprinkler, waterPos[0], waterPos[1]),
+		placeCmd(action(4), ana, Sprinkler, rockPos[0], rockPos[1]),
+	})
+	wantOutcomes(t, outcomes(out2), RejectedOutcome(TileOccupied), RejectedOutcome(TileOccupied))
+}
+
+func TestShorelineSuppressesFireIgnition(t *testing.T) {
+	w := NewWorld(d01(), 42)
+	var waterPos [2]uint32
+	for i, tile := range w.Tiles() {
+		if tile.Stage == Water {
+			waterPos = [2]uint32{uint32(i % 32), uint32(i / 32)}
+			break
+		}
+	}
+	var shoreIdx int
+	for _, n := range []int{
+		int(waterPos[1]-1)*32 + int(waterPos[0]),
+		int(waterPos[1]+1)*32 + int(waterPos[0]),
+		int(waterPos[1])*32 + int(waterPos[0]-1),
+		int(waterPos[1])*32 + int(waterPos[0]+1),
+	} {
+		if n >= 0 && n < len(w.Tiles()) && w.Tiles()[n].Stage == DrySoil {
+			shoreIdx = n
+			break
+		}
+	}
+
+	w.Tiles()[shoreIdx].Stage = Grass
+	w.Tiles()[shoreIdx].Humidity = 0
+	w.catalog.Fire.IgnitionChancePPM = 1_000_000
+	w.catalog.Fire.PropagationChancePPM = 1_000_000
+
+	w.Step(nil)
+	if w.Tiles()[shoreIdx].Fire != nil {
+		t.Error("shoreline tile should not ignite")
+	}
+}
+
+func TestResetValleyRegeneratesNaturalTerrain(t *testing.T) {
+	w := newTestWorld()
+	waterBefore, rockBefore := 0, 0
+	for _, tile := range w.Tiles() {
+		if tile.Stage == Water {
+			waterBefore++
+		}
+		if tile.Stage == Rock {
+			rockBefore++
+		}
+	}
+
+	w.Step([]Command{resetCmd(action(1))})
+
+	waterAfter, rockAfter := 0, 0
+	for _, tile := range w.Tiles() {
+		if tile.Stage == Water {
+			waterAfter++
+		}
+		if tile.Stage == Rock {
+			rockAfter++
+		}
+	}
+
+	if waterBefore != waterAfter || rockBefore != rockAfter {
+		t.Errorf("terrain after reset: water %d (was %d), rocks %d (was %d)", waterAfter, waterBefore, rockAfter, rockBefore)
+	}
+}
+
+func cleanCmd(actionID, playerID string, x, y uint32) Command {
+	return Command{ActionID: actionID, PlayerID: playerID, Kind: CleanTrashCommand{X: x, Y: y}}
+}
+
+func TestCleanTrashReducesLevelAndPaysIncentiveLeaves(t *testing.T) {
+	w := rich(holder{ana, 10})
+	idx := 2*32 + 2
+	w.tiles[idx].TrashLevel = 2
+	w.tiles[idx].Stage = DrySoil
+
+	// Primer clean_trash: nivel 2 -> 1 (sin hojas de incentivo aún)
+	out1 := w.Step([]Command{cleanCmd(action(1), ana, 2, 2)})
+	wantOutcomes(t, outcomes(out1), AppliedOutcome)
+	if w.tiles[idx].TrashLevel != 1 {
+		t.Errorf("trash level = %d, want 1", w.tiles[idx].TrashLevel)
+	}
+	if p, _ := w.Player(ana); p.Leaves != 10 {
+		t.Errorf("leaves = %d, want 10", p.Leaves)
+	}
+
+	// Segundo clean_trash: nivel 1 -> 0 (+2 hojas de incentivo)
+	out2 := w.Step([]Command{cleanCmd(action(2), ana, 2, 2)})
+	wantOutcomes(t, outcomes(out2), AppliedOutcome)
+	if w.tiles[idx].TrashLevel != 0 {
+		t.Errorf("trash level = %d, want 0", w.tiles[idx].TrashLevel)
+	}
+	if p, _ := w.Player(ana); p.Leaves != 12 || p.LeavesEarned != 12 {
+		t.Errorf("leaves = %d, leaves_earned = %d, want 12", p.Leaves, p.LeavesEarned)
+	}
+
+	// Tercer clean_trash sobre casilla sin basura: rechazado
+	out3 := w.Step([]Command{cleanCmd(action(3), ana, 2, 2)})
+	wantOutcomes(t, outcomes(out3), RejectedOutcome(InvalidCommand))
+}
+
+func TestUrbanBuildingSpawnsAndIsImmuneToFire(t *testing.T) {
+	w := rich(holder{ana, 100})
+	w.humidityContributed = 600
+	advanceTo(t, w, 1)
+
+	var buildingIdx = -1
+	for i, tile := range w.Tiles() {
+		if tile.HasBuilding {
+			buildingIdx = i
+			break
+		}
+	}
+	if buildingIdx == -1 {
+		t.Fatal("un edificio debe aparecer tras superar el umbral de progreso")
+	}
+
+	bx, by := uint32(buildingIdx%32), uint32(buildingIdx/32)
+
+	// Inmune a fuego
+	if IsEligible(&w.Tiles()[buildingIdx]) {
+		t.Error("building tile should not be eligible for fire")
+	}
+
+	// Intento de colocar instalación sobre edificio rechazado
+	out := w.Step([]Command{placeCmd(action(1), ana, Sprinkler, bx, by)})
+	wantOutcomes(t, outcomes(out), RejectedOutcome(TileOccupied))
+}
+
+func TestTrashBinCleansTrashAndConsumesDurability(t *testing.T) {
+	w := rich(holder{ana, 100})
+	// Colocar cesto de reciclaje en (4, 4)
+	w.Step([]Command{placeCmd(action(1), ana, TrashBin, 4, 4)})
+
+	// Sembrar basura nivel 2 en (5, 5) dentro del radio 3x3 del cesto
+	targetIdx := 5*32 + 5
+	w.tiles[targetIdx].TrashLevel = 2
+
+	binIdx := 4*32 + 4
+	if inst := w.tiles[binIdx].Installation; inst == nil || inst.RemainingDurability != 30 {
+		t.Fatalf("expected TrashBin with 30 durability, got %+v", inst)
+	}
+
+	// Avanzar 1 ciclo de trabajo (20 ticks = 2 s)
+	advanceTo(t, w, 20)
+
+	// El cesto debe haber reducido 1 nivel de basura y 1 de durabilidad
+	if w.tiles[targetIdx].TrashLevel != 1 {
+		t.Errorf("trash level = %d, want 1", w.tiles[targetIdx].TrashLevel)
+	}
+	if inst := w.tiles[binIdx].Installation; inst == nil || inst.RemainingDurability != 29 {
+		t.Errorf("expected 29 durability, got %+v", inst)
 	}
 }

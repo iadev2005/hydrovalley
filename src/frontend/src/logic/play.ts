@@ -108,7 +108,7 @@ export function buildDropFrame({ x, y, actionId }: { x: number; y: number; actio
 }
 
 /** Instalaciones y mejoras que acepta el hub (play.proto). */
-export const INSTALLATIONS = ["sprinkler", "drip", "treatment_plant"] as const;
+export const INSTALLATIONS = ["sprinkler", "drip", "treatment_plant", "trash_bin"] as const;
 export type InstallationType = (typeof INSTALLATIONS)[number];
 
 export const UPGRADES = ["bigger_drop", "bigger_tank"] as const;
@@ -133,6 +133,22 @@ export function buildPlaceInstallationFrame({
   }
   assertCoordinates(x, y);
   return JSON.stringify({ type: "place_installation", action_id: actionId, installation, x, y });
+}
+
+/**
+ * `CleanTrashMessage` en JSON (Fase 4).
+ */
+export function buildCleanTrashFrame({
+  x,
+  y,
+  actionId,
+}: {
+  x: number;
+  y: number;
+  actionId: string;
+}): string {
+  assertCoordinates(x, y);
+  return JSON.stringify({ type: "clean_trash", action_id: actionId, x, y });
 }
 
 /**
@@ -208,6 +224,7 @@ export interface PlacedInstallation {
   y: number;
   installation: string;
   owner_id: string;
+  remaining_durability: number;
 }
 
 /**
@@ -230,6 +247,7 @@ export interface PlayerState {
   next_sprinkler_price: bigint;
   next_drip_price: bigint;
   next_treatment_plant_price: bigint;
+  next_trash_bin_price: bigint;
   offline_summary: OfflineSummary | null;
 }
 
@@ -257,6 +275,8 @@ export interface StateFrame {
   humidity: bigint[];
   fires: FireState[];
   installations: PlacedInstallation[];
+  buildings: boolean[];
+  trash: number[];
   player: PlayerState | null;
 }
 
@@ -319,8 +339,11 @@ export function parseFrame(text: string): PlayFrame {
             y: Number(ri["y"]) || 0,
             installation: str(ri["installation"]),
             owner_id: str(ri["owner_id"]),
+            remaining_durability: Number(ri["remaining_durability"]) || 0,
           };
         }),
+        buildings: list(rec["buildings"]).map((v) => v === true),
+        trash: list(rec["trash"]).map((v) => Number(v) || 0),
         player:
           p && typeof p === "object"
             ? {
@@ -331,6 +354,7 @@ export function parseFrame(text: string): PlayFrame {
                 next_sprinkler_price: toBigInt(p["next_sprinkler_price"]),
                 next_drip_price: toBigInt(p["next_drip_price"]),
                 next_treatment_plant_price: toBigInt(p["next_treatment_plant_price"]),
+                next_trash_bin_price: toBigInt(p["next_trash_bin_price"]),
                 offline_summary: parseOfflineSummary(p["offline_summary"]),
               }
             : null,

@@ -46,7 +46,11 @@ func NewStateBuilder(tick uint64, paused bool, world *worldv1.WorldState, accept
 		}
 		if inst := tile.GetInstallation(); inst != nil {
 			b.installations = append(b.installations, &playv1.InstallationView{
-				X: x, Y: y, Installation: installationName(inst.GetKind()), OwnerId: inst.GetOwnerId(),
+				X:                   x,
+				Y:                   y,
+				Installation:        installationName(inst.GetKind()),
+				OwnerId:             inst.GetOwnerId(),
+				RemainingDurability: inst.GetRemainingDurability(),
 			})
 		}
 	}

@@ -28,14 +28,17 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
     values = {entry.key: entry.value for entry in catalog.entries}
     assert values["drop"] == {
         "water_cost_liters": 1,
-        "humidity_points": 25,
+        "humidity_points": 100,
         "demo_humidity_points": 1,
     }
     assert values["tank"]["capacity_liters"] == 20
     assert values["growth"]["humidity_per_stage_points"] == 100
     assert values["sprinkler"]["price_leaves"] == 10
+    assert values["sprinkler"]["durability"] == 30
     assert values["drip"]["area_side_tiles"] == 5
+    assert values["drip"]["durability"] == 30
     assert values["treatment_plant"]["price_leaves"] == 40
+    assert values["treatment_plant"]["durability"] == 30
     assert values["bigger_drop"]["price_leaves"] == 30
     assert values["bigger_tank"]["extra_capacity_liters"] == 10
     assert values["installation_price_increase_percent"] == 15

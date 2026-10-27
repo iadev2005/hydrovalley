@@ -118,6 +118,7 @@ SECTIONS: dict[str, Section] = {
             _u32("area_side_tiles", "area_side", minimum=1),
             _u64("humidity_points", "humidity"),
             _u32("interval_seconds", "interval_seconds", minimum=1),
+            _u32("durability", "durability", minimum=1),
         ),
     ),
     "drip": Section(
@@ -126,6 +127,7 @@ SECTIONS: dict[str, Section] = {
             _u64("price_leaves", "price"),
             _u32("area_side_tiles", "area_side", minimum=1),
             _u32("evaporation_divisor", "evaporation_divisor", minimum=1),
+            _u32("durability", "durability", minimum=1),
         ),
     ),
     "treatment_plant": Section(
@@ -134,6 +136,16 @@ SECTIONS: dict[str, Section] = {
             _u64("price_leaves", "price"),
             _u64("refill_liters", "refill_amount"),
             _u32("interval_seconds", "interval_seconds", minimum=1),
+            _u32("durability", "durability", minimum=1),
+        ),
+    ),
+    "trash_bin": Section(
+        "installation",
+        (
+            _u64("price_leaves", "price"),
+            _u32("area_side_tiles", "area_side", minimum=1),
+            _u32("interval_seconds", "interval_seconds", minimum=1),
+            _u32("durability", "durability", minimum=1),
         ),
     ),
     "bigger_drop": Section(

@@ -54,10 +54,19 @@ message PlaceInstallationMessage {
   // Siempre "place_installation".
   string type = 1;
   string action_id = 2;
-  // "sprinkler" | "drip" | "treatment_plant".
+  // "sprinkler" | "drip" | "treatment_plant" | "trash_bin".
   string installation = 3;
   uint32 x = 4;
   uint32 y = 5;
+}
+
+// Limpia basura de una casilla (Fase 4).
+message CleanTrashMessage {
+  // Siempre "clean_trash".
+  string type = 1;
+  string action_id = 2;
+  uint32 x = 3;
+  uint32 y = 4;
 }
 
 // Mejora única (RF-07).
@@ -137,7 +146,7 @@ message StateMessage {
   uint32 height = 6;
   // Campos del mapa (vacíos con map=false). Por filas: índice = y * width +
   // x. Etapa de cada casilla, con los números de hydrovalley.world.v1.TileStage
-  // (1 tierra seca, 2 pasto, 3 arbusto, 4 flores, 5 árbol).
+  // (1 tierra seca, 2 pasto, 3 arbusto, 4 flores, 5 árbol, 6 agua, 7 roca).
   repeated uint32 stages = 7;
   // Humedad de cada casilla.
   repeated uint64 humidity = 8;
@@ -158,6 +167,10 @@ message StateMessage {
   // `applied`, de los últimos 600 ticks hacia atrás en una recuperación de
   // Rust. Mismo formato que `humidity_contributed`.
   uint64 accepted_drops = 13;
+  // Presencia de edificio urbano por casilla (Fase 4). Por filas: índice = y * width + x.
+  repeated bool buildings = 14;
+  // Nivel de basura urbana por casilla de 0 a 3 (Fase 4). Por filas: índice = y * width + x.
+  repeated uint32 trash = 15;
 }
 
 message FireView {
@@ -170,9 +183,11 @@ message FireView {
 message InstallationView {
   uint32 x = 1;
   uint32 y = 2;
-  // "sprinkler" | "drip" | "treatment_plant".
+  // "sprinkler" | "drip" | "treatment_plant" | "trash_bin".
   string installation = 3;
   string owner_id = 4;
+  // Durabilidad restante (Fase 2).
+  uint32 remaining_durability = 5;
 }
 
 message PlayerView {
@@ -188,6 +203,8 @@ message PlayerView {
   // Lo que hicieron sus aspersores mientras no estaba (RF-25). Solo viaja
   // en el primer `state` de la conexión y solo si no está vacío.
   OfflineSummaryView offline_summary = 8;
+  // Precio del siguiente cesto de reciclaje (Fase 4).
+  uint64 next_trash_bin_price = 9;
 }
 
 message OfflineSummaryView {

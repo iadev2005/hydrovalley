@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { GRID_SIZE, type StateFrame } from "../logic/play.ts";
-import { buildTiles, tileAt } from "../logic/valley.ts";
+import { buildTiles, isTileInDripArea, tileAt } from "../logic/valley.ts";
 
 export const CELL = 16;
 const MIN_ZOOM = 0.75;
@@ -20,12 +20,17 @@ export const STAGE_COLOURS = [
   "#558b2f",
   "#f06292",
   "#1b5e20",
+  "#29b6f6",
+  "#78909c",
 ];
 export const FIRE_COLOUR = "#e53935";
+export const BUILDING_COLOUR = "#d84315";
+export const TRASH_COLOURS = ["#8d6e63", "#5d4037", "#3e2723"];
 export const INSTALLATION_LETTER: Record<string, string> = {
   sprinkler: "A",
   drip: "G",
   treatment_plant: "P",
+  trash_bin: "C",
 };
 
 export interface ValleyCanvasProps {
@@ -59,10 +64,28 @@ export function ValleyCanvas({
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
+    const drips = gameState?.installations.filter((i) => i.installation === "drip") ?? [];
     const tiles = buildTiles(gameState);
     for (const tile of tiles) {
       ctx.fillStyle = STAGE_COLOURS[tile.stage - 1] ?? STAGE_COLOURS[0] ?? "#8d6e4a";
       ctx.fillRect(tile.x * CELL, tile.y * CELL, CELL, CELL);
+
+      if (isTileInDripArea(tile.x, tile.y, drips)) {
+        ctx.fillStyle = "rgba(64, 169, 255, 0.25)";
+        ctx.fillRect(tile.x * CELL, tile.y * CELL, CELL, CELL);
+      }
+
+      if (tile.has_building) {
+        ctx.fillStyle = BUILDING_COLOUR;
+        ctx.fillRect(tile.x * CELL + 2, tile.y * CELL + 2, CELL - 4, CELL - 4);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("E", tile.x * CELL + CELL / 2, tile.y * CELL + CELL / 2 + 1);
+      } else if (tile.trash_level && tile.trash_level > 0) {
+        ctx.fillStyle = TRASH_COLOURS[Math.min(tile.trash_level, 3) - 1] ?? "#8d6e63";
+        ctx.fillRect(tile.x * CELL + 2, tile.y * CELL + 2, CELL - 4, CELL - 4);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(String(tile.trash_level), tile.x * CELL + CELL / 2, tile.y * CELL + CELL / 2 + 1);
+      }
 
       if (tile.fire) {
         ctx.fillStyle = FIRE_COLOUR;

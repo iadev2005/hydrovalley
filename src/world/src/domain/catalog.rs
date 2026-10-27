@@ -25,6 +25,7 @@ pub struct Catalog {
     pub sprinkler: SprinklerRules,
     pub drip: DripRules,
     pub treatment_plant: TreatmentPlantRules,
+    pub trash_bin: TrashBinRules,
     /// Aumento de precio por cada compra del mismo tipo de instalación.
     pub installation_price_increase_percent: u32,
     pub bigger_drop: BiggerDropRules,
@@ -41,6 +42,17 @@ impl Catalog {
             InstallationKind::Sprinkler => self.sprinkler.price,
             InstallationKind::Drip => self.drip.price,
             InstallationKind::TreatmentPlant => self.treatment_plant.price,
+            InstallationKind::TrashBin => self.trash_bin.price,
+        }
+    }
+
+    /// Durabilidad base de una instalación al colocarse.
+    pub fn installation_base_durability(&self, kind: InstallationKind) -> u32 {
+        match kind {
+            InstallationKind::Sprinkler => self.sprinkler.durability,
+            InstallationKind::Drip => self.drip.durability,
+            InstallationKind::TreatmentPlant => self.treatment_plant.durability,
+            InstallationKind::TrashBin => self.trash_bin.durability,
         }
     }
 
@@ -112,7 +124,7 @@ impl GrowthRules {
     pub fn leaves_for(&self, stage: super::TileStage) -> u64 {
         use super::TileStage::*;
         match stage {
-            DrySoil => 0,
+            DrySoil | Water | Rock => 0,
             Grass => self.leaves_grass,
             Shrub => self.leaves_shrub,
             Flowers => self.leaves_flowers,
@@ -145,6 +157,7 @@ pub struct SprinklerRules {
     pub area_side: u32,
     pub humidity: u64,
     pub interval_seconds: u32,
+    pub durability: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +165,7 @@ pub struct DripRules {
     pub price: u64,
     pub area_side: u32,
     pub evaporation_divisor: u32,
+    pub durability: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,6 +173,15 @@ pub struct TreatmentPlantRules {
     pub price: u64,
     pub refill_amount: u64,
     pub interval_seconds: u32,
+    pub durability: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrashBinRules {
+    pub price: u64,
+    pub area_side: u32,
+    pub interval_seconds: u32,
+    pub durability: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,16 +240,25 @@ impl Catalog {
                 area_side: 3,
                 humidity: 25,
                 interval_seconds: 2,
+                durability: 30,
             },
             drip: DripRules {
                 price: 25,
                 area_side: 5,
                 evaporation_divisor: 2,
+                durability: 30,
             },
             treatment_plant: TreatmentPlantRules {
                 price: 40,
                 refill_amount: 1,
                 interval_seconds: 2,
+                durability: 30,
+            },
+            trash_bin: TrashBinRules {
+                price: 15,
+                area_side: 3,
+                interval_seconds: 2,
+                durability: 30,
             },
             installation_price_increase_percent: 15,
             bigger_drop: BiggerDropRules {

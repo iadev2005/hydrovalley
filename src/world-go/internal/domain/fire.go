@@ -9,9 +9,9 @@ package domain
 // pero la evaporación sigue.
 
 // IsEligible dice si la casilla puede arder: con planta, sin humedad y que no
-// arde ya.
+// arde ya, sin edificio y sin basura.
 func IsEligible(tile *Tile) bool {
-	return tile.Stage != DrySoil && tile.Humidity == 0 && tile.Fire == nil
+	return tile.Stage != DrySoil && !tile.Stage.IsNatural() && !tile.HasBuilding && tile.TrashLevel == 0 && tile.Humidity == 0 && tile.Fire == nil
 }
 
 // Ignite enciende la casilla: empieza sin gotas y con la cuenta de ticks a 0.

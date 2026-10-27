@@ -6,6 +6,11 @@ import (
 	"github.com/iadev2005/hydrovalley/src/world-go/internal/domain"
 )
 
+const (
+	tileStageWater worldv1.TileStage = 6
+	tileStageRock  worldv1.TileStage = 7
+)
+
 func stageToProto(stage domain.TileStage) worldv1.TileStage {
 	switch stage {
 	case domain.DrySoil:
@@ -18,6 +23,10 @@ func stageToProto(stage domain.TileStage) worldv1.TileStage {
 		return worldv1.TileStage_TILE_STAGE_FLOWERS
 	case domain.Tree:
 		return worldv1.TileStage_TILE_STAGE_TREE
+	case domain.Water:
+		return tileStageWater
+	case domain.Rock:
+		return tileStageRock
 	default:
 		return worldv1.TileStage_TILE_STAGE_UNSPECIFIED
 	}
@@ -36,6 +45,10 @@ func stageFromProto(value worldv1.TileStage) (domain.TileStage, error) {
 		return domain.Flowers, nil
 	case worldv1.TileStage_TILE_STAGE_TREE:
 		return domain.Tree, nil
+	case tileStageWater:
+		return domain.Water, nil
+	case tileStageRock:
+		return domain.Rock, nil
 	default:
 		return 0, &UnknownEnumError{Field: "Tile.stage", Value: int32(value)}
 	}

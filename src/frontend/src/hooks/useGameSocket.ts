@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "../logic/auth.ts";
 import {
   buildBuyUpgradeFrame,
+  buildCleanTrashFrame,
   buildDropFrame,
   buildPlaceInstallationFrame,
   buildPlayUrl,
@@ -64,6 +65,7 @@ export interface UseGameSocketReturn {
   sendAction: (label: string, build: (actionId: string) => string) => boolean;
   sendDrop: (x: number, y: number) => boolean;
   sendPlaceInstallation: (installation: string, x: number, y: number) => boolean;
+  sendCleanTrash: (x: number, y: number) => boolean;
   sendBuyUpgrade: (upgrade: string) => boolean;
   sendSetDemoMode: (enabled: boolean) => boolean;
   sendResetValley: () => boolean;
@@ -161,6 +163,14 @@ export function useGameSocket({
     (installation: string, x: number, y: number) =>
       sendAction(`Colocar ${installation} (${x}, ${y})`, (actionId) =>
         buildPlaceInstallationFrame({ installation, x, y, actionId }),
+      ),
+    [sendAction],
+  );
+
+  const sendCleanTrash = useCallback(
+    (x: number, y: number) =>
+      sendAction(`Limpiar basura (${x}, ${y})`, (actionId) =>
+        buildCleanTrashFrame({ x, y, actionId }),
       ),
     [sendAction],
   );
@@ -372,6 +382,7 @@ export function useGameSocket({
     sendAction,
     sendDrop,
     sendPlaceInstallation,
+    sendCleanTrash,
     sendBuyUpgrade,
     sendSetDemoMode,
     sendResetValley,

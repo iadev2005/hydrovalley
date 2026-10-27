@@ -3,6 +3,9 @@ import type { ActionMessage } from "../hooks/useGameSocket.ts";
 import type { StateFrame } from "../logic/play.ts";
 import { playerPanel, selectionView } from "../logic/valley.ts";
 
+/** Durabilidad base de las instalaciones (catalog.json); solo escala la barra. */
+const DURABILITY_BAR_MAX = 30;
+
 export interface ValleyControlsProps {
   gameState: StateFrame | null;
   selected: { x: number; y: number } | null;
@@ -11,6 +14,7 @@ export interface ValleyControlsProps {
   actionMessage: ActionMessage | null;
   onDrop: () => void;
   onPlaceInstallation: (installation: string) => void;
+  onCleanTrash?: () => void;
   onBuyUpgrade: (upgrade: string) => void;
   children?: ReactNode;
 }
@@ -23,6 +27,7 @@ export function ValleyControls({
   actionMessage,
   onDrop,
   onPlaceInstallation,
+  onCleanTrash,
   onBuyUpgrade,
   children,
 }: ValleyControlsProps) {
@@ -34,6 +39,19 @@ export function ValleyControls({
   if (actionMessage) {
     messageClass = actionMessage.ok ? "meta ok" : "meta error";
   }
+
+  const selectedInstallation =
+    selected && gameState
+      ? gameState.installations.find(
+          (i) => i.x === selected.x && i.y === selected.y,
+        )
+      : null;
+
+  const selectedTrash =
+    selected && gameState && gameState.width > 0
+      ? (gameState.trash[selected.y * gameState.width + selected.x] ?? 0)
+      : 0;
+  const selectedHasTrash = selectedTrash > 0;
 
   return (
     <div className="panel">
@@ -65,6 +83,18 @@ export function ValleyControls({
             <p className="tile-summary-info" id="tile-info">
               {view.info}
             </p>
+            {selectedInstallation && (
+              <p className="tile-summary-info" id="installation-durability">
+                Durabilidad ({selectedInstallation.installation}):{" "}
+                <strong id="durability-value">{selectedInstallation.remaining_durability}</strong>{" "}
+                usos restantes{" "}
+                <progress
+                  id="durability-bar"
+                  max={Math.max(DURABILITY_BAR_MAX, selectedInstallation.remaining_durability)}
+                  value={selectedInstallation.remaining_durability}
+                />
+              </p>
+            )}
           </div>
           <p className={messageClass} id="action-message" role="status">
             {actionMessage?.text ?? ""}
@@ -85,6 +115,16 @@ export function ValleyControls({
             >
               Soltar gota
             </button>
+            {selectedHasTrash && onCleanTrash && (
+              <button
+                id="clean-trash"
+                type="button"
+                disabled={!canActOnTile}
+                onClick={onCleanTrash}
+              >
+                Limpiar basura
+              </button>
+            )}
           </div>
           <div className="action-group action-group-installations">
             <span className="action-group-label">Comprar instalaciones 3R</span>
@@ -116,6 +156,15 @@ export function ValleyControls({
                 Planta de tratamiento (
                 <span id="price-treatment_plant">{panel.prices.treatment_plant}</span>{" "}
                 hojas)
+              </button>
+              <button
+                id="place-trash_bin"
+                type="button"
+                disabled={!canActOnTile}
+                onClick={() => onPlaceInstallation("trash_bin")}
+              >
+                Cesto de reciclaje (
+                <span id="price-trash_bin">{panel.prices.trash_bin}</span> hojas)
               </button>
             </div>
           </div>

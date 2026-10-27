@@ -24,6 +24,7 @@ type Catalog struct {
 	Sprinkler      SprinklerRules
 	Drip           DripRules
 	TreatmentPlant TreatmentPlantRules
+	TrashBin       TrashBinRules
 	// InstallationPriceIncreasePercent es el aumento de precio por cada
 	// compra del mismo tipo de instalación.
 	InstallationPriceIncreasePercent uint32
@@ -104,6 +105,7 @@ type SprinklerRules struct {
 	AreaSide        uint32
 	Humidity        uint64
 	IntervalSeconds uint32
+	Durability      uint32
 }
 
 // DripRules son las cifras del riego por goteo (Reducir).
@@ -111,6 +113,7 @@ type DripRules struct {
 	Price              uint64
 	AreaSide           uint32
 	EvaporationDivisor uint32
+	Durability         uint32
 }
 
 // TreatmentPlantRules son las cifras de la planta de tratamiento (Reciclar).
@@ -118,6 +121,15 @@ type TreatmentPlantRules struct {
 	Price           uint64
 	RefillAmount    uint64
 	IntervalSeconds uint32
+	Durability      uint32
+}
+
+// TrashBinRules son las cifras del cesto de reciclaje (Fase 4).
+type TrashBinRules struct {
+	Price           uint64
+	AreaSide        uint32
+	IntervalSeconds uint32
+	Durability      uint32
 }
 
 // BiggerDropRules son las cifras de la mejora de gota más grande.
@@ -140,8 +152,24 @@ func (c *Catalog) InstallationBasePrice(kind InstallationKind) uint64 {
 		return c.Sprinkler.Price
 	case Drip:
 		return c.Drip.Price
+	case TrashBin:
+		return c.TrashBin.Price
 	default:
 		return c.TreatmentPlant.Price
+	}
+}
+
+// InstallationBaseDurability es la durabilidad base de una instalación al colocarse.
+func (c *Catalog) InstallationBaseDurability(kind InstallationKind) uint32 {
+	switch kind {
+	case Sprinkler:
+		return c.Sprinkler.Durability
+	case Drip:
+		return c.Drip.Durability
+	case TrashBin:
+		return c.TrashBin.Durability
+	default:
+		return c.TreatmentPlant.Durability
 	}
 }
 

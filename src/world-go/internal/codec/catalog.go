@@ -54,9 +54,12 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 		{"fire.burn_out_ticks", uint64(fire.GetBurnOutTicks())},
 		{"sprinkler.area_side", uint64(sprinkler.GetAreaSide())},
 		{"sprinkler.interval_seconds", uint64(sprinkler.GetIntervalSeconds())},
+		{"sprinkler.durability", uint64(sprinkler.GetDurability())},
 		{"drip.area_side", uint64(drip.GetAreaSide())},
 		{"drip.evaporation_divisor", uint64(drip.GetEvaporationDivisor())},
+		{"drip.durability", uint64(drip.GetDurability())},
 		{"treatment_plant.interval_seconds", uint64(plant.GetIntervalSeconds())},
+		{"treatment_plant.durability", uint64(plant.GetDurability())},
 		{"bigger_drop.area_side", uint64(biggerDrop.GetAreaSide())},
 	} {
 		if figure.value == 0 {
@@ -100,16 +103,19 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 			AreaSide:        sprinkler.GetAreaSide(),
 			Humidity:        sprinkler.GetHumidity(),
 			IntervalSeconds: sprinkler.GetIntervalSeconds(),
+			Durability:      sprinkler.GetDurability(),
 		},
 		Drip: domain.DripRules{
 			Price:              drip.GetPrice(),
 			AreaSide:           drip.GetAreaSide(),
 			EvaporationDivisor: drip.GetEvaporationDivisor(),
+			Durability:         drip.GetDurability(),
 		},
 		TreatmentPlant: domain.TreatmentPlantRules{
 			Price:           plant.GetPrice(),
 			RefillAmount:    plant.GetRefillAmount(),
 			IntervalSeconds: plant.GetIntervalSeconds(),
+			Durability:      plant.GetDurability(),
 		},
 		InstallationPriceIncreasePercent: message.GetInstallationPriceIncreasePercent(),
 		BiggerDrop: domain.BiggerDropRules{

@@ -81,6 +81,7 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     let sprinkler = section(catalog.sprinkler, "sprinkler")?;
     let drip = section(catalog.drip, "drip")?;
     let plant = section(catalog.treatment_plant, "treatment_plant")?;
+    let trash_bin = section(catalog.trash_bin, "trash_bin")?;
     let bigger_drop = section(catalog.bigger_drop, "bigger_drop")?;
     let bigger_tank = section(catalog.bigger_tank, "bigger_tank")?;
 
@@ -95,9 +96,14 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     positive(fire.burn_out_ticks, "fire.burn_out_ticks")?;
     positive(sprinkler.area_side, "sprinkler.area_side")?;
     positive(sprinkler.interval_seconds, "sprinkler.interval_seconds")?;
+    positive(sprinkler.durability, "sprinkler.durability")?;
     positive(drip.area_side, "drip.area_side")?;
     positive(drip.evaporation_divisor, "drip.evaporation_divisor")?;
+    positive(drip.durability, "drip.durability")?;
     positive(plant.interval_seconds, "treatment_plant.interval_seconds")?;
+    positive(plant.durability, "treatment_plant.durability")?;
+    positive(trash_bin.interval_seconds, "trash_bin.interval_seconds")?;
+    positive(trash_bin.durability, "trash_bin.durability")?;
     positive(bigger_drop.area_side, "bigger_drop.area_side")?;
 
     Ok(Catalog {
@@ -136,16 +142,25 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
             area_side: sprinkler.area_side,
             humidity: sprinkler.humidity,
             interval_seconds: sprinkler.interval_seconds,
+            durability: sprinkler.durability,
         },
         drip: dc::DripRules {
             price: drip.price,
             area_side: drip.area_side,
             evaporation_divisor: drip.evaporation_divisor,
+            durability: drip.durability,
         },
         treatment_plant: dc::TreatmentPlantRules {
             price: plant.price,
             refill_amount: plant.refill_amount,
             interval_seconds: plant.interval_seconds,
+            durability: plant.durability,
+        },
+        trash_bin: dc::TrashBinRules {
+            price: trash_bin.price,
+            area_side: trash_bin.area_side,
+            interval_seconds: trash_bin.interval_seconds,
+            durability: trash_bin.durability,
         },
         installation_price_increase_percent: catalog.installation_price_increase_percent,
         bigger_drop: dc::BiggerDropRules {
@@ -181,6 +196,10 @@ pub fn command_from_proto(command: pb::Command) -> Command {
             enabled: demo.enabled,
         }),
         Kind::ResetValley(_) => Some(CommandKind::ResetValley),
+        Kind::CleanTrash(clean) => Some(CommandKind::CleanTrash {
+            x: clean.x,
+            y: clean.y,
+        }),
     });
     Command {
         action_id: command.action_id,
@@ -336,7 +355,10 @@ fn tile_to_proto(tile: &Tile) -> pb::Tile {
             .map(|installation| pb::Installation {
                 kind: installation_to_proto(installation.kind).into(),
                 owner_id: installation.owner_id.clone(),
+                remaining_durability: installation.remaining_durability,
             }),
+        has_building: tile.has_building,
+        trash_level: tile.trash_level,
     }
 }
 
@@ -345,6 +367,7 @@ fn tile_from_proto(tile: pb::Tile) -> Result<Tile, DecodeError> {
         Some(installation) => Some(Installation {
             kind: installation_from_proto(installation.kind, "Installation.kind")?,
             owner_id: installation.owner_id,
+            remaining_durability: installation.remaining_durability,
         }),
         None => None,
     };
@@ -357,6 +380,8 @@ fn tile_from_proto(tile: pb::Tile) -> Result<Tile, DecodeError> {
             burning_ticks: fire.burning_ticks,
         }),
         installation,
+        has_building: tile.has_building,
+        trash_level: tile.trash_level,
     })
 }
 
@@ -489,6 +514,8 @@ fn stage_to_proto(stage: TileStage) -> pb::TileStage {
         TileStage::Shrub => pb::TileStage::Shrub,
         TileStage::Flowers => pb::TileStage::Flowers,
         TileStage::Tree => pb::TileStage::Tree,
+        TileStage::Water => pb::TileStage::Water,
+        TileStage::Rock => pb::TileStage::Rock,
     }
 }
 
@@ -499,6 +526,8 @@ fn stage_from_proto(value: i32) -> Result<TileStage, DecodeError> {
         Ok(pb::TileStage::Shrub) => Ok(TileStage::Shrub),
         Ok(pb::TileStage::Flowers) => Ok(TileStage::Flowers),
         Ok(pb::TileStage::Tree) => Ok(TileStage::Tree),
+        Ok(pb::TileStage::Water) => Ok(TileStage::Water),
+        Ok(pb::TileStage::Rock) => Ok(TileStage::Rock),
         Ok(pb::TileStage::Unspecified) | Err(_) => Err(DecodeError::UnknownEnum {
             field: "Tile.stage",
             value,
@@ -511,6 +540,7 @@ fn installation_to_proto(kind: InstallationKind) -> pb::InstallationKind {
         InstallationKind::Sprinkler => pb::InstallationKind::Sprinkler,
         InstallationKind::Drip => pb::InstallationKind::Drip,
         InstallationKind::TreatmentPlant => pb::InstallationKind::TreatmentPlant,
+        InstallationKind::TrashBin => pb::InstallationKind::TrashBin,
     }
 }
 
@@ -522,6 +552,7 @@ fn installation_from_proto(
         Ok(pb::InstallationKind::Sprinkler) => Ok(InstallationKind::Sprinkler),
         Ok(pb::InstallationKind::Drip) => Ok(InstallationKind::Drip),
         Ok(pb::InstallationKind::TreatmentPlant) => Ok(InstallationKind::TreatmentPlant),
+        Ok(pb::InstallationKind::TrashBin) => Ok(InstallationKind::TrashBin),
         Ok(pb::InstallationKind::Unspecified) | Err(_) => {
             Err(DecodeError::UnknownEnum { field, value })
         }
@@ -1015,16 +1046,19 @@ mod tests {
                 area_side: c.sprinkler.area_side,
                 humidity: c.sprinkler.humidity,
                 interval_seconds: c.sprinkler.interval_seconds,
+                durability: c.sprinkler.durability,
             }),
             drip: Some(p::DripRules {
                 price: c.drip.price,
                 area_side: c.drip.area_side,
                 evaporation_divisor: c.drip.evaporation_divisor,
+                durability: c.drip.durability,
             }),
             treatment_plant: Some(p::TreatmentPlantRules {
                 price: c.treatment_plant.price,
                 refill_amount: c.treatment_plant.refill_amount,
                 interval_seconds: c.treatment_plant.interval_seconds,
+                durability: c.treatment_plant.durability,
             }),
             installation_price_increase_percent: c.installation_price_increase_percent,
             bigger_drop: Some(p::BiggerDropRules {
