@@ -30,15 +30,6 @@ impl OfflineSummary {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
-
-    pub(super) fn add(&mut self, other: &Self) {
-        self.leaves_earned = self.leaves_earned.saturating_add(other.leaves_earned);
-        self.water_reused = self.water_reused.saturating_add(other.water_reused);
-        self.fires_extinguished = self
-            .fires_extinguished
-            .saturating_add(other.fires_extinguished);
-        self.tiles_grown = self.tiles_grown.saturating_add(other.tiles_grown);
-    }
 }
 
 /// Todo lo que el simulador guarda de cada jugador (`PlayerRecord`).
