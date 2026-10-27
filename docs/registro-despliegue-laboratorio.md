@@ -26,16 +26,16 @@ Fuente: `ip.txt` del equipo y `deploy/nodes/lab-addresses.local`. Subred `10.68.
 | **compu 9** | `10.68.17.9` | `persistence` | `persistence.yml` | Persistencia (Python) | **50051** (gRPC) | los de BD + `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` |
 | **compu 10 (`labbd-10`)** | `10.68.17.10` | `world` | `world.yml` | Simulador (Rust / world-go) | **50051** (gRPC) | *Ninguno* |
 | **compu 12** | `10.68.17.12` | `hub` | `hub.yml` | Hub (Go), Chat (Go) y Bots *(a demanda)* | **8081** (WS), **8082** (Chat), **50051** (gRPC) | `TOKEN_PUBLIC_KEY` *(+ `HV_ADMIN_*` para bots)* |
-| **compu 11** | `10.68.17.80` | `proxy` | `proxy.yml` | Nginx (HTTPS, Frontend) y API (Node/TS) | **8080** (HTTPS / WSS única entrada principal) | `TOKEN_PRIVATE_KEY` *(firma tokens JWT)* |
-| **compu 6 (Opcional - B8)** | `10.68.17.x` | `standby` | `standby.yml` | Proxy standby, Hub standby (gen 2), world-go (standby) | **8080** (HTTPS), **8081** (WS), **50051** (gRPC) | `TOKEN_PRIVATE_KEY`, `TOKEN_PUBLIC_KEY` |
+| **compu 11** | `10.68.17.11` | `proxy` | `proxy.yml` | Nginx (HTTPS, Frontend) y API (Node/TS) | **8080** (HTTPS / WSS única entrada principal) | `TOKEN_PRIVATE_KEY` *(firma tokens JWT)* |
+| **compu 2 (Opcional - B8)** | `10.68.17.2` | `standby` | `standby.yml` | Proxy standby, Hub standby (gen 2), world-go (standby) | **8080** (HTTPS), **8081** (WS), **50051** (gRPC) | `TOKEN_PRIVATE_KEY`, `TOKEN_PUBLIC_KEY` |
 
-> **Nota de red:** La **compu 11** tiene la IP `10.68.17.80` (no `.11`). Siempre debe verificarse con `ipconfig`.
+> **Nota de red:** La **compu 11** tiene la IP `10.68.17.11` (confirmada en el adaptador Ethernet). Siempre debe verificarse con `ipconfig`.
 
 ### URLs de acceso al sistema
-- **Juego (Primario):** `https://10.68.17.80:8080`
-- **Panel del sistema (salud y observabilidad primario):** `https://10.68.17.80:8080/sistema.html`
-- **Documentación Swagger API:** `https://10.68.17.80:8080/api/docs`
-- **Juego / Panel (Respaldo en 6.ª PC si el proxy principal cae):** `https://<IP_COMPU_6>:8080` (y `/sistema.html`)
+- **Juego (Primario):** `https://10.68.17.11:8080`
+- **Panel del sistema (salud y observabilidad primario):** `https://10.68.17.11:8080/sistema.html`
+- **Documentación Swagger API:** `https://10.68.17.11:8080/api/docs`
+- **Juego / Panel (Respaldo en compu 2 si el proxy principal cae):** `https://10.68.17.2:8080` (y `/sistema.html`)
 
 *(Los certificados TLS de Nginx son autofirmados e incluyen automáticamente las IPs de los nodos en su SAN: el navegador avisará una sola vez; hacer clic en Avanzado › Continuar).*
 
@@ -56,9 +56,9 @@ LAB_DB_HOST=10.68.17.3
 LAB_PERSISTENCE_HOST=10.68.17.9
 LAB_WORLD_HOST=10.68.17.10
 LAB_HUB_HOST=10.68.17.12
-LAB_PROXY_HOST=10.68.17.80
-# 6.ª máquina opcional para B8 (sustituir por su IP real en la red 10.68.17.x):
-LAB_STANDBY_HOST=10.68.17.6
+LAB_PROXY_HOST=10.68.17.11
+# 6.ª máquina opcional para B8 (Compu 2 en 10.68.17.2):
+LAB_STANDBY_HOST=10.68.17.2
 
 HV_DB_PORT=5433
 HV_PERSISTENCE_PORT=50051
@@ -110,7 +110,7 @@ HV_ADMIN_PASSWORD=<contraseña del administrador, en claro>
 - **Compu 10 (`world`):** No requiere archivo `secrets.local`.
 - **Compu 12 (`hub`):** `TOKEN_PUBLIC_KEY`, `HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD` (el Hub solo valida firmas con la clave pública, nunca firma tokens).
 - **Compu 11 (`proxy`):** `TOKEN_PRIVATE_KEY` (la API en este nodo es el emisor principal que firma los tokens JWT con la clave privada Ed25519).
-- **Compu 6 (`standby` - 6.ª PC opcional):** Requiere **ambas** claves: `TOKEN_PRIVATE_KEY` (para su réplica local de la API por si asume la entrada) y `TOKEN_PUBLIC_KEY` (para su réplica local del Hub que valida jugadores).
+- **Compu 2 (`standby` - 6.ª PC opcional):** Requiere **ambas** claves: `TOKEN_PRIVATE_KEY` (para su réplica local de la API por si asume la entrada) y `TOKEN_PUBLIC_KEY` (para su réplica local del Hub que valida jugadores).
 
 ### Paso 3: Encendido de Docker Desktop
 En cada una de las PCs participantes, abrir **Docker Desktop** y aguardar hasta que indique *Engine running*.
@@ -138,7 +138,7 @@ Gracias a la propiedad **RNF-09** (arranque desordenado y reconexión automátic
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\lab\deploy-node.ps1 -Node proxy -Addresses deploy\nodes\lab-addresses.local -Secrets deploy\nodes\secrets.local -Tag dev
   ```
-- **En la 6.ª Compu (`standby` - Opcional para B8 / CP-12):**
+- **En Compu 2 (`standby` - 6.ª PC opcional para B8 / CP-12):**
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\lab\deploy-node.ps1 -Node standby -Addresses deploy\nodes\lab-addresses.local -Secrets deploy\nodes\secrets.local -Tag dev
   ```
@@ -157,7 +157,7 @@ Todos los nodos configurados deben reflejar el estado **`abierto`** (si la 6.ª 
 
 | Incidencia | Causa Raíz | Solución Aplicada |
 | :--- | :--- | :--- |
-| `diagnose.ps1` reportaba el puerto 8080 del proxy como `BLOQUEADO` | El proxy aún no estaba levantado o no coincidía la IP del adaptador Ethernet | Se confirmó la IP real con `ipconfig` en la compu 11 (`10.68.17.80`), se corrigió el archivo y se levantó el nodo `proxy`. |
+| `diagnose.ps1` reportaba el puerto 8080 del proxy como `BLOQUEADO` | El proxy aún no estaba levantado o no coincidía la IP del adaptador Ethernet | Se confirmó la IP real con `ipconfig` en la compu 11 (`10.68.17.11`), se corrigió el archivo y se levantó el nodo `proxy`. |
 | Error `unauthorized` al descargar imágenes de `ghcr.io` | Paquetes en GitHub Packages marcados como privados (D1) | `deploy-node.ps1` solicita `docker login ghcr.io` con usuario y un Personal Access Token (PAT) con permiso `read:packages`. |
 | Escritura bloqueada de `secrets.local` desde scripts locales | Protección de carpetas de usuario / permisos en Windows 10 | Se crearon/pegaron los valores de los secretos de forma manual en disco. |
 | Puertos marcados como `BLOQUEADO` antes de levantar servicios | `diagnose.ps1` no distingue entre firewall cerrado y puerto sin servicio escuchando | Para probar puramente el cortafuegos antes de levantar un servicio, se usa el modo listener: `diagnose.ps1 -Listen <puerto>`. |
@@ -192,7 +192,7 @@ docker @compose run --rm bots load-test
 *Criterio de aceptación:* 30 bots durante 60 segundos manteniendo $\ge 100\text{ gotas/s}$ y $p95 < 200\text{ ms}$.
 
 ### C. Escenarios de Tolerancia a Fallos
-Con el panel `https://10.68.17.80:8080/sistema.html` abierto y un jugador activo:
+Con el panel `https://10.68.17.11:8080/sistema.html` abierto y un jugador activo:
 1. **Caída de Persistencia (CP-07):** Detener `persistence` en compu 9 (`docker stop hv-persistence-persistence-1`) durante 10 s. Comprobar que en el panel pasa a `down`, pero los jugadores pueden seguir jugando fluidamente sin pausa del valle. Al reiniciar el contenedor, vuelve a `up`.
 2. **Caída del Simulador (CP-05):** Detener `world` en compu 10 (`docker stop hv-world-world-1`) durante 10 s (o simular caída abrupta con `kill -s KILL`). Comprobar que el hub entra en pausa, abre el Circuit Breaker tras 3 fallos y acumula las gotas. Al reiniciar `world`, el simulador carga la última instantánea de PostgreSQL y drena la cola sin duplicar acciones ni entrar en bucle de recarga (invariante B8 `just_loaded_same_window`).
 3. **Caída del Hub (CP-06):** Reiniciar `hub` en compu 12. Verificar reconexión automática de los navegadores.
@@ -212,8 +212,8 @@ En una arquitectura distribuida, la pérdida de un nodo físico o el apagado de 
 | **Compu 9 (`persistence`)** | Persistencia Python (gRPC) | **Idéntico al fallo de `db`.** El camino crítico del juego (`navegador ↔ proxy ↔ hub ↔ world`) permanece completamente desacoplado (RNF-04). Los jugadores activos siguen jugando con latencia $< 200\text{ ms}$. La API responde `503` en endpoints de autenticación y ranking. | Al restaurarse el servicio, el simulador retoma el guardado periódico cada 50 ticks y la API vuelve a atender consultas de cuentas de inmediato. |
 | **Compu 10 (`world`)** | Simulador (Rust / Go principal) | **El valle se congela temporalmente.** El Hub detecta la falta de respuesta en `Step`: <br>• Abre el *Circuit Breaker* tras 3 intentos fallidos.<br>• Mantiene el WebSocket `/play` abierto y encola las gotas entrantes (hasta su límite de búfer).<br>• **Con nodo Standby activo (B8):** El Hub realiza *failover* automático tras ~1 s a la réplica Go (`world-go`), promoviéndola de Standby a Ready; el juego continúa sin interrupción perceptible para los jugadores. | Al volver a encender la máquina 10:<br>• Sin standby: `world` carga la última instantánea de PostgreSQL, drena la cola del Hub y reanuda el tick.<br>• Con standby: Al reactivarse, detecta que el tick avanzó en el secundario (`min_expected_tick > restored_tick`), rota su `boot_id`, recarga la última instantánea y queda listo para un *failback* limpio sin conflicto de estados. |
 | **Compu 12 (`hub`)** | Hub (Go WebSocket) y Chat | **Desconexión temporal del WebSocket en clientes.** <br>• Los navegadores detectan el cierre del socket `/play` y `/chat` y entran en reintento automático de reconexión con backoff.<br>• El estado del valle en el simulador (`world`) permanece **intacto y congelado en memoria** (no avanza ticks en vacío).<br>• **Con nodo Standby activo (B8):** El Hub secundario (generación 2) asume la atención a través del proxy de respaldo. | Al encenderse la máquina 12, los navegadores se reconectan automáticamente (CP-06). El Hub se enlaza de nuevo con `world`, comprueba la salud del simulador y reanuda el avance del reloj lógico (ticks). |
-| **Compu 11 (`proxy`)** | Nginx (HTTPS) y API (TypeScript) | **Pérdida de la puerta de entrada única.** Ni la web (`https://...`), ni la API, ni los WebSockets son alcanzables desde el exterior.<br>• Sin embargo, el estado interno (`db`, `persistence`, `world`, `hub`) se conserva en sus respectivas máquinas sin corrupción.<br>• **Con nodo Standby activo (B8):** Si los clientes o el balanceador apuntan a la IP del `proxy-standby` (`10.68.17.x`), la navegación se restablece conectando al backend vivo. | Al reiniciar la máquina 11, Nginx vuelve a levantar su certificado TLS autofirmado, la API reestablece las conexiones gRPC con persistencia y simulador, y el tráfico vuelve a fluir con normalidad. |
-| **Compu 6 (`standby` - Opcional B8)** | Réplicas Standby (Proxy, Hub gen 2, world-go) | **CERO impacto en la operación activa.** El sistema principal de las 5 PCs sigue funcionando al 100%. Únicamente se pierde la capacidad de conmutación por fallo automática ante una segunda caída concurrente de otro nodo. | Al encenderse la máquina, los contenedores arrancan en modo espera (`standby`) sin competir ni escribir en la base de datos hasta ser requeridos. |
+| **Compu 11 (`proxy`)** | Nginx (HTTPS) y API (TypeScript) | **Pérdida de la puerta de entrada única.** Ni la web (`https://...`), ni la API, ni los WebSockets son alcanzables desde el exterior.<br>• Sin embargo, el estado interno (`db`, `persistence`, `world`, `hub`) se conserva en sus respectivas máquinas sin corrupción.<br>• **Con nodo Standby activo (B8):** Si los clientes o el balanceador apuntan a la IP del `proxy-standby` (`10.68.17.2`), la navegación se restablece conectando al backend vivo. | Al reiniciar la máquina 11, Nginx vuelve a levantar su certificado TLS autofirmado, la API reestablece las conexiones gRPC con persistencia y simulador, y el tráfico vuelve a fluir con normalidad. |
+| **Compu 2 (`standby` - Opcional B8)** | Réplicas Standby (Proxy, Hub gen 2, world-go) | **CERO impacto en la operación activa.** El sistema principal de las 5 PCs sigue funcionando al 100%. Únicamente se pierde la capacidad de conmutación por fallo automática ante una segunda caída concurrente de otro nodo. | Al encenderse la máquina, los contenedores arrancan en modo espera (`standby`) sin competir ni escribir en la base de datos hasta ser requeridos. |
 
 ---
 
