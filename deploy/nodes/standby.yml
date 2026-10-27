@@ -26,8 +26,8 @@ services:
       API_LISTEN: 0.0.0.0:3000
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PERSISTENCE_ADDR: ${LAB_PERSISTENCE_HOST:?definir LAB_PERSISTENCE_HOST en lab-addresses.local}:${HV_PERSISTENCE_PORT:-50051}
-      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051},127.0.0.1:50051
-      HUB_STATS_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081},127.0.0.1:8081
+      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051},world:50051
+      HUB_STATS_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081},hub:8081
       TOKEN_PRIVATE_KEY: ${TOKEN_PRIVATE_KEY:?definir TOKEN_PRIVATE_KEY en secrets.local}
       TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-43200}
       TRUST_PROXY: "true"
@@ -39,7 +39,7 @@ services:
     environment:
       API_ADDR: api:3000
       HUB_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081}
-      HUB_BACKUP_ADDR: 127.0.0.1:8081
+      HUB_BACKUP_ADDR: hub:8081
       CHAT_ADDR: ${LAB_CHAT_HOST:-${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}}:${HV_CHAT_PORT:-8082}
       CHAT_BACKUP_ADDR: ${LAB_CHAT_HOST:-${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}}:${HV_CHAT_PORT:-8082}
       PROXY_BACKUP_URLS: ${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}:${HV_PROXY_PORT:-8080}
@@ -53,7 +53,7 @@ services:
     <<: *service
     image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-hub:${HV_TAG:-dev}
     environment:
-      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051},127.0.0.1:50051
+      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051},world:50051
       HUB_LISTEN: :8081
       HUB_GENERATION: 2
       HUB_PRIMARY_HEALTH_URL: http://${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081}/healthz

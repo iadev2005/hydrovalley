@@ -13,6 +13,7 @@ import {
   AUTH_CLOSE_CODE,
   createEndpointRotator,
   createReconnectBackoff,
+  WS_HANDSHAKE_TIMEOUT_MS,
   type ConnectionStatus,
   type EndpointRotator,
 } from "../logic/play.ts";
@@ -51,6 +52,7 @@ export function useChatSocket({
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSeqRef = useRef<number>(0);
   const serverEpochRef = useRef<string | null>(null);
   const backoffRef = useRef(createReconnectBackoff({ random, now }));
@@ -66,6 +68,10 @@ export function useChatSocket({
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
+    }
+    if (handshakeTimerRef.current !== null) {
+      clearTimeout(handshakeTimerRef.current);
+      handshakeTimerRef.current = null;
     }
   }, []);
 
@@ -124,8 +130,16 @@ export function useChatSocket({
 
       const ws = new WebSocket(url);
       socketRef.current = ws;
+      handshakeTimerRef.current = setTimeout(() => {
+        if (isDisposed || socketRef.current !== ws) return;
+        ws.close(4000);
+      }, WS_HANDSHAKE_TIMEOUT_MS);
 
       ws.onopen = () => {
+        if (handshakeTimerRef.current !== null) {
+          clearTimeout(handshakeTimerRef.current);
+          handshakeTimerRef.current = null;
+        }
         if (isDisposed || socketRef.current !== ws) {
           ws.close();
           return;
@@ -195,6 +209,10 @@ export function useChatSocket({
       };
 
       ws.onclose = (event) => {
+        if (handshakeTimerRef.current !== null) {
+          clearTimeout(handshakeTimerRef.current);
+          handshakeTimerRef.current = null;
+        }
         if (isDisposed || socketRef.current !== ws) return;
         socketRef.current = null;
         backoffRef.current.closed();

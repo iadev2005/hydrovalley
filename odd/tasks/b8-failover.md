@@ -8,7 +8,7 @@ Documento de decisión aprobado: [`docs/decisiones/b8-orquestacion.md`](../../do
 
 ## Problema y por qué
 
-- En la topología actual del Plan A (montada en las 5 PCs del laboratorio el 23 de octubre de 2026: `10.68.17.3` `db`, `10.68.17.9` `persistence`, `10.68.17.10` `world`, `10.68.17.12` `hub`, `10.68.17.80` `proxy`), apagar `db` o `persistence` ya permite seguir jugando (CP-07 y CP-12), pero apagar `world`, `hub` o `proxy` detiene la partida porque sus direcciones son únicas (`WORLD_ADDR`, `HUB_ADDR`, `HUB_STATS_ADDR`) y no hay réplicas en espera.
+- En la topología actual del Plan A (montada en las 5 PCs del laboratorio el 23 de octubre de 2026: `10.68.17.3` `db`, `10.68.17.9` `persistence`, `10.68.17.10` `world`, `10.68.17.12` `hub`, `10.68.17.11` `proxy`), apagar `db` o `persistence` ya permite seguir jugando (CP-07 y CP-12), pero apagar `world`, `hub` o `proxy` detiene la partida porque sus direcciones son únicas (`WORLD_ADDR`, `HUB_ADDR`, `HUB_STATS_ADDR`) y no hay réplicas en espera.
 - Dos simuladores o dos hubs activos a la vez violarían la Regla 1 (escritor único) y la Regla 3 (reloj lógico). Además, si un contenedor primario solo estaba pausado (`docker pause`) y luego se despausa (`docker unpause`), seguiría ejecutándose con estado obsoleto si no existe un mecanismo de *fencing* y de invalidación de memoria.
 - Del mismo modo, si un simulador en espera cargara la instantánea al arrancar el contenedor en lugar de hacerlo al promoverse, arrancaría con un `tick` viejo y al recibir tráfico haría retroceder el reloj lógico (violando la Regla 8).
 
@@ -17,7 +17,7 @@ Documento de decisión aprobado: [`docs/decisiones/b8-orquestacion.md`](../../do
 - **Contrato (`world.proto`, cambio aditivo):** Añadir en `StepRequest` los campos opcionales `uint64 hub_generation = 2` (para *fencing* de hubs) y `uint64 min_expected_tick = 3` (último `tick` confirmado que conoce el hub, para blindar el despausado y el regreso `world-go → Rust`).
 - **T1 · Entrada doble y conmutación transparente (`E2`):**
   - Bloque `upstream` en `deploy/nginx/templates/default.conf.template` con servidor primario (`HUB_ADDR`) y `backup` (`HUB_BACKUP_ADDR`) para `/play` y `/chat`, más cabeceras CORS para orígenes autorizados del laboratorio.
-  - Certificado TLS autofirmado compartido o con `TLS_EXTRA_SANS` cubriendo las IPs del proxy primario (`10.68.17.80`) y del `proxy-standby`.
+  - Certificado TLS autofirmado compartido o con `TLS_EXTRA_SANS` cubriendo las IPs del proxy primario (`10.68.17.11`) y del `proxy-standby`.
   - Lista de URLs de entrada en el frontend (`useGameSocket`, `useReports`, `useSystemMetrics`, `auth`) y en los bots (`HV_BASE_URL` admitiendo varias URLs separadas por comas), más temporizador de silencio en el WebSocket (`3,5 s` sin recibir `state`) para detectar máquinas apagadas sin `TCP RST` y rotar automáticamente al `proxy-standby` sin perder la sesión JWT ni cambiar de IP a mano.
 - **T2 · Simulador en espera (`W2`, relevo `Rust → world-go` y regreso `world-go → Rust`):**
   - Modo `WORLD_MODE=active|standby` (por defecto `active`) tanto en `src/world` (Rust) como en `src/world-go` (Go). En `standby`, el simulador no ejecuta `LoadSnapshot` al arrancar, sino en el instante en que recibe su primer `Step` de promoción (pasa `Standby → Loading → Ready`, genera su `boot_id` y devuelve `restored_tick`).

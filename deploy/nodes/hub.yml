@@ -45,7 +45,7 @@ services:
     profiles: ["bots"]
     image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-bots:${HV_TAG:-dev}
     environment:
-      HV_BASE_URL: https://${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}:${HV_PROXY_PORT:-8080}
+      HV_BASE_URL: https://${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}:${HV_PROXY_PORT:-8080}${LAB_STANDBY_HOST:+,https://${LAB_STANDBY_HOST}:${HV_STANDBY_PROXY_PORT:-${HV_PROXY_PORT:-8080}}}
       # El proxy usa un certificado autofirmado que el bot no conoce: por
       # defecto no se verifica (el bot lo avisa al arrancar), aceptable en la
       # red cerrada del laboratorio. Para verificar: HV_TLS_INSECURE=false y

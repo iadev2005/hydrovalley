@@ -210,13 +210,24 @@ export function selectionView(
 ): { label: string; info: string } {
   if (!selected) return { label: "ninguna", info: "Haz clic en una casilla." };
   const label = `(${selected.x}, ${selected.y})`;
-  const tiles = buildTiles(state);
-  const width = state?.width ?? 0;
-  const tile = tiles[selected.y * width + selected.x];
-  if (!tile) return { label, info: "Sin datos del mapa todavía." };
-  let info = `${stageName(tile.stage)}, humedad ${tile.humidity}`;
-  if (tile.fire) info += `, en llamas (${tile.fire.drops_received} gotas recibidas)`;
-  if (tile.installation) info += `, instalación: ${tile.installation.kind}`;
+  if (!state || state.stages.length === 0) {
+    return { label, info: "Sin datos del mapa todavía." };
+  }
+  const { width, height } = state;
+  if (selected.x < 0 || selected.y < 0 || selected.x >= width || selected.y >= height) {
+    return { label, info: "Sin datos del mapa todavía." };
+  }
+  const idx = selected.y * width + selected.x;
+  const stage = state.stages[idx];
+  if (stage === undefined) {
+    return { label, info: "Sin datos del mapa todavía." };
+  }
+  const humidity = state.humidity[idx] ?? 0n;
+  let info = `${stageName(stage)}, humedad ${humidity}`;
+  const fire = state.fires.find((f) => f.x === selected.x && f.y === selected.y);
+  if (fire) info += `, en llamas (${fire.drops_received} gotas recibidas)`;
+  const inst = state.installations.find((i) => i.x === selected.x && i.y === selected.y);
+  if (inst) info += `, instalación: ${inst.installation}`;
   return { label, info };
 }
 

@@ -102,6 +102,8 @@ export interface HubView {
   humidityContributed: string;
   acceptedDrops: string;
   activeFires: string;
+  bootId: string;
+  restoredTick: string;
 }
 
 function toHubView(hub: Record<string, unknown>): HubView {
@@ -116,6 +118,7 @@ function toHubView(hub: Record<string, unknown>): HubView {
     : {}) as Record<string, unknown>;
 
   const breakerKey = typeof hub["breaker"] === "string" ? hub["breaker"] : "";
+  const rawBootId = typeof hub["boot_id"] === "string" && hub["boot_id"].trim() !== "" ? hub["boot_id"].trim() : DASH;
 
   return {
     tick: formatU64(hub["tick"]),
@@ -135,6 +138,8 @@ function toHubView(hub: Record<string, unknown>): HubView {
     humidityContributed: formatU64(hub["humidity_contributed"]),
     acceptedDrops: formatU64(hub["accepted_drops"]),
     activeFires: formatCount(hub["active_fires"]),
+    bootId: rawBootId,
+    restoredTick: formatU64(hub["restored_tick"]),
   };
 }
 

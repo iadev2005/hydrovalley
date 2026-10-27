@@ -112,6 +112,14 @@ export function SystemDashboard({
             <dt>Circuit Breaker</dt>
             <dd data-field="breaker">{hub?.breaker ?? "—"}</dd>
           </div>
+          <div>
+            <dt>Instancia del simulador (boot_id)</dt>
+            <dd data-field="bootId">{hub?.bootId ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Tick restaurado</dt>
+            <dd data-field="restoredTick">{hub?.restoredTick ?? "—"}</dd>
+          </div>
         </dl>
       </section>
 

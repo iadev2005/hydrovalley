@@ -371,6 +371,18 @@ export const RECONNECT_STABLE_MS = 5_000;
  * se apaga una máquina o se pausa un contenedor, TCP no envía `FIN` ni `RST`).
  */
 export const STATE_SILENCE_MS = 3_500;
+/**
+ * Plazo máximo de cada intento HTTP individual hacia un proxy antes de
+ * abortar y conmutar al siguiente host del rotador (evita quedarse bloqueado
+ * 21–75 s en el timeout de SYN del sistema operativo cuando un nodo entra en
+ * `docker pause` o pierde alimentación).
+ */
+export const FETCH_ATTEMPT_TIMEOUT_MS = 3_000;
+/**
+ * Plazo máximo para completar el handshake `open` de un WebSocket antes de
+ * cerrar el intento y rotar al siguiente proxy de respaldo.
+ */
+export const WS_HANDSHAKE_TIMEOUT_MS = 4_000;
 
 /**
  * Normaliza una entrada de dirección de respaldo (`https://10.68.17.99:8080/`,
@@ -471,11 +483,13 @@ export function createFailoverFetch({
   rotator,
   protocol,
   onBackupsDiscovered,
+  attemptTimeoutMs = FETCH_ATTEMPT_TIMEOUT_MS,
 }: {
   baseFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   rotator: EndpointRotator;
   protocol: string;
   onBackupsDiscovered?: (headerValue: string) => void;
+  attemptTimeoutMs?: number;
 }): (input: string | URL | Request, init?: RequestInit) => Promise<Response> {
   return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -486,8 +500,17 @@ export function createFailoverFetch({
     for (let attempt = 0; attempt < totalHosts; attempt++) {
       const host = rotator.currentHost();
       const targetUrl = isRelative && host ? `${protocol}//${host}${rawUrl}` : rawUrl;
+      const controller =
+        !init?.signal && attemptTimeoutMs > 0 && typeof AbortController !== "undefined"
+          ? new AbortController()
+          : null;
+      const timer =
+        controller !== null ? setTimeout(() => controller.abort(), attemptTimeoutMs) : null;
+      const effectiveInit: RequestInit | undefined =
+        controller !== null ? { ...init, signal: controller.signal } : init;
       try {
-        const res = await baseFetch(targetUrl, init);
+        const res = await baseFetch(targetUrl, effectiveInit);
+        if (timer !== null) clearTimeout(timer);
         const backupsHeader = res.headers?.get?.("X-Proxy-Backups");
         if (backupsHeader) {
           rotator.addBackups(backupsHeader);
@@ -499,6 +522,7 @@ export function createFailoverFetch({
         }
         return res;
       } catch (err) {
+        if (timer !== null) clearTimeout(timer);
         lastError = err;
         if (attempt + 1 < Math.max(totalHosts, rotator.hosts().length)) {
           rotator.advance();

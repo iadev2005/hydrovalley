@@ -14,6 +14,7 @@ import {
   newUuid,
   parseFrame,
   STATE_SILENCE_MS,
+  WS_HANDSHAKE_TIMEOUT_MS,
   type EndpointRotator,
   type PlayFrame,
   type OfflineSummary,
@@ -45,6 +46,7 @@ export interface UseGameSocketOptions {
   backupHosts?: readonly string[];
   rotator?: EndpointRotator;
   silenceTimeoutMs?: number;
+  handshakeTimeoutMs?: number;
 }
 
 export interface UseGameSocketReturn {
@@ -83,6 +85,7 @@ export function useGameSocket({
   backupHosts,
   rotator,
   silenceTimeoutMs = STATE_SILENCE_MS,
+  handshakeTimeoutMs = WS_HANDSHAKE_TIMEOUT_MS,
 }: UseGameSocketOptions): UseGameSocketReturn {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [statusText, setStatusText] = useState<string>("desconectado");
@@ -204,6 +207,16 @@ export function useGameSocket({
       }
     }
 
+    function armHandshakeTimer(ws: WebSocket) {
+      clearSilenceTimer();
+      if (handshakeTimeoutMs <= 0) return;
+      silenceTimerRef.current = setTimeout(() => {
+        if (!isEffectActive || socketRef.current !== ws) return;
+        addLog(`sin respuesta de conexión tras ${(handshakeTimeoutMs / 1000).toFixed(1)} s: conmutando`);
+        ws.close(4000);
+      }, handshakeTimeoutMs);
+    }
+
     function armSilenceTimer(ws: WebSocket) {
       clearSilenceTimer();
       if (silenceTimeoutMs <= 0) return;
@@ -229,6 +242,7 @@ export function useGameSocket({
       const playUrl = buildPlayUrl({ protocol: location.protocol, host: activeHost }, currentSession.token);
       const ws = new WebSocket(playUrl);
       socketRef.current = ws;
+      armHandshakeTimer(ws);
 
       ws.addEventListener("open", () => {
         if (!isEffectActive || socketRef.current !== ws) return;
@@ -336,7 +350,7 @@ export function useGameSocket({
         ws.close();
       }
     };
-  }, [session, location.protocol, location.host, backupHostsKey, rotator, silenceTimeoutMs, random, now, onSessionExpired, addLog, onActionResult, onResetPending]);
+  }, [session, location.protocol, location.host, backupHostsKey, rotator, silenceTimeoutMs, handshakeTimeoutMs, random, now, onSessionExpired, addLog, onActionResult, onResetPending]);
 
   const effectiveStatus = session ? status : "disconnected";
   const effectiveStatusText = session ? statusText : "desconectado";

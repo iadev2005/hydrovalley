@@ -46,6 +46,13 @@ func (b Backoff) Next(current time.Duration) time.Duration { return min(current*
 // vigente en vez de hacer fallar el tick.
 const defaultResetCatalogTimeout = 100 * time.Millisecond
 
+// promotionWaitTimeout es el plazo máximo que WaitActiveAndFresh espera dentro
+// de un Step cuando dispara una promoción de standby o una recarga tras
+// despausado. Permite completar la promoción en el primer intento (sin reabrir
+// el Circuit Breaker del hub otro segundo entero) cuando PostgreSQL responde
+// rápido, sin exceder el presupuesto de 200 ms del RPC Step.
+const promotionWaitTimeout = 120 * time.Millisecond
+
 // Options configura el simulador.
 type Options struct {
 	// Seed es la semilla del generador de azar cuando el valle empieza de
@@ -89,6 +96,7 @@ type Simulator struct {
 	mu                  sync.Mutex
 	standby             bool
 	loading             bool
+	readyCh             chan struct{}
 	world               *domain.World // nil mientras carga o está en standby
 	restoredTick        uint64
 	bootID              string
@@ -130,6 +138,7 @@ func New(st store.Store, opts Options) *Simulator {
 		bootID:        id,
 		seed:          opts.Seed,
 		standby:       opts.Standby,
+		readyCh:       make(chan struct{}),
 		store:         st,
 		backoff:       opts.Backoff,
 		resetTimeout:  opts.ResetCatalogTimeout,
@@ -194,6 +203,11 @@ func (s *Simulator) CheckHubGeneration(hubGeneration uint64) error {
 // nuevo boot_id y devuelve ErrNotReady para que Step responda UNAVAILABLE
 // hasta terminar la carga.
 func (s *Simulator) EnsureActiveAndFresh(minExpectedTick uint64) error {
+	_, err := s.ensureActiveAndFresh(minExpectedTick)
+	return err
+}
+
+func (s *Simulator) ensureActiveAndFresh(minExpectedTick uint64) (<-chan struct{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.standby {
@@ -203,11 +217,13 @@ func (s *Simulator) EnsureActiveAndFresh(minExpectedTick uint64) error {
 		}
 		s.standby = false
 		s.loading = true
+		s.readyCh = make(chan struct{})
+		ch := s.readyCh
 		go func() { _ = s.loadInner(s.runCtx, true) }()
-		return ErrNotReady
+		return ch, ErrNotReady
 	}
 	if s.world == nil {
-		return ErrNotReady
+		return s.readyCh, ErrNotReady
 	}
 	// Si este simulador acaba de arrancar (world.Tick() == restoredTick) tras
 	// una caída abrupta (SIGKILL) antes del siguiente múltiplo de 50, la última
@@ -224,10 +240,40 @@ func (s *Simulator) EnsureActiveAndFresh(minExpectedTick uint64) error {
 		s.epoch.Add(1)
 		s.world = nil
 		s.loading = true
+		s.readyCh = make(chan struct{})
+		ch := s.readyCh
 		go func() { _ = s.loadInner(s.runCtx, true) }()
+		return ch, ErrNotReady
+	}
+	return nil, nil
+}
+
+// WaitActiveAndFresh es como EnsureActiveAndFresh, pero si el simulador está
+// cargando (por promoción desde Standby o recarga por minExpectedTick), espera
+// hasta promotionWaitTimeout (o hasta que ctx termine) a que concluya la carga.
+// Así el primer Step del hub tras un relevo puede responder directamente sin
+// reabrir el Circuit Breaker 1 s entero.
+func (s *Simulator) WaitActiveAndFresh(ctx context.Context, minExpectedTick uint64) error {
+	ch, err := s.ensureActiveAndFresh(minExpectedTick)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ErrNotReady) || ch == nil {
+		return err
+	}
+	timer := time.NewTimer(promotionWaitTimeout)
+	defer timer.Stop()
+	select {
+	case <-ch:
+		if s.IsReady() {
+			return nil
+		}
+		return ErrNotReady
+	case <-timer.C:
+		return ErrNotReady
+	case <-ctx.Done():
 		return ErrNotReady
 	}
-	return nil
 }
 
 // saving dice si hay un guardado en curso.
@@ -323,6 +369,13 @@ func (s *Simulator) loadInner(ctx context.Context, rotateBootID bool) error {
 		s.standby = false
 		s.loading = false
 		s.world, s.restoredTick = world, restoredTick
+		if s.readyCh != nil {
+			select {
+			case <-s.readyCh:
+			default:
+				close(s.readyCh)
+			}
+		}
 	}
 	return nil
 }

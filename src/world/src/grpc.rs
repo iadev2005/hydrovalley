@@ -38,7 +38,8 @@ impl<S: PersistenceStore> WorldGrpc<S> {
             })?;
         let min_expected_tick = inner.min_expected_tick;
         self.simulator
-            .ensure_active_and_fresh(min_expected_tick)
+            .wait_active_and_fresh(min_expected_tick)
+            .await
             .map_err(|_| Status::unavailable("el simulador todavía está cargando el mundo"))?;
         let commands: Vec<_> = inner
             .commands

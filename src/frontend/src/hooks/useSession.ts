@@ -49,12 +49,18 @@ export function useSession({
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // Si el navegador todavía no conoce ningún proxy de respaldo, lanza un
+    // sondeo ligero a `/api/health` al cargar la pantalla de acceso para
+    // descubrir `X-Proxy-Backups` antes de que el usuario pulse «Entrar».
+    if (fetchFn === browserFetch && browserFetch) {
+      browserFetch("/api/health").catch(() => undefined);
+    }
     return () => {
       if (retryTimerRef.current !== null) {
         clearTimeout(retryTimerRef.current);
       }
     };
-  }, []);
+  }, [fetchFn]);
 
   const clearError = useCallback(() => setError(""), []);
 

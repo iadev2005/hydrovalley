@@ -173,17 +173,21 @@ for node in standby proxy hub world persistence db; do
   node_compose "${node}" up -d --quiet-pull
 done
 
-# El certificado del proxy lo genera nginx al arrancar: se toma de ahí y se usa
-# como CA, así que la verificación TLS no se omite.
+# El certificado del proxy lo genera nginx al arrancar: se toma de ahí (y el de
+# standby) y se usa como CA bundle, así que la verificación TLS no se omite.
 export HV_BASE_URL="https://localhost:${port_proxy}"
+export HV_STANDBY_BASE_URL="https://localhost:${port_standby_proxy}"
 export NODE_EXTRA_CA_CERTS="${tmp}/tls.crt"
-until node_compose proxy cp nginx:/etc/nginx/tls/tls.crt "${tmp}/tls.crt" >/dev/null 2>&1 && [[ -s "${tmp}/tls.crt" ]]; do
+until node_compose proxy cp nginx:/etc/nginx/tls/tls.crt "${tmp}/proxy.crt" >/dev/null 2>&1 \
+  && node_compose standby cp nginx:/etc/nginx/tls/tls.crt "${tmp}/standby.crt" >/dev/null 2>&1 \
+  && [[ -s "${tmp}/proxy.crt" && -s "${tmp}/standby.crt" ]]; do
   if (( SECONDS - up_start > 60 )); then
-    echo "simulate.sh: el proxy no generó su certificado en 60 s" >&2
+    echo "simulate.sh: los proxies no generaron su certificado en 60 s" >&2
     exit 1
   fi
   sleep 1
 done
+cat "${tmp}/proxy.crt" "${tmp}/standby.crt" > "${tmp}/tls.crt"
 
 all_up() {
   [[ "$(curl -fsS --cacert "${tmp}/tls.crt" --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]
@@ -215,6 +219,15 @@ if [[ "${SIM_SKIP_FAULT:-0}" != "1" ]]; then
   SIM_STOP_PERSISTENCE="${persistence_cmd} stop" SIM_START_PERSISTENCE="${persistence_cmd} start" \
     node "${nodes_dir}/simulate-check.mjs" fault
   fault_s=$((SECONDS - t))
+
+  echo "== Relevo B8: se prueban world, hub y proxy contra standby"
+  world_cmd="docker compose -p hv-sim-world -f '${nodes_dir}/world.yml' -f '${tmp}/world.override.yml' --env-file '${addresses}' --env-file '${secrets}'"
+  hub_cmd="docker compose -p hv-sim-hub -f '${nodes_dir}/hub.yml' -f '${tmp}/hub.override.yml' --env-file '${addresses}' --env-file '${secrets}'"
+  SIM_PAUSE_WORLD="${world_cmd} pause" \
+    SIM_UNPAUSE_WORLD="${world_cmd} unpause" \
+    SIM_PAUSE_HUB="${hub_cmd} pause hub" \
+    SIM_UNPAUSE_HUB="${hub_cmd} unpause hub" \
+    node "${nodes_dir}/simulate-check.mjs" failover
 fi
 
 echo "MEDICION PLAN A SIMULADO: build_s=${build_s} up_s=${up_s} smoke_s=${smoke_s} fault_s=${fault_s} total_s=$((SECONDS - total_start)) tag=${HV_TAG}"
