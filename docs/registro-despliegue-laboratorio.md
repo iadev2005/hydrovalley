@@ -164,9 +164,9 @@ Todos los nodos configurados deben reflejar el estado **`abierto`** (si la 6.ª 
 
 ---
 
-## 5. Pruebas Pendientes a Realizar en el Laboratorio
+## 5. Pruebas y Resultados de Validación en el Laboratorio
 
-Una vez con el sistema desplegado, se deben ejecutar y registrar estas pruebas para completar los requisitos del informe:
+Una vez con el sistema desplegado, se ejecutaron las pruebas operativas y de carga para registrar las métricas reales requeridas por el informe final (C1):
 
 ### A. Verificación Integral de Servicios (`health.ps1`)
 Desde cualquier máquina:
@@ -182,6 +182,40 @@ Desde cualquier máquina:
   ```
   Debe consultar al proxy de respaldo (`https://<LAB_STANDBY_HOST>:8080/api/system`) y confirmar el estado de sus servicios.
 
+#### Resultado de la Verificación (27 de octubre de 2026)
+- **Servicios primarios (`https://10.68.17.80:8080/api/system`):**
+  ```text
+  Servicio    Estado Detalle
+  --------    ------ -------
+  nginx       up
+  api         up
+  hub         up
+  world       up
+  persistence up
+
+  Hub: tick 50923, circuito closed, cola 0, sesiones 2
+  Los cinco servicios estan en up.
+  ```
+  *Evaluación:* ✅ Los 5 servicios primarios están en `up`, el tick avanza con normalidad, cola de acciones vacía y Circuit Breaker en estado `closed`.
+
+- **Nodo Standby (`-Standby`):**
+  ```text
+  Servicio    Estado Detalle
+  --------    ------ -------
+  nginx       up
+  api         up
+  hub         up
+  world       up
+  persistence up
+
+
+  Hub: tick 104244, circuito closed, cola 0, sesiones 4
+  Los cinco servicios estan en up.
+  ```
+  *Evaluación:* Los servicios responden y estan disponibles
+
+---
+
 ### B. Prueba de Carga con Bots (CP-11 / RNF-01 / RNF-02)
 En la **compu 12 (`hub`)**, ejecutar:
 ```powershell
@@ -190,6 +224,58 @@ docker @compose pull bots
 docker @compose run --rm bots load-test
 ```
 *Criterio de aceptación:* 30 bots durante 60 segundos manteniendo $\ge 100\text{ gotas/s}$ y $p95 < 200\text{ ms}$.
+
+#### Resultado de la Ejecución Real (27 de octubre de 2026 · Compu 12 `hub`)
+
+- **Fecha y Entorno:** 27 de octubre de 2026, ~17:06 UTC, compu 12 (`10.68.17.12`), imagen `hydrovalley-bots:dev`.
+- **Configuración:** 30 bots concurrentes, duración 60,0 s, modo demo activo, semilla `3941434351654197944`, reset previo del valle (`reset=true`), sin ranking (`ranking=false`).
+- **Línea base previa:** tick 63950, humedad aportada previa: 17700, gotas aceptadas: 0.
+
+##### Tabla Resumen de Métricas Obtenidas
+
+| Métrica / Parámetro | Valor Medido | Criterio de Aceptación | Estado |
+| :--- | :--- | :--- | :--- |
+| **Bots concurrentes** | **30 bots** | 30 bots simultáneos | ✅ Cumple |
+| **Duración de la prueba** | **60,0 s** (1 min) | 60 s sostenidos | ✅ Cumple |
+| **Gotas enviadas** | **7.178** | — | Informativo |
+| **Gotas aceptadas** | **7.178** (100,0 %) | $\ge 6.000$ (para $\ge 100\text{ gotas/s}$) | ✅ 100 % de éxito |
+| **Gotas rechazadas** | **0** (0,0 %) | 0 rechazos no justificados | ✅ Cero pérdidas |
+| **Ritmo de procesamiento (RNF-01)** | **119,6 gotas/s** | $\ge 100\text{ gotas/s}$ | **✅ CUMPLE (+19,6 % sobre el umbral)** |
+| **Latencia mediana ($p50$)** | **62,4 ms** | $< 200\text{ ms}$ | ✅ Respuesta inmediata |
+| **Latencia percentil 95 ($p95$)** | **106,5 ms** | $< 200\text{ ms}$ | **✅ CUMPLE (Holgura de 93,5 ms)** |
+| **Latencia máxima** | **118,9 ms** | $< 200\text{ ms}$ | ✅ Peor caso $< 200\text{ ms}$ |
+| **Cumplimiento de RNF-02** | **100,0 % $< 200\text{ ms}$** | Al menos el 95 % de las acciones $< 200\text{ ms}$ | **✅ CUMPLE (100 % frente al 95 % exigido)** |
+| **Invariante de Humedad (RF-30)** | **7.178 aportada = 7.178 aceptada** | $\Delta\text{humedad} = \Delta\text{gotas}$ | **✅ COINCIDE (Consistencia matemática exacta)** |
+| **Veredicto Global (CP-11)** | **CUMPLE** | RNF-01, RNF-02 e Invariante satisfechos | **✅ PRUEBA SUPERADA CON ÉXITO** |
+
+##### Registro y Traza de Ejecución de la Consola
+```text
+Container hv-hub-bots-run-5da6bb306e72 Creating 
+Container hv-hub-bots-run-5da6bb306e72 Created 
+time=2026-10-27T17:06:15.005Z level=WARN msg="HV_TLS_INSECURE=true: the proxy certificate is NOT verified; use HV_CA_CERT outside the Compose network"
+time=2026-10-27T17:06:15.273Z level=INFO msg="bot accounts provisioned" count=30
+time=2026-10-27T17:06:15.273Z level=INFO msg="load test starting" bots=30 duration=1m0s seed=3941434351654197944 reset=true ranking=false
+time=2026-10-27T17:06:15.326Z level=INFO msg="demo mode on"
+time=2026-10-27T17:06:15.531Z level=INFO msg="baseline read" tick=63950 humidity_contributed=17700 accepted_drops=0
+time=2026-10-27T17:06:15.531Z level=INFO msg="load starting" bots=30 duration=1m0s
+time=2026-10-27T17:07:15.627Z level=INFO msg="sending finished, results drained" window=1m0s
+30 bots · 60,0 s · modo demo
+Gotas enviadas: 7.178 · aceptadas: 7.178 · rechazadas: 0
+Ritmo: 119,6 gotas por segundo
+Latencia: mediana 62,4 ms · p95 106,5 ms · máxima 118,9 ms
+Humedad aportada: 7.178 · gotas aceptadas del hub: 7.178 -> coincide
+RNF-01 (al menos 100 gotas aceptadas por segundo): cumple
+RNF-02 (el 95 % de las acciones en menos de 200 ms): cumple (100,0 %)
+Resultado: CUMPLE
+```
+
+##### Conclusiones Técnicas para el Informe Final (C1)
+1. **Validación de la Arquitectura Distribuida:** Con el backend repartido en máquinas físicas distintas (`db` en compu 3, `world` en compu 10, `hub` en compu 12, `proxy` en compu 11), el sistema absorbió la carga sostenida de 30 clientes sin saturar el bucle de eventos ni los canales gRPC inter-nodo.
+2. **Capacidad de Procesamiento (RNF-01):** El ritmo de 119,6 gotas/s supera en casi un 20 % la cota comprometida en el documento inicial (100 gotas/s), demostrando la eficiencia del modelo concurrente en Go con goroutines y el buffer de ticks.
+3. **Calidad de Servicio y Latencia (RNF-02):** La latencia $p95$ en la red real del laboratorio fue de solo 106,5 ms (frente al máximo permitido de 200 ms), y el 100 % de las peticiones se resolvieron por debajo de ese límite, asegurando interactividad en tiempo real sin congelamiento perceptible.
+4. **Consistencia de Simulación (RF-30):** La verificación estricta entre las gotas aceptadas por el Hub y la humedad computada en la celda del valle por el simulador (`7.178 == 7.178`) confirma que no hubo pérdidas por condiciones de carrera ni lecturas sucias durante el bombeo continuo de acciones concurrentes.
+
+---
 
 ### C. Escenarios de Tolerancia a Fallos
 Con el panel `https://10.68.17.11:8080/sistema.html` abierto y un jugador activo:
