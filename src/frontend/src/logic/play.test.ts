@@ -302,6 +302,8 @@ describe("describeFrame", () => {
         humidity: [],
         fires: [],
         installations: [],
+        buildings: [],
+        trash: [],
         player: {
           water: 19n,
           tank_capacity: 20n,
@@ -310,6 +312,7 @@ describe("describeFrame", () => {
           next_sprinkler_price: 0n,
           next_drip_price: 0n,
           next_treatment_plant_price: 0n,
+          next_trash_bin_price: 0n,
           offline_summary: null,
         },
       }),
@@ -326,6 +329,8 @@ describe("describeFrame", () => {
         humidity: [],
         fires: [],
         installations: [],
+        buildings: [],
+        trash: [],
         player: null,
       }),
     ).toBe("state tick 3 (en pausa)");

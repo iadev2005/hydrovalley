@@ -178,7 +178,7 @@ describe("ValleyControls", () => {
       />,
     );
 
-    const trashBinBtn = screen.getByRole("button", { name: /Colocar cesto de reciclaje/i });
+    const trashBinBtn = screen.getByRole("button", { name: /Cesto de reciclaje/i });
     fireEvent.click(trashBinBtn);
     expect(onPlaceInstallation).toHaveBeenCalledWith("trash_bin");
 
@@ -186,5 +186,37 @@ describe("ValleyControls", () => {
     expect(cleanTrashBtn).toBeDefined();
     fireEvent.click(cleanTrashBtn);
     expect(onCleanTrash).toHaveBeenCalledTimes(1);
+  });
+
+  it("only offers cleaning on a tile with trash and shows the durability of an installation", () => {
+    const trash = Array.from({ length: 1024 }, () => 0);
+    trash[10 * 32 + 5] = 1;
+    const state: StateFrame = {
+      ...mockState,
+      trash,
+      installations: [
+        { x: 6, y: 10, installation: "trash_bin", owner_id: "p1", remaining_durability: 12 },
+      ],
+    };
+    const props = {
+      isOpen: true,
+      pendingCount: 0,
+      actionMessage: null,
+      onDrop: vi.fn(),
+      onPlaceInstallation: vi.fn(),
+      onCleanTrash: vi.fn(),
+      onBuyUpgrade: vi.fn(),
+    };
+    const { rerender } = render(<ValleyControls {...props} gameState={state} selected={{ x: 4, y: 10 }} />);
+    expect(screen.queryByRole("button", { name: /Limpiar basura/i })).toBeNull();
+    expect(screen.queryByText(/usos restantes/)).toBeNull();
+
+    rerender(<ValleyControls {...props} gameState={state} selected={{ x: 5, y: 10 }} />);
+    expect(screen.getByRole("button", { name: /Limpiar basura/i })).toBeDefined();
+
+    rerender(<ValleyControls {...props} gameState={state} selected={{ x: 6, y: 10 }} />);
+    expect(screen.getByText(/usos restantes/)).toBeDefined();
+    expect(screen.getByText("12")).toBeDefined();
+    expect(screen.getByText("15")).toBeDefined(); // precio del cesto
   });
 });

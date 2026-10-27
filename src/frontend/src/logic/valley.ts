@@ -177,9 +177,9 @@ const REJECT_TEXT: Record<string, string> = {
   insufficient_water: "no tienes agua suficiente",
   insufficient_leaves: "no tienes hojas suficientes",
   out_of_bounds: "la casilla está fuera del valle",
-  tile_occupied: "la casilla ya está ocupada por una instalación",
+  tile_occupied: "la casilla está ocupada (instalación, agua, roca, edificio o basura)",
   upgrade_already_owned: "ya tienes esa mejora",
-  invalid_command: "el comando no es válido",
+  invalid_command: "el comando no es válido (¿la casilla no tiene basura?)",
 };
 
 /**
@@ -192,7 +192,7 @@ const STATUS_TABLE: Record<string, { ok: boolean; text: string }> = {
   duplicate: { ok: true, text: "aplicada" },
   rejected: { ok: false, text: "rechazada" },
   expired: { ok: false, text: "caducó en la cola (más de 30 s sin aplicarse)" },
-  rate_limited: { ok: false, text: "demasiadas gotas por segundo; espera un momento" },
+  rate_limited: { ok: false, text: "demasiadas acciones por segundo; espera un momento" },
   paused: { ok: false, text: "el valle está en pausa; inténtalo más tarde" },
   forbidden: { ok: false, text: "solo un administrador puede hacerlo" },
 };
@@ -241,8 +241,8 @@ export function selectionView(
   }
   const humidity = state.humidity[idx] ?? 0n;
   let info = `${stageName(stage)}, humedad ${humidity}`;
-  if (state.buildings[idx]) info += ", estructura urbana";
-  const trash = state.trash[idx] ?? 0;
+  if (state.buildings?.[idx]) info += ", estructura urbana";
+  const trash = state.trash?.[idx] ?? 0;
   if (trash > 0) info += `, basura nivel ${trash}`;
   const fire = state.fires.find((f) => f.x === selected.x && f.y === selected.y);
   if (fire) info += `, en llamas (${fire.drops_received} gotas recibidas)`;

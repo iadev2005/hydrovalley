@@ -57,7 +57,7 @@ describe("buildTiles", () => {
     stages: [1, 2, 3, 5],
     humidity: [0n, 75n, 10n, 0n],
     fires: [{ x: 1, y: 0, drops_received: 2 }],
-    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1" }],
+    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1", remaining_durability: 30 }],
   };
 
   it("joins stage, humidity, fire and installation per tile, row by row", () => {
@@ -73,7 +73,11 @@ describe("buildTiles", () => {
       has_building: false,
       trash_level: 0,
     });
-    expect(tiles[2]?.installation).toEqual({ kind: "sprinkler", owner_id: "p1" });
+    expect(tiles[2]?.installation).toEqual({
+      kind: "sprinkler",
+      owner_id: "p1",
+      remaining_durability: 30,
+    });
     expect(tiles[2]?.fire).toBeNull();
     expect(tiles[3]?.stage).toBe(5);
   });
@@ -155,7 +159,7 @@ describe("describeActionResult", () => {
   it("explains the immediate rejections and expiry", () => {
     for (const [status, pattern] of [
       ["expired", /caducó/],
-      ["rate_limited", /demasiadas gotas/],
+      ["rate_limited", /demasiadas acciones/],
       ["paused", /pausa/],
       ["forbidden", /administrador/],
     ] as const) {
@@ -277,7 +281,7 @@ describe("selectionView", () => {
     stages: [1, 2, 3, 5],
     humidity: [0n, 75n, 10n, 0n],
     fires: [{ x: 1, y: 0, drops_received: 2 }],
-    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1" }],
+    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1", remaining_durability: 30 }],
   };
 
   it("clears the label and info when nothing is selected", () => {
@@ -290,6 +294,19 @@ describe("selectionView", () => {
     expect(view.label).toBe("(1, 0)");
     expect(view.info).toBe("pasto, humedad 75, en llamas (2 gotas recibidas)");
     expect(selectionView(state, { x: 0, y: 1 }).info).toBe("arbusto, humedad 10, instalación: sprinkler");
+  });
+
+  it("describes natural terrain, buildings and trash", () => {
+    const expansion = {
+      ...state,
+      stages: [6, 7, 1, 1],
+      buildings: [false, false, true, false],
+      trash: [0, 0, 0, 3],
+    };
+    expect(selectionView(expansion, { x: 0, y: 0 }).info).toBe("agua, humedad 0");
+    expect(selectionView(expansion, { x: 1, y: 0 }).info).toMatch(/^roca, humedad 75/);
+    expect(selectionView(expansion, { x: 0, y: 1 }).info).toContain("estructura urbana");
+    expect(selectionView(expansion, { x: 1, y: 1 }).info).toBe("tierra seca, humedad 0, basura nivel 3");
   });
 
   it("says there is no map data when the state has no map", () => {

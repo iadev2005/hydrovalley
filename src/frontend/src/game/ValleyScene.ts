@@ -22,6 +22,7 @@ export interface TileView {
   fireSprite: Phaser.GameObjects.Sprite;
   fireBadgeText: Phaser.GameObjects.Text | null;
   lastGroundKey: string;
+  lastTrash: number;
   lastInstallationKind: string;
   lastFireDrops: number;
 }
@@ -174,6 +175,7 @@ export class ValleyScene extends Phaser.Scene {
           fireSprite,
           fireBadgeText: null,
           lastGroundKey: "",
+          lastTrash: 0,
           lastInstallationKind: "",
           lastFireDrops: -1,
         });
@@ -596,6 +598,27 @@ export class ValleyScene extends Phaser.Scene {
     });
   }
 
+  /** Destello breve sobre una casilla a la que se le quitó un nivel de basura. */
+  private spawnCleanSparkle(view: TileView): void {
+    if (!this.sys?.isActive() || !this.textures.exists("clean_sparkle")) return;
+    const sparkle = this.add
+      .image(view.screenX, view.screenY - 4, "clean_sparkle")
+      .setOrigin(0.5, 0.5)
+      .setDepth(view.depth + 0.5);
+    this.activeEffects.add(sparkle);
+    this.tweens.add({
+      targets: sparkle,
+      y: view.screenY - 16,
+      alpha: 0,
+      duration: 600,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        this.activeEffects.delete(sparkle);
+        sparkle.destroy();
+      },
+    });
+  }
+
   /**
    * Textura y capa superior de una casilla. El suelo base y el overlay se eligen
    * juntos porque la estructura urbana, la basura, el agua y la roca sustituyen
@@ -665,6 +688,11 @@ export class ValleyScene extends Phaser.Scene {
       inDripArea ? 1 : 0,
     ].join("|");
     if (view.lastGroundKey !== groundKey) {
+      // Destello cuando baja el nivel de basura (a mano o por un cesto), salvo en
+      // el primer estado que llega: ahí no se limpió nada.
+      const trash = tile.trash_level ?? 0;
+      if (view.lastGroundKey !== "" && trash < view.lastTrash) this.spawnCleanSparkle(view);
+      view.lastTrash = trash;
       view.lastGroundKey = groundKey;
       this.applyGround(view, tile, inDripArea);
     }
