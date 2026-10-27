@@ -124,6 +124,7 @@ fn command_message(json: &Json, players: &BTreeMap<String, String>) -> pb::Comma
             "sprinkler" => pb::InstallationKind::Sprinkler as i32,
             "drip" => pb::InstallationKind::Drip as i32,
             "treatment_plant" => pb::InstallationKind::TreatmentPlant as i32,
+            "trash_bin" => pb::InstallationKind::TrashBin as i32,
             other => panic!("tipo de instalación desconocido en el guion: {other}"),
         },
         Some(other) => panic!("kind no válido: {other:?}"),
@@ -156,6 +157,11 @@ fn command_message(json: &Json, players: &BTreeMap<String, String>) -> pb::Comma
     } else if let Some(node) = json.get("set_demo_mode") {
         Some(Kind::SetDemoMode(pb::SetDemoModeCommand {
             enabled: node.field("enabled").bool(),
+        }))
+    } else if let Some(node) = json.get("clean_trash") {
+        Some(Kind::CleanTrash(pb::CleanTrashCommand {
+            x: node.field("x").u32(),
+            y: node.field("y").u32(),
         }))
     } else if json.get("reset_valley").is_some() {
         Some(Kind::ResetValley(pb::ResetValleyCommand {}))
@@ -532,6 +538,59 @@ fn the_scenarios_exercise_the_rules_they_claim_to() {
     );
     assert!(put_out >= 3, "ningún guion apaga incendios: {put_out}");
     assert!(gone >= 3, "ningún guion consume incendios: {gone}");
+}
+
+/// El guion de la expansión de jugabilidad tiene que ejercitar de verdad
+/// terreno natural, edificios, basura, limpieza y desgaste. Se mira el mundo
+/// a mitad del guion (tick 400) y al final; si dejara de ser así, la
+/// conformidad de esas reglas estaría vacía.
+#[test]
+fn the_expansion_scenario_exercises_terrain_buildings_trash_and_wear() {
+    let path = scenario_files()
+        .into_iter()
+        .find(|p| {
+            p.file_stem()
+                .is_some_and(|n| n == "10-expansion-jugabilidad")
+        })
+        .expect("falta el guion 10-expansion-jugabilidad");
+    let mut scenario = load_scenario(&path);
+    scenario.total_ticks = 400;
+    let state_at_400 =
+        pb::WorldState::decode(unhex(&run(&scenario, &[]).final_world_state_hex).as_slice())
+            .unwrap();
+    let count = |tiles: &[pb::Tile], stage: pb::TileStage| {
+        tiles.iter().filter(|t| t.stage == stage as i32).count()
+    };
+    let tiles = &state_at_400.tiles;
+    assert_eq!(count(tiles, pb::TileStage::Rock), 12);
+    assert!(count(tiles, pb::TileStage::Water) >= 64);
+    assert_eq!(tiles.iter().filter(|t| t.has_building).count(), 2);
+    assert!(
+        tiles.iter().any(|t| t.trash_level > 0),
+        "los edificios tienen que haber dejado basura"
+    );
+    assert!(
+        tiles
+            .iter()
+            .filter_map(|t| t.installation.as_ref())
+            .any(|i| i.remaining_durability > 0 && i.remaining_durability < 30),
+        "alguna instalación tiene que estar desgastándose"
+    );
+
+    let output = run(&load_scenario(&path), &[]);
+    let codes: Vec<&String> = output.results.iter().flat_map(|(_, r)| r).collect();
+    for code in [
+        "applied",
+        "rejected:tile_occupied",
+        "rejected:invalid_command",
+        "rejected:out_of_bounds",
+    ] {
+        assert!(codes.iter().any(|c| c.as_str() == code), "falta {code}");
+    }
+    // El reinicio del tick 800 vuelve a sortear el terreno: el valle final tiene río y rocas.
+    let last = pb::WorldState::decode(unhex(&output.final_world_state_hex).as_slice()).unwrap();
+    assert!(count(&last.tiles, pb::TileStage::Water) >= 64);
+    assert_eq!(count(&last.tiles, pb::TileStage::Rock), 12);
 }
 
 /// El guion de propagación tiene que depender de la propagación: sin ella
