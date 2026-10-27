@@ -15,13 +15,13 @@ const MIN_ZOOM = 0.75;
 const MAX_ZOOM = 2;
 const ZOOM_STEP = 0.1;
 export const STAGE_COLOURS = [
-  "#8d6e4a",
-  "#9ccc65",
-  "#558b2f",
-  "#f06292",
-  "#1b5e20",
-  "#29b6f6",
-  "#78909c",
+  "#8d6e4a", // 1: tierra seca
+  "#9ccc65", // 2: pasto
+  "#558b2f", // 3: arbusto
+  "#f06292", // 4: flores
+  "#1b5e20", // 5: árbol
+  "#29b6f6", // 6: agua
+  "#78909c", // 7: roca
 ];
 export const FIRE_COLOUR = "#e53935";
 export const BUILDING_COLOUR = "#d84315";

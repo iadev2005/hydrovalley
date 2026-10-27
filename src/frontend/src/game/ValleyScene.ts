@@ -78,6 +78,9 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("tile_3_bush", "/assets/tiles/tile_3_bush.png");
     this.load.image("tile_4_flowers", "/assets/tiles/tile_4_flowers.png");
     this.load.image("tile_5_tree", "/assets/tiles/tile_5_tree.png");
+    this.load.image("tile_water", "/assets/tiles/tile_water.png");
+    this.load.image("tile_rock", "/assets/tiles/tile_rock.png");
+    this.load.image("tile_polluted_soil", "/assets/tiles/tile_polluted_soil.png");
 
     // 2. Instalaciones de las 3R y reciclaje
     this.load.image("sprinkler", "/assets/installations/sprinkler.png");
@@ -85,17 +88,15 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("treatment_plant", "/assets/installations/treatment_plant.png");
     this.load.image("trash_bin", "/assets/installations/trash_bin.png");
 
-    // 2b. Terreno natural, estructuras urbanas y basura
+    // 3. Estructuras urbanas, basura y efectos de limpieza
     this.load.image("building_house", "/assets/tiles/building_house.png");
     this.load.image("trash_1_small", "/assets/tiles/trash_1_small.png");
     this.load.image("trash_2_medium", "/assets/tiles/trash_2_medium.png");
     this.load.image("trash_3_large", "/assets/tiles/trash_3_large.png");
-    this.load.image("tile_polluted_soil", "/assets/tiles/tile_polluted_soil.png");
-    this.load.image("tile_water", "/assets/tiles/tile_water.png");
-    this.load.image("tile_rock", "/assets/tiles/tile_rock.png");
+    this.load.image("trash_water", "/assets/tiles/trash_water.png");
     this.load.image("clean_sparkle", "/assets/effects/clean_sparkle.png");
 
-    // 3. Fuego, gotas y efectos
+    // 4. Fuego, gotas y efectos
     this.load.spritesheet("fire_sheet", "/assets/effects/fire_sheet.png", {
       frameWidth: 32,
       frameHeight: 32,
@@ -664,6 +665,9 @@ export class ValleyScene extends Phaser.Scene {
       case 7: // Roca
         baseSprite.setTexture("tile_1_dry");
         overlaySprite.setTexture("tile_rock").setOrigin(0.5, 0.75).setVisible(true);
+        return;
+      case 8: // Suelo contaminado: el simulador no emite esta etapa (la basura es un nivel aparte); se mantiene por contrato de arte
+        baseSprite.setTexture("tile_polluted_soil");
         return;
       default: // Tierra seca
         baseSprite.setTexture("tile_1_dry");

@@ -35,16 +35,11 @@ describe("tokenRole / isAdminRole", () => {
 });
 
 describe("stageName", () => {
-  it("names the seven stages and falls back to dry land", () => {
-    expect([1, 2, 3, 4, 5, 6, 7].map(stageName)).toEqual([
-      "tierra seca",
-      "pasto",
-      "arbusto",
-      "flores",
-      "árbol",
-      "agua",
-      "roca",
-    ]);
+  it("names the stages and falls back to dry land", () => {
+    expect([1, 2, 3, 4, 5].map(stageName)).toEqual(["tierra seca", "pasto", "arbusto", "flores", "árbol"]);
+    expect(stageName(6)).toBe("agua");
+    expect(stageName(7)).toBe("roca");
+    expect(stageName(8)).toBe("suelo dañado");
     expect(stageName(0)).toBe("tierra seca");
     expect(stageName(99)).toBe("tierra seca");
   });
