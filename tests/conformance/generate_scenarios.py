@@ -55,13 +55,34 @@ class Rng:
         return self.below(100) < percent
 
 
+# Los guiones 01 a 09 se escribieron antes de la expansión de jugabilidad y
+# documentan sus cifras (gota de 25, planta de 1 L...). Para que sigan
+# probando lo mismo fijan las cifras de arranque de D-01 y apagan lo nuevo
+# (terreno natural, edificios y desgaste de las instalaciones); un guion puede
+# sobrescribir cualquiera en su `catalog_set`. El guion 10 usa el catálogo real
+# sin cambios y es el que prueba la expansión.
+PRE_EXPANSION_FIGURES = {
+    "rules.drop.humidity_points": 25,
+    "installations.treatment_plant.refill_liters": 1,
+    "rules.terrain.river_width_tiles": 0,
+    "rules.terrain.rock_count": 0,
+    "rules.urban.max_buildings": 0,
+    "installations.sprinkler.durability": 4294967295,
+    "installations.drip.durability": 4294967295,
+    "installations.treatment_plant.durability": 4294967295,
+    "installations.trash_bin.durability": 4294967295,
+}
+
+
 class Scenario:
-    def __init__(self, name, description, seed, total_ticks, catalog_set=None, reset_catalog=None, restore_at=()):
+    def __init__(self, name, description, seed, total_ticks, catalog_set=None, reset_catalog=None, restore_at=(),
+                 expansion=False):
         self.name = name
         self.description = description
         self.seed = seed
         self.total_ticks = total_ticks
-        self.catalog_set = catalog_set or {}
+        self.catalog_set = {} if expansion else dict(PRE_EXPANSION_FIGURES)
+        self.catalog_set.update(catalog_set or {})
         self.reset_catalog = reset_catalog
         self.restore_at = list(restore_at)
         self.ticks = {}
@@ -94,6 +115,9 @@ class Scenario:
 
     def demo(self, tick, enabled, action=None, player="admin"):
         self.add(tick, self.cmd(player, action, {"set_demo_mode": {"enabled": enabled}}))
+
+    def clean(self, tick, player, x, y, action=None):
+        self.add(tick, self.cmd(player, action, {"clean_trash": {"x": x, "y": y}}))
 
     def reset(self, tick, action=None, player="admin"):
         self.add(tick, self.cmd(player, action, {"reset_valley": {}}))
@@ -146,7 +170,9 @@ def random_drops(s, players, first, last, region, per_tick_percent=60, burst=3):
 def real_catalog():
     s = Scenario(
         "01-catalogo-real",
-        "Catálogo real (catalog/catalog.json, sin cambios), semilla 2026. Seis jugadores hacen crecer una casilla propia "
+        "Catálogo real (catalog/catalog.json) con las cifras de arranque de D-01 donde el equipo las cambió para la "
+        "jugabilidad (gota de 25, sin terreno natural ni edificios, instalaciones sin desgaste; ver "
+        "PRE_EXPANSION_FIGURES), semilla 2026. Seis jugadores hacen crecer una casilla propia "
         "hasta árbol (hojas por etapa), compran aspersores, intentan comprar goteo y mejoras sin hojas, chocan con casillas ocupadas, se quedan sin agua y "
         "sin hojas, y el administrador enciende el modo demo y reinicia el valle. Cubre gotas, humedad, crecimiento, "
         "evaporación, marchitamiento, depósito, precios, jugadores nuevos y orden de los jugadores, con una "
@@ -640,6 +666,65 @@ def offline_summary():
     s.write()
 
 
+def gameplay_expansion():
+    s = Scenario(
+        "10-expansion-jugabilidad",
+        "Expansión de jugabilidad (nivel 2) con el catálogo real sin cambios, semilla 2027: gota de 100 de humedad "
+        "(una gota, una etapa), planta de 3 L, terreno natural (río y rocas sorteados con el generador al crear y "
+        "al reiniciar el valle), edificios que aparecen en el borde y ensucian a su vecina, basura de nivel 1 a 3 "
+        "que se propaga, comando clean_trash (con su recompensa y sus rechazos), cesto de reciclaje que limpia y "
+        "protege, y durabilidad de aspersor, goteo, planta y cesto hasta que se destruyen. Seis jugadores trabajan "
+        "la mitad izquierda del valle y lanzan gotas e instalaciones al azar sobre la mitad derecha, donde caen "
+        "el río y las rocas (rechazos tile_occupied). Con cuatro restauraciones (una con basura, edificios y "
+        "desgaste en curso) y un reinicio que vuelve a sortear el terreno.",
+        2027, 1000, restore_at=[120, 330, 640, 900], expansion=True)
+    names = ["ana", "beto", "caro", "dani", "eli", "fran"]
+    homes = {n: (3 + 2 * i, 6 + 4 * (i % 3)) for i, n in enumerate(names)}
+    # Una gota por etapa: cuatro gotas llevan una casilla propia hasta árbol.
+    for i, name in enumerate(names):
+        x, y = homes[name]
+        for k in range(4):
+            s.drop(1 + k + i % 2, name, x, y)
+    # Con 500 de humedad aportada aparece el primer edificio en la esquina (0, 0) y
+    # luego el segundo en (0, 31); cada uno ensucia a su vecina cada 5 s.
+    for tick in range(10, 40, 3):
+        for name in names:
+            s.drop(tick, name, 4 + s.rng.below(10), 14 + s.rng.below(8))
+    # Instalaciones: cada tipo tiene su durabilidad (30 usos); algunas llegan a cero antes del final.
+    s.place(40, "ana", "sprinkler", 4, 17)
+    s.place(41, "beto", "drip", 8, 17)
+    s.place(42, "caro", "treatment_plant", 6, 15)
+    s.place(43, "dani", "sprinkler", 10, 20)
+    s.place(44, "eli", "trash_bin", 2, 1)   # protege y limpia la basura que deja el edificio de (0, 0)
+    s.place(45, "fran", "trash_bin", 3, 29)  # junto al edificio de (0, 31), pero fuera de su alcance
+    s.place(46, "ana", "treatment_plant", 4, 17)  # ocupada: tile_occupied
+    s.place(47, "ana", "sprinkler", 0, 0)  # el edificio: tile_occupied
+    # Limpieza a mano de la basura que se acumula junto a los edificios (algunas casillas sin basura: rechazo).
+    for tick in range(60, 400, 7):
+        who = names[(tick // 7) % len(names)]
+        x, y = (1, 0), (1, 31)
+        s.clean(tick, who, *x)
+        s.clean(tick + 1, who, *y)
+        s.clean(tick + 2, who, x[0], x[1] + 1)
+    s.clean(70, "ana", 40, 40)  # fuera del valle
+    s.clean(71, "beto", 15, 15)  # sin basura: invalid_command
+    s.drop(72, "caro", 1, 0)  # casilla con basura o recién limpia: ocupada o aplicada según el momento
+    # Gotas e instalaciones al azar sobre toda la mitad derecha: río, rocas y orillas.
+    random_drops(s, names, 80, 600, (17, 0, 31, 31), per_tick_percent=12, burst=2)
+    for tick in range(100, 600, 25):
+        s.place(tick, names[(tick // 25) % len(names)], ["sprinkler", "drip", "treatment_plant", "trash_bin"][(tick // 25) % 4],
+                17 + s.rng.below(15), s.rng.below(32))
+    random_drops(s, names, 600, 780, (0, 0, 31, 31), per_tick_percent=20, burst=3)
+    # Modo demo sin basura ni evaporación, y vuelta al juego normal.
+    s.demo(500, True)
+    s.demo(520, False)
+    s.reset(800)  # vuelve a sortear el terreno con el generador
+    random_drops(s, names, 801, 1000, (0, 0, 31, 31), per_tick_percent=25, burst=3)
+    for tick in (810, 840, 870):
+        s.place(tick, "ana", "trash_bin", 1 + tick % 5, 1)
+    s.write()
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     real_catalog()
@@ -651,3 +736,4 @@ if __name__ == "__main__":
     extreme_figures()
     fire_spread()
     offline_summary()
+    gameplay_expansion()

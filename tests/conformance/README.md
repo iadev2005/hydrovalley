@@ -10,7 +10,7 @@ tests/conformance/
   expected/*.json    lo que da Rust con cada guion (lo escribe Rust; Go lo lee)
 ```
 
-Un guion tiene una semilla, un catálogo (`catalog/catalog.json` con algunas cifras cambiadas por ruta, como `rules.fire.ignition_chance_ppm`; opcionalmente otro para ofrecer al reinicio del valle), los jugadores con nombre y una lista de ticks con sus comandos. Los ticks sin entrada avanzan sin comandos. Los comandos se escriben como el contrato: `drop`, `place_installation`, `buy_upgrade`, `set_demo_mode`, `reset_valley`, o ninguno (un comando sin tipo). El `kind` puede ser un nombre o un número (para mandar valores desconocidos), y el `action` un entero (se convierte en un UUID) o una cadena tal cual (para mandar identificadores mal formados).
+Un guion tiene una semilla, un catálogo (`catalog/catalog.json` con algunas cifras cambiadas por ruta, como `rules.fire.ignition_chance_ppm`; opcionalmente otro para ofrecer al reinicio del valle), los jugadores con nombre y una lista de ticks con sus comandos. Los ticks sin entrada avanzan sin comandos. Los comandos se escriben como el contrato: `drop`, `place_installation`, `buy_upgrade`, `clean_trash`, `set_demo_mode`, `reset_valley`, o ninguno (un comando sin tipo). El `kind` puede ser un nombre o un número (para mandar valores desconocidos), y el `action` un entero (se convierte en un UUID) o una cadena tal cual (para mandar identificadores mal formados).
 
 Los dos ejecutores hacen lo mismo, tick a tick, pasando por el codec (`catalog_from_proto`, `command_from_proto`, `result_to_proto`, `world_state`, `encode_snapshot` y `decode_snapshot`): crean el valle con la semilla, aplican los comandos y anotan
 
@@ -24,7 +24,7 @@ Los dos ejecutores hacen lo mismo, tick a tick, pasando por el codec (`catalog_f
 
 | Guion | Qué cubre |
 | --- | --- |
-| `01-catalogo-real` | El `catalog.json` real, seis jugadores: crecimiento hasta árbol, hojas, aspersores, casilla ocupada, agua y hojas insuficientes, evaporación y marchitamiento, modo demo, un reinicio y una restauración |
+| `01-catalogo-real` | El `catalog.json` real con las cifras de arranque de D-01 (ver más abajo), seis jugadores: crecimiento hasta árbol, hojas, aspersores, casilla ocupada, agua y hojas insuficientes, evaporación y marchitamiento, modo demo, un reinicio y una restauración |
 | `02-incendios` | Ignición al 2 % por casilla seca con planta y tick: aparición con el generador, apagar con tres gotas y su bono, aspersores, fuegos que se consumen, gota más grande |
 | `03-demo-y-reinicios` | Modo demo, tres reinicios (uno adopta el catálogo ofrecido, uno es duplicado), épocas, jugadores nuevos tras el reinicio, una restauración |
 | `04-invalidos-y-duplicados` | Identificadores en todas las formas de UUID (simple, llaves, urn, mayúsculas) y no válidos, comandos sin tipo y con enums desconocidos, coordenadas fuera del valle, duplicados, un rechazo que se reenvía y la ventana de 600 ticks |
@@ -33,6 +33,11 @@ Los dos ejecutores hacen lo mismo, tick a tick, pasando por el codec (`catalog_f
 | `07-cifras-extremas` | Cifras en el límite de 64 bits sin signo: toda la aritmética satura igual en Rust y en Go |
 | `08-propagacion` | Propagación del fuego (B3): ignición baja y propagación alta sobre un campo denso y dos esquinas del valle; sorteos por filas antes de la ignición, 4-vecindad sin desbordes en los bordes, un paso por tick, tres gotas contra el frente, un aspersor y una restauración con el frente encendido |
 | `09-resumen-offline` | Resumen al volver (B6, RF-25): aspersores que apagan fuegos y hacen crecer casillas mientras el dueño está ausente, aspersores que se paran a los 200 ticks y se reactivan con una acción, goteo y planta que no aportan al resumen, el borrado del resumen con la siguiente acción y su ida y vuelta por la instantánea (dos restauraciones). Las instantáneas llevan el resumen solo si no está vacío |
+| `10-expansion-jugabilidad` | Expansión de jugabilidad (nivel 2) con el `catalog.json` real sin cambios: gota de 100 de humedad (una gota, una etapa), planta de 3 L, río y rocas sorteados con el generador al crear y al reiniciar el valle, edificios en el borde que ensucian a su vecina, basura de nivel 1 a 3 que se propaga, `clean_trash` (recompensa y rechazos), cesto de reciclaje que limpia y protege, y durabilidad de aspersor, goteo, planta y cesto hasta que se destruyen. Cuatro restauraciones, con basura, edificios y desgaste en curso, y un reinicio que vuelve a sortear el terreno |
+
+### Cifras de los guiones 01 a 09
+
+Se escribieron antes de la expansión de jugabilidad y documentan sus cifras (gota de 25, planta de 1 L, sin terreno ni edificios). Para que sigan probando lo mismo, `generate_scenarios.py` les fija las cifras de arranque de D-01 (`PRE_EXPANSION_FIGURES`: `drop.humidity_points` 25, `treatment_plant.refill_liters` 1, sin río ni rocas, sin edificios y durabilidad máxima) en el `set` de cada guion, y cada uno puede sobrescribirlas. El guion 10 no fija nada: es el que prueba el catálogo real y la expansión. Rust comprueba además que el 10 ejercita de verdad el terreno, los edificios, la basura y el desgaste.
 
 Los guiones que no cambian las cifras de `fire.*` usan la propagación del catálogo real (2.000 ppm), así que sus fuegos también se propagan. El de Rust además exige que `08-propagacion` dependa de verdad de la propagación: con la misma semilla y los mismos comandos pero con `propagation_chance_ppm` a 0, tiene que arder mucho menos.
 
