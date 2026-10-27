@@ -303,6 +303,7 @@ fn player_state(world: &World, player: &Player) -> pb::PlayerState {
             InstallationKind::Sprinkler,
             InstallationKind::Drip,
             InstallationKind::TreatmentPlant,
+            InstallationKind::TrashBin,
         ]
         .into_iter()
         .map(|kind| pb::InstallationPrice {
@@ -879,13 +880,14 @@ mod tests {
             .iter()
             .map(|p| (p.kind(), p.leaves))
             .collect();
-        // Sprinkler 10 -> 12 -> 14; drip 25 -> 29; plant sin compras.
+        // Sprinkler 10 -> 12 -> 14; drip 25 -> 29; plant y cesto sin compras.
         assert_eq!(
             prices,
             vec![
                 (Kind::Sprinkler, 14),
                 (Kind::Drip, 29),
-                (Kind::TreatmentPlant, 40)
+                (Kind::TreatmentPlant, 40),
+                (Kind::TrashBin, 15)
             ]
         );
     }
