@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -107,10 +108,28 @@ func NewAPI(baseURL string) (*API, error) {
 	return &API{
 		bases: bases,
 		// 100 cuentas con Argon2id tardan varios segundos (src/api/README.md).
-		HTTP:       &http.Client{Timeout: 60 * time.Second},
+		// El transporte acota el marcado TCP y el handshake TLS a 3 s para que
+		// un proxy primario en docker pause o apagado conmute pronto al respaldo.
+		HTTP: &http.Client{
+			Timeout:   60 * time.Second,
+			Transport: newHTTPTransport(nil),
+		},
 		Sleep:      sleepCtx,
 		MaxRetries: 6,
 	}, nil
+}
+
+func newHTTPTransport(cfg *tls.Config) *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.DialContext = (&net.Dialer{
+		Timeout:   3 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	tr.TLSHandshakeTimeout = 3 * time.Second
+	if cfg != nil {
+		tr.TLSClientConfig = cfg
+	}
+	return tr
 }
 
 func (a *API) currentBase() *url.URL {
@@ -140,9 +159,7 @@ func (a *API) UseTLS(cfg *tls.Config) {
 	if cfg == nil {
 		return
 	}
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.TLSClientConfig = cfg
-	a.HTTP.Transport = tr
+	a.HTTP.Transport = newHTTPTransport(cfg)
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -221,14 +238,14 @@ func (a *API) post(ctx context.Context, path, token string, body, out any) (http
 	if err != nil {
 		return nil, err
 	}
-	hdr, _, err := a.doWithFailover(ctx, token, out, func(base *url.URL) (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, base.JoinPath(path).String(), bytes.NewReader(payload))
+	hdr, _, err := a.doWithFailover(ctx, token, out, func(attemptCtx context.Context, base *url.URL) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, base.JoinPath(path).String(), bytes.NewReader(payload))
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		return req, nil
-	})
+	}, 0)
 	return hdr, err
 }
 
@@ -243,17 +260,28 @@ func isGatewayDown(err error) bool {
 	return true
 }
 
-func (a *API) doWithFailover(ctx context.Context, token string, out any, buildReq func(base *url.URL) (*http.Request, error)) (http.Header, time.Duration, error) {
+func (a *API) doWithFailover(ctx context.Context, token string, out any, buildReq func(attemptCtx context.Context, base *url.URL) (*http.Request, error), perAttemptTimeout time.Duration) (http.Header, time.Duration, error) {
 	total := a.baseCount()
 	var lastHdr http.Header
 	var lastLat time.Duration
 	var lastErr error
 	for attempt := 0; attempt < total; attempt++ {
-		req, err := buildReq(a.currentBase())
+		attemptCtx := ctx
+		var cancel context.CancelFunc
+		if perAttemptTimeout > 0 && total > 1 {
+			attemptCtx, cancel = context.WithTimeout(ctx, perAttemptTimeout)
+		}
+		req, err := buildReq(attemptCtx, a.currentBase())
 		if err != nil {
+			if cancel != nil {
+				cancel()
+			}
 			return nil, 0, err
 		}
 		lastHdr, lastLat, lastErr = a.do(req, token, out)
+		if cancel != nil {
+			cancel()
+		}
 		if lastErr == nil || ctx.Err() != nil || !isGatewayDown(lastErr) || attempt+1 >= total {
 			return lastHdr, lastLat, lastErr
 		}
@@ -318,7 +346,7 @@ func (a *API) get(ctx context.Context, path, token string, out any) (http.Header
 	if err != nil {
 		return nil, 0, err
 	}
-	return a.doWithFailover(ctx, token, out, func(base *url.URL) (*http.Request, error) {
-		return http.NewRequestWithContext(ctx, http.MethodGet, base.ResolveReference(u).String(), nil)
-	})
+	return a.doWithFailover(ctx, token, out, func(attemptCtx context.Context, base *url.URL) (*http.Request, error) {
+		return http.NewRequestWithContext(attemptCtx, http.MethodGet, base.ResolveReference(u).String(), nil)
+	}, 4*time.Second)
 }

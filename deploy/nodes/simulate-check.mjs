@@ -164,19 +164,27 @@ async function fault() {
 async function failover() {
   const pauseWorld = process.env.SIM_PAUSE_WORLD;
   const unpauseWorld = process.env.SIM_UNPAUSE_WORLD;
+  const pauseHub = process.env.SIM_PAUSE_HUB;
+  const unpauseHub = process.env.SIM_UNPAUSE_HUB;
+  const standbyBase = (process.env.HV_STANDBY_BASE_URL ?? "").replace(/\/$/, "");
   const sh = (cmd) => run("sh", ["-c", cmd]);
 
   log("iniciando verificación de failover B8");
   const adminToken = await loginAdmin();
-  const session = await openPlay(await newPlayerToken(adminToken));
+  const playerToken = await newPlayerToken(adminToken);
+  const session = await openPlay(playerToken);
   try {
     const before = await drop(session, 10, 10);
     log(`antes de pausar world: gota ${before.status}`);
 
     if (pauseWorld && unpauseWorld) {
+      const bootBefore = (await system()).hub?.boot_id;
       await sh(pauseWorld);
-      log("world (Rust) pausado; el hub conmuta a world-standby (Go)");
-      await sleep(1000);
+      log("world (Rust) pausado; esperando relevo a world-standby (Go)");
+      await eventually("cambio de boot_id en /api/system tras promocionar world-standby", 15_000, async () => {
+        const st = await system();
+        return st.hub?.boot_id && st.hub.boot_id !== bootBefore && !st.hub.paused;
+      });
 
       const during = await drop(session, 10, 11);
       log(`con world primario pausado (en world-go): gota ${during.status}`);
@@ -186,9 +194,51 @@ async function failover() {
       await sleep(1000);
 
       const after = await drop(session, 10, 12);
-      log(`tras despausar world (failback): gota ${after.status}`);
+      log(`tras despausar world: gota ${after.status}`);
     } else {
-      log("SIM_PAUSE_WORLD no definido; omitiendo comandos docker pause directos");
+      log("SIM_PAUSE_WORLD no definido; omitiendo comandos docker pause directos de world");
+    }
+
+    if (pauseHub && unpauseHub) {
+      session.close();
+      await sh(pauseHub);
+      log("hub primario pausado; verificando relevo a hub-standby");
+      const relayedSession = await openPlay(playerToken);
+      try {
+        const onStandbyHub = await drop(relayedSession, 11, 11);
+        log(`con hub primario pausado (en hub-standby): gota ${onStandbyHub.status}`);
+
+        await sh(unpauseHub);
+        log("hub primario despausado; verificando que queda retirado (fenced) y hub-standby conserva el mando");
+        await sleep(1000);
+        const afterHubUnpause = await drop(relayedSession, 11, 12);
+        log(`tras despausar hub primario: gota ${afterHubUnpause.status}`);
+      } finally {
+        relayedSession.close();
+      }
+    }
+
+    if (standbyBase) {
+      const sbSys = await fetch(`${standbyBase}/api/system`);
+      assert.equal(sbSys.status, 200, `standby /api/system: ${sbSys.status}`);
+      const sbWs = standbyBase.replace(/^http/, "ws");
+      const sbSession = await eventually("conexión directa por proxy-standby", 20_000, async () => {
+        const candidate = new PlaySession(`${sbWs}/play?token=${playerToken}&map=false`);
+        try {
+          await candidate.opened;
+          await candidate.first("un estado sin pausa en proxy-standby", (f) => f.type === "state" && !f.paused, 5000);
+          return candidate;
+        } catch (err) {
+          candidate.close();
+          throw err;
+        }
+      });
+      try {
+        const viaStandbyProxy = await drop(sbSession, 12, 12);
+        log(`por proxy-standby: gota ${viaStandbyProxy.status}`);
+      } finally {
+        sbSession.close();
+      }
     }
   } finally {
     session.close();

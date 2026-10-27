@@ -746,6 +746,26 @@ func TestStandbyModeDoesNotLoadSnapshotUntilFirstStepPromotion(t *testing.T) {
 	}
 }
 
+func TestWaitActiveAndFreshPromotesStandbyOnFirstCallWhenStoreIsFast(t *testing.T) {
+	st := &fakeStore{t: t, loads: []result[*persistencev1.Snapshot]{found(snapshotAt(t, 200))}}
+	s := New(st, Options{Seed: 0, Standby: true, Backoff: fast()})
+	t.Cleanup(func() { s.Shutdown(100 * time.Millisecond) })
+
+	if err := s.WaitActiveAndFresh(context.Background(), 0); err != nil {
+		t.Fatalf("WaitActiveAndFresh(0) = %v, quiero nil", err)
+	}
+	if !s.IsReady() || st.loadCalls.Load() != 1 {
+		t.Fatalf("ready=%v loadCalls=%d", s.IsReady(), st.loadCalls.Load())
+	}
+	report, err := s.Step(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RestoredTick != 200 || report.Outcome.Tick != 201 {
+		t.Fatalf("restored=%d tick=%d, quiero 200 y 201", report.RestoredTick, report.Outcome.Tick)
+	}
+}
+
 func TestMinExpectedTickHigherThanLocalTickForcesReloadAndRotatesBootID(t *testing.T) {
 	st := &fakeStore{
 		t: t,

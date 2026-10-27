@@ -40,7 +40,7 @@ func (s *service) Step(ctx context.Context, request *worldv1.StepRequest) (*worl
 	} else if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if err := s.sim.EnsureActiveAndFresh(request.GetMinExpectedTick()); errors.Is(err, simulator.ErrNotReady) {
+	if err := s.sim.WaitActiveAndFresh(ctx, request.GetMinExpectedTick()); errors.Is(err, simulator.ErrNotReady) {
 		return nil, notReady()
 	} else if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

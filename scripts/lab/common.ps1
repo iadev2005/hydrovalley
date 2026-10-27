@@ -8,12 +8,14 @@
 # Los cinco nodos del plan A, con su variable de direccion y de puerto
 # (deploy/nodes/lab-addresses.example) y el puerto por defecto.
 $script:LabNodes = @(
-    @{ Name = 'db';          HostKey = 'LAB_DB_HOST';          PortKey = 'HV_DB_PORT';          DefaultPort = 5433  },
-    @{ Name = 'persistence'; HostKey = 'LAB_PERSISTENCE_HOST'; PortKey = 'HV_PERSISTENCE_PORT'; DefaultPort = 50051 },
-    @{ Name = 'world';       HostKey = 'LAB_WORLD_HOST';       PortKey = 'HV_WORLD_PORT';       DefaultPort = 50051 },
-    @{ Name = 'hub';         HostKey = 'LAB_HUB_HOST';         PortKey = 'HV_HUB_PORT';         DefaultPort = 8081  },
-    @{ Name = 'proxy';       HostKey = 'LAB_PROXY_HOST';       PortKey = 'HV_PROXY_PORT';       DefaultPort = 8080  },
-    @{ Name = 'standby';     HostKey = 'LAB_STANDBY_HOST';     PortKey = 'HV_STANDBY_PROXY_PORT'; DefaultPort = 8080; Optional = $true }
+    @{ Name = 'db';              HostKey = 'LAB_DB_HOST';          PortKey = 'HV_DB_PORT';            DefaultPort = 5433  },
+    @{ Name = 'persistence';     HostKey = 'LAB_PERSISTENCE_HOST'; PortKey = 'HV_PERSISTENCE_PORT';   DefaultPort = 50051 },
+    @{ Name = 'world';           HostKey = 'LAB_WORLD_HOST';       PortKey = 'HV_WORLD_PORT';         DefaultPort = 50051 },
+    @{ Name = 'hub';             HostKey = 'LAB_HUB_HOST';         PortKey = 'HV_HUB_PORT';           DefaultPort = 8081  },
+    @{ Name = 'proxy';           HostKey = 'LAB_PROXY_HOST';       PortKey = 'HV_PROXY_PORT';         DefaultPort = 8080  },
+    @{ Name = 'standby (proxy)'; HostKey = 'LAB_STANDBY_HOST';     PortKey = 'HV_STANDBY_PROXY_PORT'; DefaultPort = 8080;  Optional = $true },
+    @{ Name = 'standby (hub)';   HostKey = 'LAB_STANDBY_HOST';     PortKey = 'HV_STANDBY_HUB_PORT';   DefaultPort = 8081;  Optional = $true },
+    @{ Name = 'standby (world)'; HostKey = 'LAB_STANDBY_HOST';     PortKey = 'HV_STANDBY_WORLD_PORT'; DefaultPort = 50051; Optional = $true }
 )
 
 # Regla de cortafuegos que debe crear el encargado del laboratorio, como

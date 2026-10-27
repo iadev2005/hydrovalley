@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::codec;
@@ -81,6 +82,9 @@ pub struct Simulator<S> {
     load_backoff: Backoff,
     store: Arc<S>,
     state: Mutex<State>,
+    /// Notificación emitida cuando una carga o recarga en segundo plano deja el
+    /// mundo en `State::Ready`.
+    ready_notify: Notify,
     /// Hay un guardado en curso (como mucho uno).
     saving: Arc<AtomicBool>,
     /// Tick de la última instantánea que está en la persistencia (la
@@ -104,6 +108,13 @@ pub struct Simulator<S> {
 /// reinicio se aplica con el catálogo vigente en vez de hacer fallar el tick.
 const RESET_CATALOG_TIMEOUT: Duration = Duration::from_millis(100);
 
+/// Plazo máximo que `wait_active_and_fresh` espera dentro de un `Step` (o
+/// `GetRanking`) cuando dispara una promoción de `standby` o una recarga tras
+/// despausado. Permite completar la promoción en el primer intento (sin reabrir
+/// el Circuit Breaker del hub otro segundo entero) cuando PostgreSQL responde
+/// rápido, sin exceder el presupuesto de 200 ms del RPC `Step`.
+const PROMOTION_WAIT_TIMEOUT: Duration = Duration::from_millis(120);
+
 /// Cada cuánto se comprueba, durante la parada, si terminó el guardado en
 /// curso.
 const SAVE_POLL: Duration = Duration::from_millis(10);
@@ -124,6 +135,7 @@ impl<S: PersistenceStore> Simulator<S> {
             load_backoff,
             store,
             state: Mutex::new(initial),
+            ready_notify: Notify::new(),
             saving: Arc::new(AtomicBool::new(false)),
             saved_tick: Arc::new(AtomicU64::new(0)),
             epoch: Arc::new(AtomicU64::new(1)),
@@ -241,6 +253,32 @@ impl<S: PersistenceStore> Simulator<S> {
         }
     }
 
+    /// Como [`ensure_active_and_fresh`](Self::ensure_active_and_fresh), pero
+    /// si el simulador está cargando (porque acaba de promocionarse desde
+    /// `Standby` o de invalidar su estado por `min_expected_tick`), aguarda
+    /// hasta [`PROMOTION_WAIT_TIMEOUT`] a que termine la carga. Así la primera
+    /// llamada del hub tras un relevo puede responder directamente sin reabrir
+    /// el Circuit Breaker 1 s entero.
+    pub async fn wait_active_and_fresh(
+        self: &Arc<Self>,
+        min_expected_tick: u64,
+    ) -> Result<(), NotReady> {
+        let notified = self.ready_notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.ensure_active_and_fresh(min_expected_tick).is_ok() {
+            return Ok(());
+        }
+        if tokio::time::timeout(PROMOTION_WAIT_TIMEOUT, notified)
+            .await
+            .is_ok()
+            && self.is_ready()
+        {
+            return Ok(());
+        }
+        Err(NotReady)
+    }
+
     fn spawn_background_load(self: &Arc<Self>, rotate_boot_id: bool) {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
@@ -343,6 +381,8 @@ impl<S: PersistenceStore> Simulator<S> {
                 restored_tick,
                 boot_id,
             };
+            drop(state);
+            self.ready_notify.notify_waiters();
         }
     }
 
@@ -1107,6 +1147,21 @@ mod tests {
         // El primer intento promueve Standby -> Loading y devuelve NotReady.
         assert_eq!(simulator.ensure_active_and_fresh(0), Err(NotReady));
         eventually("promoción de standby completada", || simulator.is_ready()).await;
+        assert_eq!(store.load_calls.load(Ordering::SeqCst), 1);
+
+        let report = simulator.step(&[], |_| ()).unwrap();
+        assert_eq!(report.restored_tick, 200);
+        assert_eq!(report.outcome.tick, 201);
+    }
+
+    #[tokio::test]
+    async fn wait_active_and_fresh_promotes_standby_on_first_call_when_store_is_fast() {
+        let store = Arc::new(FakeStore::with_loads(vec![Ok(Some(snapshot_at(200)))]));
+        let simulator = Arc::new(Simulator::new_standby(store.clone(), 0, fast()));
+        assert!(simulator.is_standby());
+
+        assert_eq!(simulator.wait_active_and_fresh(0).await, Ok(()));
+        assert!(simulator.is_ready());
         assert_eq!(store.load_calls.load(Ordering::SeqCst), 1);
 
         let report = simulator.step(&[], |_| ()).unwrap();
