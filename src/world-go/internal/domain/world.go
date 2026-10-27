@@ -33,7 +33,6 @@ type playerSlot struct {
 // llama serializa los pasos (regla 1).
 type World struct {
 	catalog             Catalog
-	seed                uint64
 	tick                uint64
 	epoch               uint32
 	demoMode            bool
@@ -66,16 +65,13 @@ func NewWorld(catalog Catalog, seed uint64) *World {
 func NewWorldWithSize(catalog Catalog, seed uint64, width, height uint32) *World {
 	w := &World{
 		catalog: catalog,
-		seed:    seed,
 		rng:     NewSplitMix64(seed),
 		width:   width,
 		height:  height,
 		tiles:   make([]Tile, tileCount(width, height)),
 		players: make(map[string]*playerSlot),
 	}
-	if seed != 0 {
-		w.generateNaturalTerrain()
-	}
+	w.generateNaturalTerrain()
 	return w
 }
 
@@ -276,7 +272,7 @@ func (w *World) drop(playerID string, x, y uint32, tick uint64) CommandOutcome {
 	if !inside {
 		return RejectedOutcome(OutOfBounds)
 	}
-	if w.tiles[centerIndex].Stage.IsNatural() || w.tiles[centerIndex].HasBuilding {
+	if w.tiles[centerIndex].IsBlocked() {
 		return RejectedOutcome(TileOccupied)
 	}
 	humidity, cost := w.catalog.Drop.Humidity, w.catalog.Drop.WaterCost
@@ -309,7 +305,7 @@ func (w *World) drop(playerID string, x, y uint32, tick uint64) CommandOutcome {
 	var totalHumidity uint64
 	for _, index := range area {
 		tile := &w.tiles[index]
-		if tile.Stage.IsNatural() || tile.HasBuilding || tile.TrashLevel > 0 {
+		if tile.IsBlocked() {
 			continue
 		}
 		effectiveHumidity := humidity
@@ -471,81 +467,53 @@ func (w *World) shorelineMask() []bool {
 	return mask
 }
 
-// generateNaturalTerrain genera de forma determinista franjas de río/lago y dispersión de rocas (Fase 3).
+// generateNaturalTerrain es el terreno natural (Fase 3), generado al crear o
+// reiniciar el valle con el generador con semilla del mundo (regla 6): el
+// mismo estado del generador da el mismo terreno y el estado queda en la
+// instantánea. Solo en el valle del juego (o uno de al menos 20 x 20) y según
+// Terrain: con ceros no consume el azar ni toca el valle (world.rs
+// generate_natural_terrain).
+//
+// Orden fijo de los sorteos: 1) el desplazamiento del río (un número, solo si
+// RiverWidth > 0); 2) por cada intento de roca, la columna y la fila (dos
+// números), hasta RockCount rocas o 100 intentos. El río ocupa RiverWidth
+// columnas contiguas que serpentean entre las columnas 18 y width - 2 -
+// RiverWidth, con un lago más ancho entre las filas 13 y 16. Las rocas caen en
+// tierra seca de las columnas 17 en adelante.
 func (w *World) generateNaturalTerrain() {
+	rules := w.catalog.Terrain
 	if w.width < 20 || w.height < 20 {
 		return
 	}
-	trng := NewSplitMix64(w.seed ^ 0x5445525241494E5F)
-
-	// 1. Franja de río / lago (alrededor de x=24 en 32x32 para no colisionar con zonas de prueba x<=15)
-	baseX := int32(24) + int32(trng.NextU64()%3) - 1
-	for y := uint32(0); y < w.height; y++ {
-		offset := (int32(y)/4)%3 - 1
-		rx := baseX + offset
-		if rx < 18 {
-			rx = 18
-		}
-		if rx > int32(w.width-4) {
-			rx = int32(w.width - 4)
-		}
-		urx := uint32(rx)
-		idx1 := y*w.width + urx
-		idx2 := y*w.width + urx + 1
-		if int(idx1) < len(w.tiles) {
-			w.tiles[idx1].Stage = Water
-		}
-		if int(idx2) < len(w.tiles) {
-			w.tiles[idx2].Stage = Water
-		}
-	}
-
-	// Lago a media altura (y: 13..=16) ensanchando el río
-	for ly := uint32(13); ly <= 16; ly++ {
-		if ly < w.height {
-			offset := (int32(ly)/4)%3 - 1
-			rx := baseX + offset
-			if rx < 18 {
-				rx = 18
+	width, height := int64(w.width), int64(w.height)
+	if rules.RiverWidth > 0 {
+		river := int64(rules.RiverWidth)
+		baseX := 24 + int64(w.rng.NextU64()%3) - 1
+		maxX := max(width-2-river, 18)
+		column := func(y int64) int64 { return min(max(baseX+(y/4)%3-1, 18), maxX) }
+		for y := range height {
+			rx := column(y)
+			for x := rx; x < min(rx+river, width); x++ {
+				w.tiles[y*width+x].Stage = Water
 			}
-			if rx > int32(w.width-4) {
-				rx = int32(w.width - 4)
-			}
-			minX := uint32(rx)
-			if minX > 0 {
-				minX--
-			}
-			maxX := uint32(rx + 2)
-			if maxX > w.width-2 {
-				maxX = w.width - 2
-			}
-			for lx := minX; lx <= maxX; lx++ {
-				idx := ly*w.width + lx
-				if int(idx) < len(w.tiles) {
-					w.tiles[idx].Stage = Water
-				}
+		}
+		// Lago a media altura: ensancha el río una casilla por cada lado.
+		for y := int64(13); y <= 16 && y < height; y++ {
+			rx := column(y)
+			for x := max(rx-1, 0); x <= min(rx+river, width-2); x++ {
+				w.tiles[y*width+x].Stage = Water
 			}
 		}
 	}
-
-	// 2. Dispersión de rocas (obstáculos naturales no transitables)
-	numRocks := 12
-	placed := 0
-	attempts := 0
-	span := uint64(w.width - 20)
-	if span < 1 {
-		span = 1
-	}
-	for placed < numRocks && attempts < 100 {
+	span := uint64(max(width-20, 1))
+	placed, attempts := uint32(0), 0
+	for placed < rules.RockCount && attempts < 100 {
 		attempts++
-		rx := 17 + uint32(trng.NextU64()%span)
-		ry := uint32(trng.NextU64() % uint64(w.height))
-		if rx == ry || (rx == 20 && ry == 20) || (rx == 31 && ry == 31) {
-			continue
-		}
-		idx := ry*w.width + rx
-		if int(idx) < len(w.tiles) && w.tiles[idx].Stage == DrySoil {
-			w.tiles[idx].Stage = Rock
+		rx := 17 + int64(w.rng.NextU64()%span)
+		ry := int64(w.rng.NextU64() % uint64(height))
+		tile := &w.tiles[ry*width+rx]
+		if tile.Stage == DrySoil {
+			tile.Stage = Rock
 			placed++
 		}
 	}
@@ -583,9 +551,7 @@ func (w *World) resetValley() {
 		w.resetCatalog = nil
 	}
 	clear(w.tiles)
-	if w.seed != 0 {
-		w.generateNaturalTerrain()
-	}
+	w.generateNaturalTerrain()
 	w.epoch = satAdd32(w.epoch, 1)
 	tank := w.catalog.Tank.Capacity
 	for _, slot := range w.players {
@@ -724,13 +690,18 @@ func tileCount(width, height uint32) int {
 	return int(width) * int(height)
 }
 
-// cleanTrash limpia un nivel de basura de una casilla (Fase 4).
-// Cada ejecución reduce en 1 el TrashLevel. Al llegar a 0, la casilla
-// retorna a tierra seca y otorga hojas de incentivo (+2).
+// cleanTrash limpia un nivel de basura de una casilla (Fase 4). Quien limpia
+// el último nivel deja la casilla en tierra seca y gana
+// Urban.CleanRewardLeaves hojas (suman a Leaves y a LeavesEarned). Rechazos,
+// en orden: fuera del valle, mundo sin sitio para un jugador nuevo y casilla
+// sin basura (InvalidCommand).
 func (w *World) cleanTrash(playerID string, x, y uint32) CommandOutcome {
 	index, inside := w.tileIndex(x, y)
 	if !inside {
 		return RejectedOutcome(OutOfBounds)
+	}
+	if _, known := w.players[playerID]; !known && len(w.players) >= MaxPlayers {
+		return RejectedOutcome(WorldFull)
 	}
 	tile := &w.tiles[index]
 	if tile.TrashLevel == 0 {
@@ -740,7 +711,7 @@ func (w *World) cleanTrash(playerID string, x, y uint32) CommandOutcome {
 	var incentive uint64
 	if tile.TrashLevel == 0 {
 		tile.Stage = DrySoil
-		incentive = 2
+		incentive = w.catalog.Urban.CleanRewardLeaves
 	}
 	player := &w.playerSlot(playerID).record
 	player.Leaves = satAdd(player.Leaves, incentive)
@@ -748,57 +719,58 @@ func (w *World) cleanTrash(playerID string, x, y uint32) CommandOutcome {
 	return AppliedOutcome
 }
 
-// spawnUrbanBuildings genera estructuras de 1 casilla tras alcanzar umbral de progreso (Fase 4).
-// Inmunes a fuego y basura.
+// spawnUrbanBuildings es la aparición de edificios de 1 casilla (Fase 4). Hay
+// edificio cuando el valle llega a Urban.BuildingTreeThreshold árboles o a
+// Urban.BuildingHumidityThreshold de humedad aportada, hasta
+// Urban.MaxBuildings. Se colocan sin azar, recorriendo el borde del valle
+// (arriba y abajo de cada columna, luego los lados) hasta la primera casilla
+// de tierra seca libre. Son inmunes al fuego y a la basura.
 func (w *World) spawnUrbanBuildings() {
-	treeCount := 0
+	rules := w.catalog.Urban
+	var treeCount, buildingCount uint64
 	for i := range w.tiles {
 		if w.tiles[i].Stage == Tree {
 			treeCount++
 		}
-	}
-	if treeCount < 2 && w.humidityContributed < 500 {
-		return
-	}
-	buildingCount := 0
-	for i := range w.tiles {
 		if w.tiles[i].HasBuilding {
 			buildingCount++
 		}
 	}
-	if buildingCount >= 2 {
+	if treeCount < uint64(rules.BuildingTreeThreshold) && w.humidityContributed < rules.BuildingHumidityThreshold {
+		return
+	}
+	if buildingCount >= uint64(rules.MaxBuildings) {
 		return
 	}
 	width, height := w.width, w.height
 	type pt struct{ x, y uint32 }
 	var perimeter []pt
 	for x := uint32(0); x < width; x++ {
-		perimeter = append(perimeter, pt{x, 0})
-		perimeter = append(perimeter, pt{x, height - 1})
+		perimeter = append(perimeter, pt{x, 0}, pt{x, height - 1})
 	}
 	for y := uint32(1); y < height-1; y++ {
-		perimeter = append(perimeter, pt{0, y})
-		perimeter = append(perimeter, pt{width - 1, y})
+		perimeter = append(perimeter, pt{0, y}, pt{width - 1, y})
 	}
 	for _, p := range perimeter {
-		idx, _ := w.tileIndex(p.x, p.y)
+		idx := int(p.y)*int(width) + int(p.x)
 		tile := &w.tiles[idx]
-		if !tile.Stage.IsNatural() &&
-			!tile.HasBuilding &&
+		if !tile.HasBuilding &&
 			tile.Stage == DrySoil &&
 			tile.Installation == nil &&
 			tile.Fire == nil &&
 			tile.TrashLevel == 0 {
-			w.tiles[idx].HasBuilding = true
+			tile.HasBuilding = true
 			break
 		}
 	}
 }
 
-// emitTrash: En ciclos fijos (cada 50 ticks = 5 s), el edificio suma +1 a TrashLevel
-// en una casilla vecina (3 x 3), eliminando plantas e instalaciones preexistentes (Fase 4).
+// emitTrash: cada Urban.TrashIntervalSeconds, cada edificio suma +1 a
+// TrashLevel en la primera casilla vecina (3 x 3, por filas) que no sea
+// terreno natural ni edificio, y elimina su planta, su humedad, su fuego y su
+// instalación (Fase 4). No usa el azar.
 func (w *World) emitTrash(tick uint64) {
-	interval := satMul(5, TicksPerSecond)
+	interval := satMul(uint64(w.catalog.Urban.TrashIntervalSeconds), TicksPerSecond)
 	if !isMultiple(tick, interval) {
 		return
 	}
@@ -810,9 +782,8 @@ func (w *World) emitTrash(tick uint64) {
 	}
 	for _, bIdx := range buildingIndices {
 		bx, by := w.tileXY(bIdx)
-		area := areaIndices(bx, by, 3, w.width, w.height)
-		var targetIdx int = -1
-		for _, idx := range area {
+		targetIdx := -1
+		for _, idx := range areaIndices(bx, by, 3, w.width, w.height) {
 			if idx != bIdx && !w.tiles[idx].Stage.IsNatural() && !w.tiles[idx].HasBuilding {
 				targetIdx = idx
 				break
@@ -820,9 +791,7 @@ func (w *World) emitTrash(tick uint64) {
 		}
 		if targetIdx != -1 {
 			tile := &w.tiles[targetIdx]
-			if tile.TrashLevel < 3 {
-				tile.TrashLevel++
-			}
+			tile.TrashLevel = min(tile.TrashLevel+1, 3)
 			tile.Stage = DrySoil
 			tile.Humidity = 0
 			tile.Installation = nil
@@ -831,18 +800,19 @@ func (w *World) emitTrash(tick uint64) {
 	}
 }
 
-// propagateTrash: Una casilla con TrashLevel == 3 incrementa en +1 la basura de casillas
-// adyacentes no protegidas (Fase 4).
+// propagateTrash: cada Urban.TrashSpreadIntervalSeconds, una casilla con
+// TrashLevel == 3 suma +1 a la basura de sus cuatro vecinas ortogonales que
+// no estén protegidas por un cesto activo (su área de TrashBin.AreaSide) ni
+// sean terreno natural o edificio (Fase 4).
 func (w *World) propagateTrash(tick uint64) {
-	interval := satMul(10, TicksPerSecond)
+	interval := satMul(uint64(w.catalog.Urban.TrashSpreadIntervalSeconds), TicksPerSecond)
 	if !isMultiple(tick, interval) {
 		return
 	}
-	trashBins := w.activeInstallations(TrashBin, tick)
 	protected := make([]bool, len(w.tiles))
-	for _, tb := range trashBins {
+	for _, tb := range w.activeInstallations(TrashBin, tick) {
 		tx, ty := w.tileXY(tb.index)
-		for _, pIdx := range areaIndices(tx, ty, 3, w.width, w.height) {
+		for _, pIdx := range areaIndices(tx, ty, w.catalog.TrashBin.AreaSide, w.width, w.height) {
 			protected[pIdx] = true
 		}
 	}

@@ -6,11 +6,6 @@ import (
 	"github.com/iadev2005/hydrovalley/src/world-go/internal/domain"
 )
 
-const (
-	tileStageWater worldv1.TileStage = 6
-	tileStageRock  worldv1.TileStage = 7
-)
-
 func stageToProto(stage domain.TileStage) worldv1.TileStage {
 	switch stage {
 	case domain.DrySoil:
@@ -24,9 +19,9 @@ func stageToProto(stage domain.TileStage) worldv1.TileStage {
 	case domain.Tree:
 		return worldv1.TileStage_TILE_STAGE_TREE
 	case domain.Water:
-		return tileStageWater
+		return worldv1.TileStage_TILE_STAGE_WATER
 	case domain.Rock:
-		return tileStageRock
+		return worldv1.TileStage_TILE_STAGE_ROCK
 	default:
 		return worldv1.TileStage_TILE_STAGE_UNSPECIFIED
 	}
@@ -45,9 +40,9 @@ func stageFromProto(value worldv1.TileStage) (domain.TileStage, error) {
 		return domain.Flowers, nil
 	case worldv1.TileStage_TILE_STAGE_TREE:
 		return domain.Tree, nil
-	case tileStageWater:
+	case worldv1.TileStage_TILE_STAGE_WATER:
 		return domain.Water, nil
-	case tileStageRock:
+	case worldv1.TileStage_TILE_STAGE_ROCK:
 		return domain.Rock, nil
 	default:
 		return 0, &UnknownEnumError{Field: "Tile.stage", Value: int32(value)}
@@ -62,6 +57,8 @@ func installationToProto(kind domain.InstallationKind) worldv1.InstallationKind 
 		return worldv1.InstallationKind_INSTALLATION_KIND_DRIP
 	case domain.TreatmentPlant:
 		return worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT
+	case domain.TrashBin:
+		return worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN
 	default:
 		return worldv1.InstallationKind_INSTALLATION_KIND_UNSPECIFIED
 	}
@@ -77,6 +74,8 @@ func installationFromProto(value worldv1.InstallationKind, field string) (domain
 		return domain.Drip, nil
 	case worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT:
 		return domain.TreatmentPlant, nil
+	case worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN:
+		return domain.TrashBin, nil
 	default:
 		return 0, &UnknownEnumError{Field: field, Value: int32(value)}
 	}

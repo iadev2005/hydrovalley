@@ -128,7 +128,7 @@ func (w *World) runTreatmentPlants(tick uint64) {
 				continue
 			}
 			tile := &w.tiles[neighborIdx]
-			if tile.Fire != nil || tile.Stage.IsNatural() {
+			if tile.Fire != nil || tile.IsBlocked() {
 				continue
 			}
 			if next, ok := tile.Stage.Next(); ok {
@@ -192,7 +192,7 @@ func (w *World) runSprinklers(tick uint64) {
 		var effect OfflineSummary
 		for _, index := range area {
 			tile := &w.tiles[index]
-			if tile.Stage.IsNatural() {
+			if tile.IsBlocked() {
 				continue
 			}
 			stageBefore := tile.Stage
@@ -226,10 +226,10 @@ func (w *World) runSprinklers(tick uint64) {
 	}
 }
 
-// runDrips descuenta durabilidad al goteo activo cada 2 segundos (20 ticks).
-// Al llegar a cero se destruye y desaparece.
+// runDrips descuenta un punto de durabilidad al goteo activo cada
+// Drip.WearIntervalSeconds. Al llegar a cero se destruye y desaparece.
 func (w *World) runDrips(tick uint64) {
-	interval := satMul(2, TicksPerSecond)
+	interval := satMul(uint64(w.catalog.Drip.WearIntervalSeconds), TicksPerSecond)
 	if !isMultiple(tick, interval) {
 		return
 	}

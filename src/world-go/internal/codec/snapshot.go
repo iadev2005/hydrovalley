@@ -36,7 +36,7 @@ func playerState(w *domain.World, player *domain.Player) *worldv1.PlayerState {
 	}
 	// Precio de la siguiente instalación de cada tipo (RF-07), calculado por
 	// las reglas del simulador: el hub solo lo reenvía.
-	kinds := []domain.InstallationKind{domain.Sprinkler, domain.Drip, domain.TreatmentPlant}
+	kinds := []domain.InstallationKind{domain.Sprinkler, domain.Drip, domain.TreatmentPlant, domain.TrashBin}
 	prices := make([]*worldv1.InstallationPrice, len(kinds))
 	for i, kind := range kinds {
 		prices[i] = &worldv1.InstallationPrice{
@@ -148,9 +148,11 @@ func DecodeSnapshot(snapshot *persistencev1.Snapshot, catalog domain.Catalog) (*
 
 func tileToProto(tile *domain.Tile) *worldv1.Tile {
 	message := &worldv1.Tile{
-		Stage:    stageToProto(tile.Stage),
-		Humidity: tile.Humidity,
-		DryTicks: tile.DryTicks,
+		Stage:       stageToProto(tile.Stage),
+		Humidity:    tile.Humidity,
+		DryTicks:    tile.DryTicks,
+		HasBuilding: tile.HasBuilding,
+		TrashLevel:  tile.TrashLevel,
 	}
 	if tile.Fire != nil {
 		message.Fire = &worldv1.Fire{
@@ -191,6 +193,8 @@ func tileFromProto(message *worldv1.Tile) (domain.Tile, error) {
 		Humidity:     message.GetHumidity(),
 		DryTicks:     message.GetDryTicks(),
 		Installation: installation,
+		HasBuilding:  message.GetHasBuilding(),
+		TrashLevel:   message.GetTrashLevel(),
 	}
 	if fire := message.GetFire(); fire != nil {
 		tile.Fire = &domain.Fire{DropsReceived: fire.GetDropsReceived(), BurningTicks: fire.GetBurningTicks()}

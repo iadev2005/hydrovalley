@@ -72,6 +72,12 @@ type Installation struct {
 	RemainingDurability uint32
 }
 
+// IsBlocked dice si la casilla no admite plantas ni humedad: terreno natural,
+// edificio o basura encima.
+func (t *Tile) IsBlocked() bool {
+	return t.Stage.IsNatural() || t.HasBuilding || t.TrashLevel > 0
+}
+
 // Tile es una casilla del valle. El valor cero es tierra seca sin humedad,
 // sin fuego y sin instalación. Fire e Installation son nil cuando no hay.
 type Tile struct {
