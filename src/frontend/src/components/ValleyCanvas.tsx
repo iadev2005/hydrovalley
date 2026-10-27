@@ -4,17 +4,21 @@ import { buildTiles, tileAt } from "../logic/valley.ts";
 
 export const CELL = 16;
 export const STAGE_COLOURS = [
-  "#8d6e4a",
-  "#9ccc65",
-  "#558b2f",
-  "#f06292",
-  "#1b5e20",
+  "#8d6e4a", // 1: tierra seca
+  "#9ccc65", // 2: pasto
+  "#558b2f", // 3: arbusto
+  "#f06292", // 4: flores
+  "#1b5e20", // 5: árbol
+  "#1e88e5", // 6: agua (río / lago natural)
+  "#757575", // 7: roca (obstáculo natural)
+  "#5d4037", // 8: suelo dañado por desechos
 ];
 export const FIRE_COLOUR = "#e53935";
 export const INSTALLATION_LETTER: Record<string, string> = {
   sprinkler: "A",
   drip: "G",
   treatment_plant: "P",
+  trash_bin: "B",
 };
 
 export interface ValleyCanvasProps {

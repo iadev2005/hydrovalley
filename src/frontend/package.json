@@ -15,7 +15,8 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
-    "test:vitest": "vitest run --passWithNoTests"
+    "test:vitest": "vitest run --passWithNoTests",
+    "validate:assets": "python ../../scripts/validate_assets.py"
   },
   "dependencies": {
     "phaser": "^4.2.1",

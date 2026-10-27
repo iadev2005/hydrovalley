@@ -4,7 +4,16 @@
 
 import type { StateFrame } from "./play.ts";
 
-const STAGE_NAMES = ["tierra seca", "pasto", "arbusto", "flores", "árbol"] as const;
+const STAGE_NAMES = [
+  "tierra seca",
+  "pasto",
+  "arbusto",
+  "flores",
+  "árbol",
+  "agua",
+  "roca",
+  "suelo dañado",
+] as const;
 
 /** Nombre de la etapa (1 tierra seca … 5 árbol); lo desconocido cuenta como tierra seca. */
 export function stageName(stage: number): string {

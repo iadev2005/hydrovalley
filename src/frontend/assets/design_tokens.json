@@ -322,6 +322,14 @@
         "sources": [
           "treatment_plant.png"
         ]
+      },
+      {
+        "hex": "#3d8c3c",
+        "name": "Eco Valve Mid Green",
+        "sources": [
+          "treatment_plant.png",
+          "trash_bin.png"
+        ]
       }
     ],
     "earth_wood_and_cardboard": [
@@ -444,6 +452,14 @@
         "name": "Smoke Vapor Violet-Grey",
         "sources": [
           "fire.png"
+        ]
+      },
+      {
+        "hex": "#f44336",
+        "name": "Warning Flame Red / Can Red",
+        "sources": [
+          "fire.png",
+          "trash_1_small.png"
         ]
       }
     ]

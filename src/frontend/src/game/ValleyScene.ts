@@ -77,13 +77,24 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("tile_3_bush", "/assets/tiles/tile_3_bush.png");
     this.load.image("tile_4_flowers", "/assets/tiles/tile_4_flowers.png");
     this.load.image("tile_5_tree", "/assets/tiles/tile_5_tree.png");
+    this.load.image("tile_water", "/assets/tiles/tile_water.png");
+    this.load.image("tile_rock", "/assets/tiles/tile_rock.png");
+    this.load.image("tile_polluted_soil", "/assets/tiles/tile_polluted_soil.png");
 
     // 2. Instalaciones de las 3R
     this.load.image("sprinkler", "/assets/installations/sprinkler.png");
     this.load.image("drip", "/assets/installations/drip.png");
     this.load.image("treatment_plant", "/assets/installations/treatment_plant.png");
+    this.load.image("trash_bin", "/assets/installations/trash_bin.png");
 
-    // 3. Fuego, gotas y efectos
+    // 3. Estructuras urbanas y residuos
+    this.load.image("building_house", "/assets/tiles/building_house.png");
+    this.load.image("trash_1_small", "/assets/tiles/trash_1_small.png");
+    this.load.image("trash_2_medium", "/assets/tiles/trash_2_medium.png");
+    this.load.image("trash_3_large", "/assets/tiles/trash_3_large.png");
+    this.load.image("trash_water", "/assets/tiles/trash_water.png");
+
+    // 4. Fuego, gotas y efectos
     this.load.spritesheet("fire_sheet", "/assets/effects/fire_sheet.png", {
       frameWidth: 32,
       frameHeight: 32,
@@ -92,6 +103,7 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("droplet", "/assets/effects/droplet.png");
     this.load.image("splash", "/assets/effects/splash.png");
     this.load.image("tile_selector", "/assets/effects/tile_selector.png");
+    this.load.image("clean_sparkle", "/assets/effects/clean_sparkle.png");
   }
 
   public create(): void {
@@ -467,6 +479,44 @@ export class ValleyScene extends Phaser.Scene {
   }
 
   /**
+   * Muestra el efecto de partículas y destello al limpiar una casilla con basura (Fase 4 / Sección 3).
+   */
+  public spawnCleanSparkle(gridX: number, gridY: number): void {
+    if (!this.isMapReady || !this.sys?.isActive()) return;
+
+    const screenPos = gridToIsometric(
+      gridX,
+      gridY,
+      this.originX,
+      this.originY,
+      ISO_TILE_WIDTH,
+      ISO_TILE_HEIGHT,
+    );
+    const depth = getIsometricDepth(gridX, gridY, VALLEY_GRID_SIZE) + 200;
+
+    const sparkle = this.add
+      .image(screenPos.x, screenPos.y, "clean_sparkle")
+      .setOrigin(0.5, 0.5)
+      .setScale(0.8)
+      .setAlpha(1.0)
+      .setDepth(depth);
+    this.activeEffects.add(sparkle);
+
+    this.tweens.add({
+      targets: sparkle,
+      scale: 1.5,
+      y: screenPos.y - 10,
+      alpha: 0,
+      duration: 350,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        this.activeEffects.delete(sparkle);
+        sparkle.destroy();
+      },
+    });
+  }
+
+  /**
    * Actualiza el estado visual de las 1024 casillas a partir del StateFrame difundido por el hub.
    * Realiza actualización diferencial en el pool de sprites sin destruir ningún GameObject.
    */
@@ -523,6 +573,21 @@ export class ValleyScene extends Phaser.Scene {
             .setOrigin(0.5, 0.95)
             .setVisible(true);
           break;
+        case 6: // Agua (río / lago natural)
+          view.baseSprite.setTexture("tile_water");
+          view.overlaySprite.setVisible(false);
+          break;
+        case 7: // Roca (obstáculo natural)
+          view.baseSprite.setTexture("tile_2_grass");
+          view.overlaySprite
+            .setTexture("tile_rock")
+            .setOrigin(0.5, 0.75)
+            .setVisible(true);
+          break;
+        case 8: // Suelo dañado por desechos
+          view.baseSprite.setTexture("tile_polluted_soil");
+          view.overlaySprite.setVisible(false);
+          break;
         default:
           view.baseSprite.setTexture("tile_1_dry");
           view.overlaySprite.setVisible(false);
@@ -552,11 +617,15 @@ export class ValleyScene extends Phaser.Scene {
           view.installationSprite.setTexture("sprinkler");
         }
 
-        // Las instalaciones verticales 32x32 (potabilizadora y aspersor) tienen su
+        // Las instalaciones verticales 32x32 (potabilizadora, aspersor y cesto) tienen su
         // base en y=24: se anclan con origin (0.5, 0.75) para que su rombo base calce
         // con la casilla y la estructura se eleve sin enterrarse en el suelo.
         // El goteo (32x16) es plano al ras del suelo y usa origin (0.5, 0.5).
-        if (instKind === "treatment_plant" || instKind === "sprinkler") {
+        if (
+          instKind === "treatment_plant" ||
+          instKind === "sprinkler" ||
+          instKind === "trash_bin"
+        ) {
           view.installationSprite.setOrigin(0.5, 0.75);
         } else {
           view.installationSprite.setOrigin(0.5, 0.5);
