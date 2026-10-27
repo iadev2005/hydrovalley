@@ -54,9 +54,22 @@ export function AuthPanel({
   };
 
   return (
-    <section id="access-panel" aria-labelledby="access-title" hidden={hidden}>
+    <section
+      id="access-panel"
+      className="section-shell"
+      aria-labelledby="access-title"
+      hidden={hidden}
+    >
       <h2 id="access-title">Acceso</h2>
-      <form id="auth-form" autoComplete="on" onSubmit={handleLoginSubmit}>
+      <p id="access-help">
+        Inicia sesión para participar en el valle y administrar tus recursos.
+      </p>
+      <form
+        id="auth-form"
+        aria-describedby="access-help"
+        autoComplete="on"
+        onSubmit={handleLoginSubmit}
+      >
         <label>
           Usuario{" "}
           <input

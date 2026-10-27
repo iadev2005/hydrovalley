@@ -189,7 +189,7 @@ export class ValleyScene extends Phaser.Scene {
    */
   private setupCameraAndInput(): void {
     const cam = this.cameras.main;
-    cam.setZoom(0.5);
+    cam.setZoom(0.65);
 
     // Centrar inicialmente en el punto medio del valle
     const centerY = this.originY + (VALLEY_GRID_SIZE * ISO_TILE_HEIGHT) / 2;
@@ -237,23 +237,13 @@ export class ValleyScene extends Phaser.Scene {
       }
     });
 
-    // 4. Zoom con rueda del ratón
-    this.input.on(
-      "wheel",
-      (
-        _pointer: Phaser.Input.Pointer,
-        _gameObjects: unknown,
-        _deltaX: number,
-        deltaY: number,
-      ) => {
-        const oldZoom = cam.zoom;
-        const zoomFactor = deltaY > 0 ? 0.9 : 1.1;
-        const nextZoom = Phaser.Math.Clamp(oldZoom * zoomFactor, 0.4, 2.5);
-        if (nextZoom !== oldZoom) {
-          cam.setZoom(nextZoom);
-        }
-      },
-    );
+  }
+
+  /** Ajusta el zoom desde el contenedor del mapa sin desplazar la página. */
+  public zoomBy(deltaY: number): void {
+    const cam = this.cameras.main;
+    const zoomFactor = deltaY > 0 ? 0.9 : 1.1;
+    cam.setZoom(Phaser.Math.Clamp(cam.zoom * zoomFactor, 0.4, 2.5));
   }
 
   /**
@@ -261,7 +251,24 @@ export class ValleyScene extends Phaser.Scene {
    */
   private handlePointerClick(pointer: Phaser.Input.Pointer): void {
     const cam = this.cameras.main;
-    const worldPoint = cam.getWorldPoint(pointer.x, pointer.y);
+    const canvas = this.game.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const gameWidth = this.scale.width;
+    const gameHeight = this.scale.height;
+    const scale = Math.min(rect.width / gameWidth, rect.height / gameHeight);
+    const offsetX = (rect.width - gameWidth * scale) / 2;
+    const offsetY = (rect.height - gameHeight * scale) / 2;
+    const event = pointer.event;
+    const hasClientCoordinates = event !== undefined && "clientX" in event && "clientY" in event;
+    const clientX = hasClientCoordinates
+      ? event.clientX
+      : rect.left + pointer.x * (rect.width / gameWidth);
+    const clientY = hasClientCoordinates
+      ? event.clientY
+      : rect.top + pointer.y * (rect.height / gameHeight);
+    const gameX = (clientX - rect.left - offsetX) / scale;
+    const gameY = (clientY - rect.top - offsetY) / scale;
+    const worldPoint = cam.getWorldPoint(gameX, gameY);
 
     const tile = isometricToGrid(
       worldPoint.x,
@@ -295,7 +302,7 @@ export class ValleyScene extends Phaser.Scene {
   public resetCamera(): void {
     const cam = this.cameras.main;
     const centerY = this.originY + (VALLEY_GRID_SIZE * ISO_TILE_HEIGHT) / 2;
-    cam.setZoom(0.5);
+    cam.setZoom(0.65);
     cam.centerOn(this.originX, centerY);
   }
 

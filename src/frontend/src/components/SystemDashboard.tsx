@@ -28,7 +28,7 @@ export function SystemDashboard({
         {error ?? ""}
       </p>
 
-      <section aria-labelledby="services-title">
+      <section className="section-shell system-section" aria-labelledby="services-title">
         <h2 id="services-title">Servicios</h2>
         <ul id="services-list" className="services">
           {metrics?.services.map((service) => (
@@ -52,7 +52,12 @@ export function SystemDashboard({
         Sin datos del hub.
       </p>
 
-      <section id="hub-section" aria-labelledby="hub-title" hidden={!hasHub}>
+      <section
+        id="hub-section"
+        className="section-shell system-section"
+        aria-labelledby="hub-title"
+        hidden={!hasHub}
+      >
         <h2 id="hub-title">Hub</h2>
         <dl className="stats">
           <div>
@@ -112,6 +117,7 @@ export function SystemDashboard({
 
       <section
         id="valley-section"
+        className="section-shell system-section"
         aria-labelledby="valley-stats-title"
         hidden={!hasHub}
       >

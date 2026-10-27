@@ -27,8 +27,13 @@ export function AdminPanel({
   };
 
   return (
-    <section id="admin-panel" hidden={hidden} aria-labelledby="admin-title">
-      <h3 id="admin-title">Administración</h3>
+    <section
+      id="admin-panel"
+      className="section-shell admin-section"
+      hidden={hidden}
+      aria-labelledby="admin-title"
+    >
+      <h2 id="admin-title">Administración</h2>
       <div className="actions">
         <button
           id="demo-toggle"

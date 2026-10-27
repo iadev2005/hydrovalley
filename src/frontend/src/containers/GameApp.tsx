@@ -137,7 +137,7 @@ export function GameApp({
 
   return (
     <main>
-      <h1>hydrovalley</h1>
+      <h1 className="brand-title">hydrovalley</h1>
 
       <AuthPanel
         hidden={Boolean(session)}
@@ -153,19 +153,26 @@ export function GameApp({
         <SessionBar username={session.username} onLogout={handleLogout} />
       ) : null}
 
-      <p className="meta">
-        Conexión: <span id="conn">{socketHook.statusText}</span>
-      </p>
-      <p className="meta" id="state">
-        {stateText}
-      </p>
+      <div className="status-strip" aria-label="Estado de la partida" role="status" aria-live="polite">
+        <p className="meta connection-status">
+          Conexión: <span id="conn">{socketHook.statusText}</span>
+        </p>
+        <p className="meta world-status" id="state">
+          {stateText}
+        </p>
+      </div>
 
       <OfflineSummaryPanel
         summary={socketHook.offlineSummary}
+        offlineDurationMs={socketHook.offlineDurationMs}
         onDismiss={socketHook.dismissOfflineSummary}
       />
 
-      <section id="game" aria-labelledby="valley-title">
+      <section
+        id="game"
+        className="section-shell valley-section"
+        aria-labelledby="valley-title"
+      >
         <h2 id="valley-title">Valle</h2>
         <div className="layout">
           {valleyViewHook.viewMode === "isometric" ? (
@@ -236,16 +243,7 @@ export function GameApp({
             onDrop={handleDrop}
             onPlaceInstallation={handlePlaceInstallation}
             onBuyUpgrade={handleBuyUpgrade}
-          >
-            {isAdmin ? (
-              <AdminPanel
-                isOpen={socketHook.isOpen}
-                demoMode={Boolean(socketHook.gameState?.demo_mode)}
-                onToggleDemo={handleToggleDemo}
-                onResetValley={handleResetValley}
-              />
-            ) : null}
-          </ValleyControls>
+          />
         </div>
 
         <ul className="legend" aria-label="Leyenda">
@@ -276,6 +274,15 @@ export function GameApp({
           <li>A aspersor · G goteo · P planta</li>
         </ul>
       </section>
+
+      {isAdmin ? (
+        <AdminPanel
+          isOpen={socketHook.isOpen}
+          demoMode={Boolean(socketHook.gameState?.demo_mode)}
+          onToggleDemo={handleToggleDemo}
+          onResetValley={handleResetValley}
+        />
+      ) : null}
 
       <RankingTable
         hidden={!session}
