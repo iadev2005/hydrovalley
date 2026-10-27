@@ -15,6 +15,8 @@ const mockState: StateFrame = {
   humidity: Array.from({ length: 1024 }, () => 0n),
   fires: [],
   installations: [],
+  buildings: [],
+  trash: [],
   player: {
     water: 85n,
     tank_capacity: 100n,
@@ -23,6 +25,7 @@ const mockState: StateFrame = {
     next_sprinkler_price: 50n,
     next_drip_price: 120n,
     next_treatment_plant_price: 300n,
+    next_trash_bin_price: 15n,
     offline_summary: null,
   },
 };
@@ -113,5 +116,75 @@ describe("ValleyControls", () => {
     const buyDropBtn = screen.getByRole("button", { name: "Comprar gota grande" });
     fireEvent.click(buyDropBtn);
     expect(onBuyUpgrade).toHaveBeenCalledWith("bigger_drop");
+  });
+
+  it("renders durability indicator and progress bar when selected tile has an installation", () => {
+    const stateWithInst: StateFrame = {
+      ...mockState,
+      installations: [
+        {
+          x: 5,
+          y: 10,
+          installation: "sprinkler",
+          owner_id: "ana",
+          remaining_durability: 25,
+        },
+      ],
+    };
+
+    render(
+      <ValleyControls
+        gameState={stateWithInst}
+        selected={{ x: 5, y: 10 }}
+        isOpen={true}
+        pendingCount={0}
+        actionMessage={null}
+        onDrop={vi.fn()}
+        onPlaceInstallation={vi.fn()}
+        onBuyUpgrade={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("25")).toBeDefined();
+    expect(screen.getByText(/usos restantes/i)).toBeDefined();
+    const bar = document.getElementById("durability-bar") as HTMLProgressElement;
+    expect(bar).toBeDefined();
+    expect(bar.value).toBe(25);
+    expect(bar.max).toBe(30);
+  });
+
+  it("handles trash bin placement and trash cleaning", () => {
+    const onPlaceInstallation = vi.fn();
+    const onCleanTrash = vi.fn();
+    const trashArr = Array.from({ length: 1024 }, () => 0);
+    trashArr[10 * 32 + 5] = 2; // tile (5, 10) has trash level 2
+
+    const stateWithTrash: StateFrame = {
+      ...mockState,
+      trash: trashArr,
+    };
+
+    render(
+      <ValleyControls
+        gameState={stateWithTrash}
+        selected={{ x: 5, y: 10 }}
+        isOpen={true}
+        pendingCount={0}
+        actionMessage={null}
+        onDrop={vi.fn()}
+        onPlaceInstallation={onPlaceInstallation}
+        onCleanTrash={onCleanTrash}
+        onBuyUpgrade={vi.fn()}
+      />,
+    );
+
+    const trashBinBtn = screen.getByRole("button", { name: /Colocar cesto de reciclaje/i });
+    fireEvent.click(trashBinBtn);
+    expect(onPlaceInstallation).toHaveBeenCalledWith("trash_bin");
+
+    const cleanTrashBtn = screen.getByRole("button", { name: /Limpiar basura/i });
+    expect(cleanTrashBtn).toBeDefined();
+    fireEvent.click(cleanTrashBtn);
+    expect(onCleanTrash).toHaveBeenCalledTimes(1);
   });
 });

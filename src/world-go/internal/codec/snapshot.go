@@ -160,8 +160,9 @@ func tileToProto(tile *domain.Tile) *worldv1.Tile {
 	}
 	if tile.Installation != nil {
 		message.Installation = &worldv1.Installation{
-			Kind:    installationToProto(tile.Installation.Kind),
-			OwnerId: tile.Installation.OwnerID,
+			Kind:                installationToProto(tile.Installation.Kind),
+			OwnerId:             tile.Installation.OwnerID,
+			RemainingDurability: tile.Installation.RemainingDurability,
 		}
 	}
 	return message
@@ -175,7 +176,11 @@ func tileFromProto(message *worldv1.Tile) (domain.Tile, error) {
 		if err != nil {
 			return domain.Tile{}, err
 		}
-		installation = &domain.Installation{Kind: kind, OwnerID: message.GetInstallation().GetOwnerId()}
+		installation = &domain.Installation{
+			Kind:                kind,
+			OwnerID:             message.GetInstallation().GetOwnerId(),
+			RemainingDurability: message.GetInstallation().GetRemainingDurability(),
+		}
 	}
 	stage, err := stageFromProto(message.GetStage())
 	if err != nil {

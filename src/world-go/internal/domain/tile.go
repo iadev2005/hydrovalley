@@ -11,10 +11,12 @@ const (
 	Shrub
 	Flowers
 	Tree
+	Water
+	Rock
 )
 
 // Next es la etapa a la que sube la casilla al acumular la humedad
-// necesaria; ok es false en el árbol.
+// necesaria; ok es false en el árbol, agua y roca.
 func (s TileStage) Next() (next TileStage, ok bool) {
 	if s >= Tree {
 		return s, false
@@ -23,12 +25,17 @@ func (s TileStage) Next() (next TileStage, ok bool) {
 }
 
 // Previous es la etapa a la que baja al marchitarse; ok es false en tierra
-// seca.
+// seca, agua y roca.
 func (s TileStage) Previous() (previous TileStage, ok bool) {
-	if s == DrySoil {
+	if s == DrySoil || s == Water || s == Rock {
 		return s, false
 	}
 	return s - 1, true
+}
+
+// IsNatural dice si la casilla es un elemento de terreno natural (agua o roca).
+func (s TileStage) IsNatural() bool {
+	return s == Water || s == Rock
 }
 
 // InstallationKind es el tipo de instalación de las 3R.
@@ -39,6 +46,7 @@ const (
 	Sprinkler InstallationKind = iota
 	Drip
 	TreatmentPlant
+	TrashBin
 )
 
 // UpgradeKind es el tipo de mejora (compra única por jugador).
@@ -59,8 +67,9 @@ type Fire struct {
 
 // Installation es una instalación colocada en una casilla.
 type Installation struct {
-	Kind    InstallationKind
-	OwnerID string
+	Kind                InstallationKind
+	OwnerID             string
+	RemainingDurability uint32
 }
 
 // Tile es una casilla del valle. El valor cero es tierra seca sin humedad,
@@ -71,4 +80,6 @@ type Tile struct {
 	DryTicks     uint32
 	Fire         *Fire
 	Installation *Installation
+	HasBuilding  bool
+	TrashLevel   uint32
 }

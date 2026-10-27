@@ -36,11 +36,15 @@ type SetDemoModeCommand struct{ Enabled bool }
 // ResetValleyCommand reinicia el valle (administración).
 type ResetValleyCommand struct{}
 
+// CleanTrashCommand limpia basura en la casilla (X, Y).
+type CleanTrashCommand struct{ X, Y uint32 }
+
 func (DropCommand) isCommandKind()              {}
 func (PlaceInstallationCommand) isCommandKind() {}
 func (BuyUpgradeCommand) isCommandKind()        {}
 func (SetDemoModeCommand) isCommandKind()       {}
 func (ResetValleyCommand) isCommandKind()       {}
+func (CleanTrashCommand) isCommandKind()        {}
 
 // OutcomeKind es el resultado final de un comando.
 type OutcomeKind uint8

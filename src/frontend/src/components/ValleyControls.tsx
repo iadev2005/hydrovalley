@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { ActionMessage } from "../hooks/useGameSocket.ts";
 import type { StateFrame } from "../logic/play.ts";
-import { playerPanel, selectionView } from "../logic/valley.ts";
+import { buildTiles, playerPanel, selectionView } from "../logic/valley.ts";
 
 export interface ValleyControlsProps {
   gameState: StateFrame | null;
@@ -11,6 +11,7 @@ export interface ValleyControlsProps {
   actionMessage: ActionMessage | null;
   onDrop: () => void;
   onPlaceInstallation: (installation: string) => void;
+  onCleanTrash?: () => void;
   onBuyUpgrade: (upgrade: string) => void;
   children?: ReactNode;
 }
@@ -23,6 +24,7 @@ export function ValleyControls({
   actionMessage,
   onDrop,
   onPlaceInstallation,
+  onCleanTrash,
   onBuyUpgrade,
   children,
 }: ValleyControlsProps) {
@@ -35,6 +37,19 @@ export function ValleyControls({
     messageClass = actionMessage.ok ? "meta ok" : "meta error";
   }
 
+  const selectedInstallation =
+    selected && gameState
+      ? gameState.installations.find(
+          (i) => i.x === selected.x && i.y === selected.y,
+        )
+      : null;
+
+  const selectedTile =
+    selected && gameState && gameState.width > 0
+      ? buildTiles(gameState)[selected.y * gameState.width + selected.x]
+      : null;
+  const selectedHasTrash = Boolean(selectedTile?.trash_level && selectedTile.trash_level > 0);
+
   return (
     <div className="panel">
       <p className="meta">
@@ -43,6 +58,17 @@ export function ValleyControls({
       <p className="meta" id="tile-info">
         {view.info}
       </p>
+      {selectedInstallation && (
+        <p className="meta" id="installation-durability">
+          Durabilidad ({selectedInstallation.installation}):{" "}
+          <strong id="durability-value">{selectedInstallation.remaining_durability}</strong> usos restantes{" "}
+          <progress
+            id="durability-bar"
+            max={30}
+            value={selectedInstallation.remaining_durability}
+          />
+        </p>
+      )}
       <p className="meta">
         Agua: <strong id="water">{panel.water}</strong>{" "}
         <progress id="water-bar" max={1} value={panel.waterRatio}></progress>
@@ -87,6 +113,25 @@ export function ValleyControls({
           <span id="price-treatment_plant">{panel.prices.treatment_plant}</span>{" "}
           hojas)
         </button>
+        <button
+          id="place-trash_bin"
+          type="button"
+          disabled={!canActOnTile}
+          onClick={() => onPlaceInstallation("trash_bin")}
+        >
+          Colocar cesto de reciclaje (
+          <span id="price-trash_bin">{panel.prices.trash_bin}</span> hojas)
+        </button>
+        {selectedHasTrash && onCleanTrash && (
+          <button
+            id="clean-trash"
+            type="button"
+            disabled={!canActOnTile}
+            onClick={onCleanTrash}
+          >
+            Limpiar basura (+2 hojas)
+          </button>
+        )}
         <button
           id="buy-bigger_drop"
           type="button"

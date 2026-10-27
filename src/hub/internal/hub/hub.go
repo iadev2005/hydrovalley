@@ -422,6 +422,15 @@ func (h *Hub) SubmitBuy(s *Session, b frames.Buy) Outcome {
 	})
 }
 
+// SubmitCleanTrash filtra la limpieza de una casilla de basura (Fase 4).
+func (h *Hub) SubmitCleanTrash(s *Session, c frames.CleanTrash) Outcome {
+	return h.submit(s, c.ActionID, func() (*worldv1.Command, Outcome) {
+		return &worldv1.Command{Kind: &worldv1.Command_CleanTrash{
+			CleanTrash: &worldv1.CleanTrashCommand{X: c.X, Y: c.Y},
+		}}, Admitted
+	})
+}
+
 // SubmitAdmin filtra un comando de administración (RF-31). Sin role = admin
 // responde "forbidden" al instante y no deja rastro (ni pending, ni cola).
 // Con ese rol pasa por la misma admisión que la gota (pending, confirmed y

@@ -411,7 +411,7 @@ func TestABiggerDropThatCompletesSeveralFiresPaysTheBonusOncePerFire(t *testing.
 
 func sprinklerWorld(owner string) *World {
 	return worldWith(catalogWithPPM(0), 1, func(w *World) {
-		w.tiles[tileIdx(10, 10)] = Tile{Installation: &Installation{Kind: Sprinkler, OwnerID: owner}}
+		w.tiles[tileIdx(10, 10)] = Tile{Installation: &Installation{Kind: Sprinkler, OwnerID: owner, RemainingDurability: 30}}
 		w.tiles[tileIdx(11, 11)] = burningGrass(0)
 		w.tiles[tileIdx(13, 13)] = burningGrass(0) // fuera de la zona 3 x 3
 		w.playerSlot(owner).record.LastActionTick = 0
@@ -453,7 +453,7 @@ func TestAnUnattendedFireBurnsOutAfterTheCatalogTicksIntoDrySoil(t *testing.T) {
 			Humidity:     60,
 			DryTicks:     3,
 			Fire:         fireOf(2, 0),
-			Installation: &Installation{Kind: Drip, OwnerID: ana},
+			Installation: &Installation{Kind: Drip, OwnerID: ana, RemainingDurability: 30},
 		}
 	})
 	idle(w, 299)

@@ -115,6 +115,12 @@ export function GameApp({
     [selected, socketHook],
   );
 
+  const handleCleanTrash = useCallback(() => {
+    if (selected) {
+      socketHook.sendCleanTrash(selected.x, selected.y);
+    }
+  }, [selected, socketHook]);
+
   const handleBuyUpgrade = useCallback(
     (upgrade: string) => {
       socketHook.sendBuyUpgrade(upgrade);
@@ -235,6 +241,7 @@ export function GameApp({
             actionMessage={socketHook.actionMessage}
             onDrop={handleDrop}
             onPlaceInstallation={handlePlaceInstallation}
+            onCleanTrash={handleCleanTrash}
             onBuyUpgrade={handleBuyUpgrade}
           >
             {isAdmin ? (

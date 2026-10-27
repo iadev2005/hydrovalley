@@ -33,6 +33,7 @@ type playerSlot struct {
 // llama serializa los pasos (regla 1).
 type World struct {
 	catalog             Catalog
+	seed                uint64
 	tick                uint64
 	epoch               uint32
 	demoMode            bool
@@ -58,19 +59,24 @@ func NewWorld(catalog Catalog, seed uint64) *World {
 	return NewWorldWithSize(catalog, seed, ValleyWidth, ValleyHeight)
 }
 
-// NewWorldWithSize crea un valle vacío de width x height casillas, solo para
+// NewWorldWithSize crea un valle de width x height casillas, solo para
 // la comparativa de rendimiento (tests/bench): el juego usa siempre 32 x 32
 // (NewWorld). Un valle de otro tamaño no se puede restaurar con Restore, que
 // exige el tamaño del juego.
 func NewWorldWithSize(catalog Catalog, seed uint64, width, height uint32) *World {
-	return &World{
+	w := &World{
 		catalog: catalog,
+		seed:    seed,
 		rng:     NewSplitMix64(seed),
 		width:   width,
 		height:  height,
 		tiles:   make([]Tile, tileCount(width, height)),
 		players: make(map[string]*playerSlot),
 	}
+	if seed != 0 {
+		w.generateNaturalTerrain()
+	}
+	return w
 }
 
 // Step aplica los comandos en orden y avanza el valle un tick (world.rs:247).
@@ -158,7 +164,7 @@ func (w *World) apply(command *Command, tick uint64) CommandOutcome {
 	case nil:
 		outcome = RejectedOutcome(InvalidCommand)
 	case DropCommand:
-		outcome = w.drop(command.PlayerID, kind.X, kind.Y)
+		outcome = w.drop(command.PlayerID, kind.X, kind.Y, tick)
 	case SetDemoModeCommand:
 		w.demoMode = kind.Enabled
 		outcome = AppliedOutcome
@@ -166,7 +172,7 @@ func (w *World) apply(command *Command, tick uint64) CommandOutcome {
 		w.resetValley()
 		outcome = AppliedOutcome
 	case PlaceInstallationCommand:
-		if kind.Kind > TreatmentPlant {
+		if kind.Kind > TrashBin {
 			// Go-only: Rust no puede representar un tipo desconocido.
 			outcome = RejectedOutcome(InvalidCommand)
 		} else {
@@ -178,6 +184,8 @@ func (w *World) apply(command *Command, tick uint64) CommandOutcome {
 		} else {
 			outcome = w.buyUpgrade(command.PlayerID, kind.Kind)
 		}
+	case CleanTrashCommand:
+		outcome = w.cleanTrash(command.PlayerID, kind.X, kind.Y)
 	default:
 		outcome = RejectedOutcome(InvalidCommand)
 	}
@@ -221,9 +229,55 @@ func (w *World) apply(command *Command, tick uint64) CommandOutcome {
 // Orden de las comprobaciones (importa para el motivo del rechazo): casilla
 // dentro del valle, mundo con sitio para un jugador nuevo, agua suficiente.
 // Un jugador que aún no existe se mide con la capacidad inicial del catálogo.
-func (w *World) drop(playerID string, x, y uint32) CommandOutcome {
-	if _, inside := w.tileIndex(x, y); !inside {
+// activeDripCoverage devuelve un slice booleano de 1024 casillas que indica cuáles
+// están en el área cuadrada 5x5 de al menos un riego por goteo activo en tick.
+func (w *World) activeDripCoverage(tick uint64) []bool {
+	covered := make([]bool, len(w.tiles))
+	side := w.catalog.Drip.AreaSide
+	for _, drip := range w.activeInstallations(Drip, tick) {
+		x, y := w.tileXY(drip.index)
+		for _, idx := range areaIndices(x, y, side, w.width, w.height) {
+			covered[idx] = true
+		}
+	}
+	return covered
+}
+
+// drop suelta una gota sobre (x, y) (world.rs:350): cobra el agua (salvo en
+// modo demo), humedece la casilla y, si con ella llega al umbral, la hace
+// crecer y paga las hojas a este jugador (el que empujó la casilla, en orden
+// de admisión).
+//
+// Con la mejora de gota más grande la gota humedece el cuadrado de
+// BiggerDrop.AreaSide casillas de lado centrado en (x, y), recortado por los
+// bordes del valle; cada casilla recibe la humedad entera de la gota, cuesta
+// el mismo litro y las hojas de todas las que crezcan son de quien la soltó
+// (casillas en orden de fila). humidityContributed suma la humedad que la
+// gota entrega en total (humedad x casillas del valle alcanzadas), crezcan o
+// no. En modo demo la gota es de una sola casilla aunque el jugador tenga la
+// mejora (D-01), así que cada gota aceptada suma exactamente DemoHumidity y
+// el invariante de RF-30 se cumple con cualquier mejora.
+//
+// En el área 5x5 de un riego por goteo activo, el aporte de humedad por gota se
+// duplica (salvo en modo demo).
+//
+// Una casilla ardiendo recibe la gota igual (suma humedad, pero no crece) y
+// la cuenta: con la que completa DropsToExtinguish (3) el fuego se apaga, el
+// crecimiento que quedó pendiente se resuelve en ese momento y el jugador de
+// esa gota gana ExtinguishBonusLeaves (suma a Leaves y a LeavesEarned). Con
+// la gota más grande cuenta como una gota para cada casilla ardiendo que
+// alcanza, y paga el bono una vez por cada fuego apagado.
+//
+// Orden de las comprobaciones (importa para el motivo del rechazo): casilla
+// dentro del valle, mundo con sitio para un jugador nuevo, agua suficiente.
+// Un jugador que aún no existe se mide con la capacidad inicial del catálogo.
+func (w *World) drop(playerID string, x, y uint32, tick uint64) CommandOutcome {
+	centerIndex, inside := w.tileIndex(x, y)
+	if !inside {
 		return RejectedOutcome(OutOfBounds)
+	}
+	if w.tiles[centerIndex].Stage.IsNatural() || w.tiles[centerIndex].HasBuilding {
+		return RejectedOutcome(TileOccupied)
 	}
 	humidity, cost := w.catalog.Drop.Humidity, w.catalog.Drop.WaterCost
 	if w.demoMode {
@@ -249,17 +303,27 @@ func (w *World) drop(playerID string, x, y uint32) CommandOutcome {
 	}
 
 	// Solo aquí, con la gota ya aceptada, entra un jugador nuevo.
+	dripCovered := w.activeDripCoverage(tick)
 	area := areaIndices(x, y, side, w.width, w.height)
 	var leaves uint64
+	var totalHumidity uint64
 	for _, index := range area {
 		tile := &w.tiles[index]
-		leaves = satAdd(leaves, AddHumidity(tile, humidity, w.catalog.Growth))
+		if tile.Stage.IsNatural() || tile.HasBuilding || tile.TrashLevel > 0 {
+			continue
+		}
+		effectiveHumidity := humidity
+		if !w.demoMode && dripCovered[index] {
+			effectiveHumidity = satMul(humidity, 2)
+		}
+		totalHumidity = satAdd(totalHumidity, effectiveHumidity)
+		leaves = satAdd(leaves, AddHumidity(tile, effectiveHumidity, w.catalog.Growth))
 		if ReceiveDrop(tile, w.catalog.Fire) {
 			leaves = satAdd(leaves, AddHumidity(tile, 0, w.catalog.Growth))
 			leaves = satAdd(leaves, w.catalog.Fire.ExtinguishBonusLeaves)
 		}
 	}
-	w.humidityContributed = satAdd(w.humidityContributed, satMul(humidity, uint64(len(area))))
+	w.humidityContributed = satAdd(w.humidityContributed, totalHumidity)
 
 	player := &w.playerSlot(playerID).record
 	// Sin saturar, como Rust: water >= cost está comprobado arriba (con el
@@ -297,6 +361,8 @@ func (w *World) advanceValley(tick uint64) {
 	w.refillTanks(tick)
 	w.runTreatmentPlants(tick)
 	w.runSprinklers(tick)
+	w.runDrips(tick)
+	w.runTrashBins(tick)
 
 	// Los fuegos avanzan también en modo demo: un fuego siempre se resuelve
 	// (gotas, aspersor o consumirse).
@@ -307,16 +373,23 @@ func (w *World) advanceValley(tick uint64) {
 	if w.demoMode {
 		return
 	}
+	w.spawnUrbanBuildings()
+	w.emitTrash(tick)
+	w.propagateTrash(tick)
+	dripCovered := w.activeDripCoverage(tick)
+	shoreline := w.shorelineMask()
 	// La cifra del catálogo es por segundo: se aplica entera una vez por
 	// segundo (cada TicksPerSecond ticks), nunca como fracción.
 	if isMultiple(tick, TicksPerSecond) {
-		w.evaporateValley(tick)
+		w.evaporateValley(tick, shoreline)
 	}
 	for i := range w.tiles {
-		Wither(&w.tiles[i], w.catalog.Evaporation)
+		if !dripCovered[i] && !shoreline[i] {
+			Wither(&w.tiles[i], w.catalog.Evaporation)
+		}
 	}
-	w.propagateFires()
-	w.igniteFires()
+	w.propagateFires(dripCovered, shoreline)
+	w.igniteFires(dripCovered, shoreline)
 }
 
 // propagateFires es la propagación a vecinas (world.rs propagate_fires; B3):
@@ -324,7 +397,8 @@ func (w *World) advanceValley(tick uint64) {
 // vecina ortogonal que ya ardiera al empezar el paso, hace un sorteo con
 // PropagationChancePPM; si sale, la enciende. Solo propagan los fuegos
 // presentes al entrar, así no hay cascadas dentro de un mismo tick.
-func (w *World) propagateFires() {
+// Casillas bajo el área 5x5 de un goteo activo y orillas de agua están protegidas.
+func (w *World) propagateFires(dripCovered, shoreline []bool) {
 	burningAtStart := make([]bool, len(w.tiles))
 	anyBurning := false
 	for i := range w.tiles {
@@ -340,10 +414,11 @@ func (w *World) propagateFires() {
 	ppm := w.catalog.Fire.PropagationChancePPM
 	for y := range w.height {
 		for x := range w.width {
-			tile := &w.tiles[int(y)*int(w.width)+int(x)]
+			index := int(y)*int(w.width) + int(x)
+			tile := &w.tiles[index]
 			// && en corto: solo una casilla elegible con vecina en llamas
 			// gasta un número.
-			if IsEligible(tile) && hasBurningNeighbor(burningAtStart, x, y, w.width, w.height) && w.rng.ChancePPM(ppm) {
+			if !dripCovered[index] && !shoreline[index] && IsEligible(tile) && hasBurningNeighbor(burningAtStart, x, y, w.width, w.height) && w.rng.ChancePPM(ppm) {
 				Ignite(tile)
 			}
 		}
@@ -363,18 +438,115 @@ func hasBurningNeighbor(burning []bool, x, y, width, height uint32) bool {
 
 // igniteFires es la ignición al azar (world.rs:649; RF-29): recorre las
 // casillas por filas y, por cada una elegible (con planta, humedad 0 y sin
-// fuego), hace un sorteo con Fire.IgnitionChancePPM partes por millón. Un
-// sorteo por casilla elegible y en ese orden fijo: con la misma semilla y el
-// mismo estado la secuencia es siempre la misma. Va al final del tick, así
-// que una casilla que acaba de marchitarse a tierra seca ya no cuenta y una
-// recién encendida empieza a contar sus ticks en el siguiente.
-func (w *World) igniteFires() {
+// fuego), hace un sorteo con Fire.IgnitionChancePPM partes por millón. Casillas
+// bajo el área 5x5 de un goteo activo y orillas de agua tienen la ignición suprimida.
+func (w *World) igniteFires(dripCovered, shoreline []bool) {
 	ppm := w.catalog.Fire.IgnitionChancePPM
 	for i := range w.tiles {
 		tile := &w.tiles[i]
 		// && en corto: solo una casilla elegible gasta un número (world.rs:653).
-		if IsEligible(tile) && w.rng.ChancePPM(ppm) {
+		if !dripCovered[i] && !shoreline[i] && IsEligible(tile) && w.rng.ChancePPM(ppm) {
 			Ignite(tile)
+		}
+	}
+}
+
+// shorelineMask identifica las casillas terrestres adyacentes a agua.
+func (w *World) shorelineMask() []bool {
+	mask := make([]bool, len(w.tiles))
+	stride := int(w.width)
+	height := int(w.height)
+	for y := 0; y < height; y++ {
+		for x := 0; x < stride; x++ {
+			idx := y*stride + x
+			if w.tiles[idx].Stage != Water {
+				isShore := (y > 0 && w.tiles[idx-stride].Stage == Water) ||
+					(y+1 < height && w.tiles[idx+stride].Stage == Water) ||
+					(x > 0 && w.tiles[idx-1].Stage == Water) ||
+					(x+1 < stride && w.tiles[idx+1].Stage == Water)
+				mask[idx] = isShore
+			}
+		}
+	}
+	return mask
+}
+
+// generateNaturalTerrain genera de forma determinista franjas de río/lago y dispersión de rocas (Fase 3).
+func (w *World) generateNaturalTerrain() {
+	if w.width < 20 || w.height < 20 {
+		return
+	}
+	trng := NewSplitMix64(w.seed ^ 0x5445525241494E5F)
+
+	// 1. Franja de río / lago (alrededor de x=24 en 32x32 para no colisionar con zonas de prueba x<=15)
+	baseX := int32(24) + int32(trng.NextU64()%3) - 1
+	for y := uint32(0); y < w.height; y++ {
+		offset := (int32(y)/4)%3 - 1
+		rx := baseX + offset
+		if rx < 18 {
+			rx = 18
+		}
+		if rx > int32(w.width-4) {
+			rx = int32(w.width - 4)
+		}
+		urx := uint32(rx)
+		idx1 := y*w.width + urx
+		idx2 := y*w.width + urx + 1
+		if int(idx1) < len(w.tiles) {
+			w.tiles[idx1].Stage = Water
+		}
+		if int(idx2) < len(w.tiles) {
+			w.tiles[idx2].Stage = Water
+		}
+	}
+
+	// Lago a media altura (y: 13..=16) ensanchando el río
+	for ly := uint32(13); ly <= 16; ly++ {
+		if ly < w.height {
+			offset := (int32(ly)/4)%3 - 1
+			rx := baseX + offset
+			if rx < 18 {
+				rx = 18
+			}
+			if rx > int32(w.width-4) {
+				rx = int32(w.width - 4)
+			}
+			minX := uint32(rx)
+			if minX > 0 {
+				minX--
+			}
+			maxX := uint32(rx + 2)
+			if maxX > w.width-2 {
+				maxX = w.width - 2
+			}
+			for lx := minX; lx <= maxX; lx++ {
+				idx := ly*w.width + lx
+				if int(idx) < len(w.tiles) {
+					w.tiles[idx].Stage = Water
+				}
+			}
+		}
+	}
+
+	// 2. Dispersión de rocas (obstáculos naturales no transitables)
+	numRocks := 12
+	placed := 0
+	attempts := 0
+	span := uint64(w.width - 20)
+	if span < 1 {
+		span = 1
+	}
+	for placed < numRocks && attempts < 100 {
+		attempts++
+		rx := 17 + uint32(trng.NextU64()%span)
+		ry := uint32(trng.NextU64() % uint64(w.height))
+		if rx == ry || (rx == 20 && ry == 20) || (rx == 31 && ry == 31) {
+			continue
+		}
+		idx := ry*w.width + rx
+		if int(idx) < len(w.tiles) && w.tiles[idx].Stage == DrySoil {
+			w.tiles[idx].Stage = Rock
+			placed++
 		}
 	}
 }
@@ -405,17 +577,15 @@ func (w *World) burnFires() {
 // resetValley es el reinicio del valle (world.rs:665; RF-31): el mundo
 // vuelve a su estado inicial y los jugadores a los valores de arranque del
 // catálogo, con los contadores de RF-27 y de las 3R a cero.
-//
-// No toca el tick, el modo demo, el generador de azar ni humidityContributed
-// (que solo crece), y conserva a los jugadores y su ventana de action_id (y
-// el tick de su última acción). Incrementa la época. Si hay un catálogo
-// ofrecido, lo adopta antes de nada y lo consume.
 func (w *World) resetValley() {
 	if w.resetCatalog != nil {
 		w.catalog = *w.resetCatalog
 		w.resetCatalog = nil
 	}
 	clear(w.tiles)
+	if w.seed != 0 {
+		w.generateNaturalTerrain()
+	}
 	w.epoch = satAdd32(w.epoch, 1)
 	tank := w.catalog.Tank.Capacity
 	for _, slot := range w.players {
@@ -552,4 +722,166 @@ func areaIndices(x, y, side, width, height uint32) []int {
 
 func tileCount(width, height uint32) int {
 	return int(width) * int(height)
+}
+
+// cleanTrash limpia un nivel de basura de una casilla (Fase 4).
+// Cada ejecución reduce en 1 el TrashLevel. Al llegar a 0, la casilla
+// retorna a tierra seca y otorga hojas de incentivo (+2).
+func (w *World) cleanTrash(playerID string, x, y uint32) CommandOutcome {
+	index, inside := w.tileIndex(x, y)
+	if !inside {
+		return RejectedOutcome(OutOfBounds)
+	}
+	tile := &w.tiles[index]
+	if tile.TrashLevel == 0 {
+		return RejectedOutcome(InvalidCommand)
+	}
+	tile.TrashLevel--
+	var incentive uint64
+	if tile.TrashLevel == 0 {
+		tile.Stage = DrySoil
+		incentive = 2
+	}
+	player := &w.playerSlot(playerID).record
+	player.Leaves = satAdd(player.Leaves, incentive)
+	player.LeavesEarned = satAdd(player.LeavesEarned, incentive)
+	return AppliedOutcome
+}
+
+// spawnUrbanBuildings genera estructuras de 1 casilla tras alcanzar umbral de progreso (Fase 4).
+// Inmunes a fuego y basura.
+func (w *World) spawnUrbanBuildings() {
+	treeCount := 0
+	for i := range w.tiles {
+		if w.tiles[i].Stage == Tree {
+			treeCount++
+		}
+	}
+	if treeCount < 2 && w.humidityContributed < 500 {
+		return
+	}
+	buildingCount := 0
+	for i := range w.tiles {
+		if w.tiles[i].HasBuilding {
+			buildingCount++
+		}
+	}
+	if buildingCount >= 2 {
+		return
+	}
+	width, height := w.width, w.height
+	type pt struct{ x, y uint32 }
+	var perimeter []pt
+	for x := uint32(0); x < width; x++ {
+		perimeter = append(perimeter, pt{x, 0})
+		perimeter = append(perimeter, pt{x, height - 1})
+	}
+	for y := uint32(1); y < height-1; y++ {
+		perimeter = append(perimeter, pt{0, y})
+		perimeter = append(perimeter, pt{width - 1, y})
+	}
+	for _, p := range perimeter {
+		idx, _ := w.tileIndex(p.x, p.y)
+		tile := &w.tiles[idx]
+		if !tile.Stage.IsNatural() &&
+			!tile.HasBuilding &&
+			tile.Stage == DrySoil &&
+			tile.Installation == nil &&
+			tile.Fire == nil &&
+			tile.TrashLevel == 0 {
+			w.tiles[idx].HasBuilding = true
+			break
+		}
+	}
+}
+
+// emitTrash: En ciclos fijos (cada 50 ticks = 5 s), el edificio suma +1 a TrashLevel
+// en una casilla vecina (3 x 3), eliminando plantas e instalaciones preexistentes (Fase 4).
+func (w *World) emitTrash(tick uint64) {
+	interval := satMul(5, TicksPerSecond)
+	if !isMultiple(tick, interval) {
+		return
+	}
+	var buildingIndices []int
+	for i := range w.tiles {
+		if w.tiles[i].HasBuilding {
+			buildingIndices = append(buildingIndices, i)
+		}
+	}
+	for _, bIdx := range buildingIndices {
+		bx, by := w.tileXY(bIdx)
+		area := areaIndices(bx, by, 3, w.width, w.height)
+		var targetIdx int = -1
+		for _, idx := range area {
+			if idx != bIdx && !w.tiles[idx].Stage.IsNatural() && !w.tiles[idx].HasBuilding {
+				targetIdx = idx
+				break
+			}
+		}
+		if targetIdx != -1 {
+			tile := &w.tiles[targetIdx]
+			if tile.TrashLevel < 3 {
+				tile.TrashLevel++
+			}
+			tile.Stage = DrySoil
+			tile.Humidity = 0
+			tile.Installation = nil
+			tile.Fire = nil
+		}
+	}
+}
+
+// propagateTrash: Una casilla con TrashLevel == 3 incrementa en +1 la basura de casillas
+// adyacentes no protegidas (Fase 4).
+func (w *World) propagateTrash(tick uint64) {
+	interval := satMul(10, TicksPerSecond)
+	if !isMultiple(tick, interval) {
+		return
+	}
+	trashBins := w.activeInstallations(TrashBin, tick)
+	protected := make([]bool, len(w.tiles))
+	for _, tb := range trashBins {
+		tx, ty := w.tileXY(tb.index)
+		for _, pIdx := range areaIndices(tx, ty, 3, w.width, w.height) {
+			protected[pIdx] = true
+		}
+	}
+
+	var level3Indices []int
+	for i := range w.tiles {
+		if w.tiles[i].TrashLevel == 3 {
+			level3Indices = append(level3Indices, i)
+		}
+	}
+
+	for _, l3Idx := range level3Indices {
+		x, y := w.tileXY(l3Idx)
+		for _, nIdx := range orthogonalNeighborIndices(x, y, w.width, w.height) {
+			tile := &w.tiles[nIdx]
+			if !protected[nIdx] && !tile.Stage.IsNatural() && !tile.HasBuilding && tile.TrashLevel < 3 {
+				tile.TrashLevel++
+				tile.Stage = DrySoil
+				tile.Humidity = 0
+				tile.Installation = nil
+				tile.Fire = nil
+			}
+		}
+	}
+}
+
+func orthogonalNeighborIndices(x, y, width, height uint32) []int {
+	var neighbors []int
+	if y > 0 {
+		neighbors = append(neighbors, int(y-1)*int(width)+int(x))
+	}
+	if y+1 < height {
+		neighbors = append(neighbors, int(y+1)*int(width)+int(x))
+	}
+	if x > 0 {
+		neighbors = append(neighbors, int(y)*int(width)+int(x-1))
+	}
+	if x+1 < width {
+		neighbors = append(neighbors, int(y)*int(width)+int(x+1))
+	}
+	return neighbors
 }

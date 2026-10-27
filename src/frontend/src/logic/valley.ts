@@ -4,9 +4,9 @@
 
 import type { StateFrame } from "./play.ts";
 
-const STAGE_NAMES = ["tierra seca", "pasto", "arbusto", "flores", "árbol"] as const;
+const STAGE_NAMES = ["tierra seca", "pasto", "arbusto", "flores", "árbol", "agua", "roca"] as const;
 
-/** Nombre de la etapa (1 tierra seca … 5 árbol); lo desconocido cuenta como tierra seca. */
+/** Nombre de la etapa (1 tierra seca … 5 árbol, 6 agua, 7 roca); lo desconocido cuenta como tierra seca. */
 export function stageName(stage: number): string {
   const name = STAGE_NAMES[stage - 1];
   return name ?? STAGE_NAMES[0];
@@ -43,6 +43,7 @@ export interface TileFire {
 export interface TileInstallation {
   kind: string;
   owner_id: string;
+  remaining_durability?: number;
 }
 
 export interface Tile {
@@ -52,12 +53,17 @@ export interface Tile {
   humidity: bigint;
   fire: TileFire | null;
   installation: TileInstallation | null;
+  has_building?: boolean;
+  trash_level?: number;
 }
 
 export type StateForTiles = Pick<
   StateFrame,
   "width" | "height" | "stages" | "humidity" | "fires" | "installations"
->;
+> & {
+  buildings?: boolean[];
+  trash?: number[];
+};
 
 /**
  * Una entrada por casilla, por filas (índice = y * width + x), con su etapa,
@@ -73,6 +79,8 @@ export function buildTiles(state: StateForTiles | null): Tile[] {
     humidity: state.humidity[i] ?? 0n,
     fire: null,
     installation: null,
+    has_building: state.buildings ? state.buildings[i] === true : false,
+    trash_level: state.trash ? state.trash[i] ?? 0 : 0,
   }));
   const at = (x: number, y: number): Tile | undefined =>
     x < width && y < height ? tiles[y * width + x] : undefined;
@@ -82,7 +90,13 @@ export function buildTiles(state: StateForTiles | null): Tile[] {
   }
   for (const i of state.installations) {
     const tile = at(i.x, i.y);
-    if (tile) tile.installation = { kind: i.installation, owner_id: i.owner_id };
+    if (tile) {
+      tile.installation = {
+        kind: i.installation,
+        owner_id: i.owner_id,
+        remaining_durability: i.remaining_durability,
+      };
+    }
   }
   return tiles;
 }
@@ -108,6 +122,7 @@ export interface PlayerPanelPrices {
   sprinkler: string;
   drip: string;
   treatment_plant: string;
+  trash_bin: string;
 }
 
 export interface PlayerPanelOwned {
@@ -131,6 +146,7 @@ export interface PlayerDataForPanel {
   next_sprinkler_price?: bigint;
   next_drip_price?: bigint;
   next_treatment_plant_price?: bigint;
+  next_trash_bin_price?: bigint;
 }
 
 /**
@@ -151,6 +167,7 @@ export function playerPanel(player: PlayerDataForPanel | null): PlayerPanelView 
       sprinkler: price(player?.next_sprinkler_price),
       drip: price(player?.next_drip_price),
       treatment_plant: price(player?.next_treatment_plant_price),
+      trash_bin: price(player?.next_trash_bin_price),
     },
     owned: { bigger_drop: owned("bigger_drop"), bigger_tank: owned("bigger_tank") },
   };
@@ -215,6 +232,8 @@ export function selectionView(
   const tile = tiles[selected.y * width + selected.x];
   if (!tile) return { label, info: "Sin datos del mapa todavía." };
   let info = `${stageName(tile.stage)}, humedad ${tile.humidity}`;
+  if (tile.has_building) info += ", estructura urbana";
+  if (tile.trash_level && tile.trash_level > 0) info += `, basura nivel ${tile.trash_level}`;
   if (tile.fire) info += `, en llamas (${tile.fire.drops_received} gotas recibidas)`;
   if (tile.installation) info += `, instalación: ${tile.installation.kind}`;
   return { label, info };
@@ -316,4 +335,17 @@ export function createPendingActions({
       return plan;
     },
   };
+}
+
+/**
+ * Determina si una casilla cae dentro del área 5x5 de al menos un riego por goteo.
+ */
+export function isTileInDripArea(
+  tileX: number,
+  tileY: number,
+  dripPositions: Array<{ x: number; y: number }>,
+): boolean {
+  return dripPositions.some(
+    (d) => Math.abs(d.x - tileX) <= 2 && Math.abs(d.y - tileY) <= 2,
+  );
 }

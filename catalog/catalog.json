@@ -2,7 +2,7 @@
   "rules": {
     "drop": {
       "water_cost_liters": 1,
-      "humidity_points": 25,
+      "humidity_points": 100,
       "demo_humidity_points": 1
     },
     "tank": {
@@ -37,17 +37,26 @@
       "price_leaves": 10,
       "area_side_tiles": 3,
       "humidity_points": 25,
-      "interval_seconds": 2
+      "interval_seconds": 2,
+      "durability": 30
     },
     "drip": {
       "price_leaves": 25,
       "area_side_tiles": 5,
-      "evaporation_divisor": 2
+      "evaporation_divisor": 2,
+      "durability": 30
     },
     "treatment_plant": {
       "price_leaves": 40,
-      "refill_liters": 1,
-      "interval_seconds": 2
+      "refill_liters": 3,
+      "interval_seconds": 2,
+      "durability": 30
+    },
+    "trash_bin": {
+      "price_leaves": 15,
+      "area_side_tiles": 3,
+      "interval_seconds": 2,
+      "durability": 30
     }
   },
   "upgrades": {

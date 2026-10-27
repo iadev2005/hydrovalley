@@ -48,7 +48,7 @@ func installationAt(t *testing.T, w *World, x, y uint32) *Installation {
 func wantInstallation(t *testing.T, w *World, x, y uint32, kind InstallationKind, owner string) {
 	t.Helper()
 	got := installationAt(t, w, x, y)
-	if got == nil || *got != (Installation{Kind: kind, OwnerID: owner}) {
+	if got == nil || got.Kind != kind || got.OwnerID != owner {
 		t.Fatalf("installation at (%d, %d) = %v, want {%d %s}", x, y, got, kind, owner)
 	}
 }
@@ -713,4 +713,115 @@ func TestTheBiggerDropUsesTheAreaOfTheCatalog(t *testing.T) {
 		t.Errorf("humidity contributed = %d, want 625", w.HumidityContributed())
 	}
 	wantHumidity(t, w, 8, 8, 25)
+}
+
+// ---- Pruebas de Fase 1 (Riego por Goteo y Planta de Tratamiento) ----
+
+func TestDripShieldPausesDryTicksAndPreventsWithering(t *testing.T) {
+	w := rich(holder{ana, 100})
+	w.Step([]Command{placeCmd(action(1), ana, Drip, 5, 5)})
+	w.Step([]Command{dropCmd(action(2), ana, 6, 6)})
+	w.Step([]Command{dropCmd(action(3), ana, 6, 6)})
+	if mustTile(t, w, 6, 6).Stage != Grass {
+		t.Fatal("tile (6, 6) did not grow to grass")
+	}
+	mustTile(t, w, 6, 6).Humidity = 0
+	advanceTo(t, w, 200)
+	tile := mustTile(t, w, 6, 6)
+	if tile.Stage != Grass || tile.DryTicks != 0 {
+		t.Errorf("stage = %v, dry_ticks = %d, want Grass and 0", tile.Stage, tile.DryTicks)
+	}
+}
+
+func TestDripShieldSuppressesFireIgnition(t *testing.T) {
+	catalog := d01()
+	catalog.Fire.IgnitionChancePPM = 1_000_000 // 100%
+	w := richWorld(catalog, holder{ana, 100})
+	w.Step([]Command{placeCmd(action(1), ana, Drip, 5, 5)})
+	mustTile(t, w, 6, 6).Stage = Grass
+	mustTile(t, w, 6, 6).Humidity = 0
+	mustTile(t, w, 20, 20).Stage = Grass
+	mustTile(t, w, 20, 20).Humidity = 0
+
+	w.Step(nil)
+	if mustTile(t, w, 6, 6).Fire != nil {
+		t.Error("shielded tile (6, 6) caught fire")
+	}
+	if mustTile(t, w, 20, 20).Fire == nil {
+		t.Error("unshielded tile (20, 20) did not catch fire")
+	}
+}
+
+func TestDripShieldDoublesDropHumidity(t *testing.T) {
+	w := rich(holder{ana, 100})
+	w.Step([]Command{placeCmd(action(1), ana, Drip, 10, 10)})
+	w.Step([]Command{dropCmd(action(2), ana, 0, 0)})
+	if got := humidityAt(t, w, 0, 0); got != 25 {
+		t.Errorf("humidity at (0, 0) = %d, want 25", got)
+	}
+	w.Step([]Command{dropCmd(action(3), ana, 11, 11)})
+	if got := humidityAt(t, w, 11, 11); got != 50 {
+		t.Errorf("humidity at (11, 11) = %d, want 50 (doubled)", got)
+	}
+}
+
+func TestTreatmentPlantPulsesGrowthToNeighborsAndCreditsOwner(t *testing.T) {
+	w := rich(holder{ana, 100})
+	w.Step([]Command{placeCmd(action(1), ana, TreatmentPlant, 5, 5)})
+	leavesBefore := mustPlayer(t, w, ana).Leaves
+	advanceTo(t, w, 20)
+
+	if mustTile(t, w, 4, 4).Stage != Grass || mustTile(t, w, 5, 4).Stage != Grass || mustTile(t, w, 6, 6).Stage != Grass {
+		t.Error("neighbor tiles did not grow to grass")
+	}
+	if mustTile(t, w, 5, 5).Stage != DrySoil {
+		t.Error("center tile (5, 5) should remain DrySoil")
+	}
+	ana := mustPlayer(t, w, ana)
+	if ana.Leaves <= leavesBefore {
+		t.Errorf("leaves = %d, want > %d", ana.Leaves, leavesBefore)
+	}
+	if ana.TilesGrown == 0 {
+		t.Error("tiles grown should be > 0")
+	}
+}
+
+func TestInstallationPlacedInitializesWithCatalogDurability(t *testing.T) {
+	w := rich(holder{ana, 100})
+	w.Step([]Command{placeCmd(action(1), ana, Sprinkler, 5, 5)})
+	inst := mustTile(t, w, 5, 5).Installation
+	if inst == nil || inst.RemainingDurability != 30 {
+		t.Fatalf("remaining durability = %v, want 30", inst)
+	}
+}
+
+func TestInstallationDurabilityDecrementsPerCycleAndUninstallsAtZero(t *testing.T) {
+	w := rich(holder{ana, 100})
+	w.Step([]Command{placeCmd(action(1), ana, Sprinkler, 5, 5)})
+	mustTile(t, w, 5, 5).Installation.RemainingDurability = 2
+
+	// Avanzar 1 ciclo (20 ticks)
+	advanceTo(t, w, 20)
+	inst := mustTile(t, w, 5, 5).Installation
+	if inst == nil || inst.RemainingDurability != 1 {
+		t.Fatalf("durability after 1 cycle = %v, want 1", inst)
+	}
+
+	// Avanzar 2do ciclo (40 ticks): llega a 0 y se desinstala
+	advanceTo(t, w, 40)
+	if mustTile(t, w, 5, 5).Installation != nil {
+		t.Fatalf("installation was not uninstalled upon reaching 0 durability")
+	}
+}
+
+func TestDripDurabilityDecrementsAndUninstallsAtZero(t *testing.T) {
+	w := rich(holder{ana, 100})
+	w.Step([]Command{placeCmd(action(1), ana, Drip, 8, 8)})
+	mustTile(t, w, 8, 8).Installation.RemainingDurability = 1
+
+	// Avanzar 1 ciclo (20 ticks)
+	advanceTo(t, w, 20)
+	if mustTile(t, w, 8, 8).Installation != nil {
+		t.Fatalf("drip was not uninstalled upon reaching 0 durability")
+	}
 }

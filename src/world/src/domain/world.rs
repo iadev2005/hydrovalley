@@ -100,6 +100,7 @@ struct PlayerSlot {
 #[derive(Debug, Clone)]
 pub struct World {
     catalog: Catalog,
+    seed: u64,
     tick: u64,
     epoch: u32,
     rng: SplitMix64,
@@ -136,8 +137,13 @@ impl World {
     /// restaurar con [`restore`](Self::restore), que exige el tamaño del juego.
     pub fn with_size(catalog: Catalog, seed: u64, width: u32, height: u32) -> Self {
         let tile_count = tile_count(width, height);
+        let mut tiles = vec![Tile::default(); tile_count];
+        if seed != 0 {
+            generate_natural_terrain(&mut tiles, width, height, seed);
+        }
         Self {
             catalog,
+            seed,
             tick: 0,
             epoch: 0,
             rng: SplitMix64::new(seed),
@@ -145,7 +151,7 @@ impl World {
             humidity_contributed: 0,
             width,
             height,
-            tiles: vec![Tile::default(); tile_count],
+            tiles,
             players: BTreeMap::new(),
             reset_catalog: None,
         }
@@ -198,6 +204,7 @@ impl World {
         }
         Ok(Self {
             catalog,
+            seed: parts.tick,
             tick: parts.tick,
             epoch: parts.epoch,
             rng,
@@ -313,7 +320,7 @@ impl World {
         }
         let outcome = match &command.kind {
             None => CommandOutcome::Rejected(RejectReason::InvalidCommand),
-            Some(CommandKind::Drop { x, y }) => self.drop(&command.player_id, *x, *y),
+            Some(CommandKind::Drop { x, y }) => self.drop(&command.player_id, *x, *y, tick),
             Some(CommandKind::SetDemoMode { enabled }) => {
                 self.demo_mode = *enabled;
                 CommandOutcome::Applied
@@ -326,6 +333,9 @@ impl World {
                 self.place_installation(&command.player_id, *kind, *x, *y)
             }
             Some(CommandKind::BuyUpgrade { kind }) => self.buy_upgrade(&command.player_id, *kind),
+            Some(CommandKind::CleanTrash { x, y }) => {
+                self.clean_trash(&command.player_id, *x, *y)
+            }
         };
         if outcome == CommandOutcome::Applied {
             // El comando aplicado ya dio de alta al jugador si era nuevo.
@@ -356,6 +366,9 @@ impl World {
     /// aceptada suma exactamente `demo_humidity` y el invariante de RF-30
     /// se cumple con cualquier mejora.
     ///
+    /// En el área 5x5 de un riego por goteo activo, el aporte de humedad por
+    /// gota se duplica (salvo en modo demo).
+    ///
     /// Una casilla ardiendo recibe la gota igual (suma humedad, pero no crece)
     /// y la cuenta: con la que completa `fire.drops_to_extinguish` (3) el
     /// fuego se apaga, el crecimiento que quedó pendiente se resuelve en ese
@@ -366,9 +379,12 @@ impl World {
     /// grande cuenta como una gota para cada casilla ardiendo que alcanza.
     /// Si completa la tercera gota de varios fuegos, paga el bono una vez por
     /// cada fuego apagado (cada uno es una extinción distinta).
-    fn drop(&mut self, player_id: &str, x: u32, y: u32) -> CommandOutcome {
-        if self.tile_index(x, y).is_none() {
+    fn drop(&mut self, player_id: &str, x: u32, y: u32, tick: u64) -> CommandOutcome {
+        let Some(center_index) = self.tile_index(x, y) else {
             return CommandOutcome::Rejected(RejectReason::OutOfBounds);
+        };
+        if self.tiles[center_index].stage.is_natural() || self.tiles[center_index].has_building {
+            return CommandOutcome::Rejected(RejectReason::TileOccupied);
         }
         let (humidity, cost) = if self.demo_mode {
             (self.catalog.drop.demo_humidity, 0)
@@ -389,21 +405,33 @@ impl World {
                 1
             };
         // Solo aquí, con la gota ya aceptada, entra un jugador nuevo.
+        let drip_covered = self.active_drip_coverage(tick);
         let area = area_indices(x, y, side, self.width, self.height);
         let mut leaves = 0u64;
+        let mut total_humidity = 0u64;
         for &index in &area {
             let tile = &mut self.tiles[index];
-            leaves =
-                leaves.saturating_add(growth::add_humidity(tile, humidity, &self.catalog.growth));
+            if tile.stage.is_natural() || tile.has_building || tile.trash_level > 0 {
+                continue;
+            }
+            let effective_humidity = if !self.demo_mode && drip_covered[index] {
+                humidity.saturating_mul(2)
+            } else {
+                humidity
+            };
+            total_humidity = total_humidity.saturating_add(effective_humidity);
+            leaves = leaves.saturating_add(growth::add_humidity(
+                tile,
+                effective_humidity,
+                &self.catalog.growth,
+            ));
             if fire::receive_drop(tile, &self.catalog.fire) {
                 leaves = leaves
                     .saturating_add(growth::add_humidity(tile, 0, &self.catalog.growth))
                     .saturating_add(self.catalog.fire.extinguish_bonus_leaves);
             }
         }
-        self.humidity_contributed = self
-            .humidity_contributed
-            .saturating_add(humidity.saturating_mul(area.len() as u64));
+        self.humidity_contributed = self.humidity_contributed.saturating_add(total_humidity);
 
         let player = &mut self.player_slot(player_id).record;
         player.water -= cost;
@@ -428,7 +456,11 @@ impl World {
         let Some(index) = self.tile_index(x, y) else {
             return CommandOutcome::Rejected(RejectReason::OutOfBounds);
         };
-        if self.tiles[index].installation.is_some() {
+        if self.tiles[index].installation.is_some()
+            || self.tiles[index].stage.is_natural()
+            || self.tiles[index].has_building
+            || self.tiles[index].trash_level > 0
+        {
             return CommandOutcome::Rejected(RejectReason::TileOccupied);
         }
         let known = self.players.get(player_id).map(|slot| &slot.record);
@@ -444,9 +476,11 @@ impl World {
         let player = &mut self.player_slot(player_id).record;
         player.spend_leaves(price);
         player.record_purchase(kind);
+        let durability = self.catalog.installation_base_durability(kind);
         self.tiles[index].installation = Some(Installation {
             kind,
             owner_id: player_id.to_string(),
+            remaining_durability: durability,
         });
         CommandOutcome::Applied
     }
@@ -472,6 +506,29 @@ impl World {
         if kind == UpgradeKind::BiggerTank {
             player.tank_capacity = player.tank_capacity.saturating_add(extra_capacity);
         }
+        CommandOutcome::Applied
+    }
+
+    /// Limpia un nivel de basura de una casilla (Fase 4).
+    /// Cada ejecución reduce en 1 el trash_level. Al llegar a 0, la casilla
+    /// retorna a tierra seca y otorga hojas de incentivo (+2).
+    fn clean_trash(&mut self, player_id: &str, x: u32, y: u32) -> CommandOutcome {
+        let Some(index) = self.tile_index(x, y) else {
+            return CommandOutcome::Rejected(RejectReason::OutOfBounds);
+        };
+        let tile = &mut self.tiles[index];
+        if tile.trash_level == 0 {
+            return CommandOutcome::Rejected(RejectReason::InvalidCommand);
+        }
+        tile.trash_level = tile.trash_level.saturating_sub(1);
+        let mut incentive = 0u64;
+        if tile.trash_level == 0 {
+            tile.stage = TileStage::DrySoil;
+            incentive = 2;
+        }
+        let player = &mut self.player_slot(player_id).record;
+        player.leaves = player.leaves.saturating_add(incentive);
+        player.leaves_earned = player.leaves_earned.saturating_add(incentive);
         CommandOutcome::Applied
     }
 
@@ -521,10 +578,25 @@ impl World {
             .collect()
     }
 
+    /// Casillas cubiertas por al menos un riego por goteo activo en `tick`.
+    fn active_drip_coverage(&self, tick: u64) -> Vec<bool> {
+        let mut covered = vec![false; self.tiles.len()];
+        let side = self.catalog.drip.area_side;
+        for (index, _) in self.active_installations(InstallationKind::Drip, tick) {
+            let (x, y) = self.tile_xy(index);
+            for tile_idx in area_indices(x, y, side, self.width, self.height) {
+                covered[tile_idx] = true;
+            }
+        }
+        covered
+    }
+
     /// Planta de tratamiento (Reciclar): cada `treatment_plant.interval_seconds`
     /// suma `treatment_plant.refill_amount` litros extra al depósito de su
     /// dueño, sin pasar de la capacidad. Solo lo que cabe cuenta como
     /// recargado (RF-27) y como `water_recycled`.
+    /// Además emite un pulso periódico 3x3 que sube +1 etapa vegetal a las
+    /// casillas vecinas y acredita las hojas al propietario.
     fn run_treatment_plants(&mut self, tick: u64) {
         let rules = &self.catalog.treatment_plant;
         let interval = u64::from(rules.interval_seconds).saturating_mul(TICKS_PER_SECOND);
@@ -532,12 +604,47 @@ impl World {
             return;
         }
         let amount = rules.refill_amount;
-        for (_, owner) in self.active_installations(InstallationKind::TreatmentPlant, tick) {
+        for (index, owner) in self.active_installations(InstallationKind::TreatmentPlant, tick) {
+            let (x, y) = self.tile_xy(index);
+            let area = area_indices(x, y, 3, self.width, self.height);
+            let mut leaves_earned = 0u64;
+            let mut tiles_grown = 0u64;
+            for &neighbor_idx in &area {
+                if neighbor_idx == index {
+                    continue;
+                }
+                let tile = &mut self.tiles[neighbor_idx];
+                if tile.fire.is_some() || tile.stage.is_natural() {
+                    continue;
+                }
+                if let Some(next) = tile.stage.next() {
+                    tile.stage = next;
+                    tile.dry_ticks = 0;
+                    if tile.stage == TileStage::Tree {
+                        tile.humidity = tile.humidity.min(self.catalog.growth.tree_max_humidity);
+                    }
+                    let earned = self.catalog.growth.leaves_for(next);
+                    leaves_earned = leaves_earned.saturating_add(earned);
+                    tiles_grown = tiles_grown.saturating_add(1);
+                }
+            }
+
             let player = &mut self.player_slot(&owner).record;
             let added = amount.min(player.tank_capacity.saturating_sub(player.water));
             player.water = player.water.saturating_add(added);
             player.water_refilled = player.water_refilled.saturating_add(added);
             player.water_recycled = player.water_recycled.saturating_add(added);
+
+            player.leaves = player.leaves.saturating_add(leaves_earned);
+            player.leaves_earned = player.leaves_earned.saturating_add(leaves_earned);
+            player.tiles_grown = player.tiles_grown.saturating_add(tiles_grown);
+
+            if let Some(inst) = self.tiles[index].installation.as_mut() {
+                inst.remaining_durability = inst.remaining_durability.saturating_sub(1);
+                if inst.remaining_durability == 0 {
+                    self.tiles[index].installation = None;
+                }
+            }
         }
     }
 
@@ -570,6 +677,9 @@ impl World {
             let mut effect = OfflineSummary::default();
             for &index in &area {
                 let tile = &mut self.tiles[index];
+                if tile.stage.is_natural() {
+                    continue;
+                }
                 let stage_before = tile.stage;
                 effect.leaves_earned = effect.leaves_earned.saturating_add(growth::add_humidity(
                     tile,
@@ -597,6 +707,173 @@ impl World {
                 .saturating_add(effect.fires_extinguished);
             player.tiles_grown = player.tiles_grown.saturating_add(effect.tiles_grown);
             player.offline_summary.add(&effect);
+
+            if let Some(inst) = self.tiles[index].installation.as_mut() {
+                inst.remaining_durability = inst.remaining_durability.saturating_sub(1);
+                if inst.remaining_durability == 0 {
+                    self.tiles[index].installation = None;
+                }
+            }
+        }
+    }
+
+    /// Riego por goteo: cada 2 segundos (20 ticks) de trabajo activo descuenta
+    /// 1 punto de durabilidad. Al llegar a cero se destruye y desaparece.
+    fn run_drips(&mut self, tick: u64) {
+        let interval = 2 * TICKS_PER_SECOND;
+        if !tick.is_multiple_of(interval) {
+            return;
+        }
+        for (index, _) in self.active_installations(InstallationKind::Drip, tick) {
+            if let Some(inst) = self.tiles[index].installation.as_mut() {
+                inst.remaining_durability = inst.remaining_durability.saturating_sub(1);
+                if inst.remaining_durability == 0 {
+                    self.tiles[index].installation = None;
+                }
+            }
+        }
+    }
+
+    /// Cesto de Basura / Reciclaje (Fase 4): cada 2 segundos (20 ticks) reduce 1 nivel
+    /// de basura en su radio 3 x 3 y descuenta 1 punto de su durabilidad.
+    fn run_trash_bins(&mut self, tick: u64) {
+        let rules = &self.catalog.trash_bin;
+        let interval = u64::from(rules.interval_seconds).saturating_mul(TICKS_PER_SECOND);
+        if !tick.is_multiple_of(interval) {
+            return;
+        }
+        let side = rules.area_side;
+        for (index, _) in self.active_installations(InstallationKind::TrashBin, tick) {
+            let (x, y) = self.tile_xy(index);
+            for tile_idx in area_indices(x, y, side, self.width, self.height) {
+                let tile = &mut self.tiles[tile_idx];
+                if tile.trash_level > 0 {
+                    tile.trash_level = tile.trash_level.saturating_sub(1);
+                    if tile.trash_level == 0 {
+                        tile.stage = TileStage::DrySoil;
+                    }
+                }
+            }
+            if let Some(inst) = self.tiles[index].installation.as_mut() {
+                inst.remaining_durability = inst.remaining_durability.saturating_sub(1);
+                if inst.remaining_durability == 0 {
+                    self.tiles[index].installation = None;
+                }
+            }
+        }
+    }
+
+    /// Generación de estructuras de 1 casilla tras alcanzar umbral de progreso (Fase 4).
+    /// Inmunes a fuego y basura.
+    fn spawn_urban_buildings(&mut self) {
+        let tree_count = self.tiles.iter().filter(|t| t.stage == TileStage::Tree).count();
+        if tree_count < 2 && self.humidity_contributed < 500 {
+            return;
+        }
+        let building_count = self.tiles.iter().filter(|t| t.has_building).count();
+        if building_count >= 2 {
+            return;
+        }
+        let (width, height) = (self.width, self.height);
+        let mut perimeter = Vec::new();
+        for x in 0..width {
+            perimeter.push((x, 0));
+            perimeter.push((x, height - 1));
+        }
+        for y in 1..height - 1 {
+            perimeter.push((0, y));
+            perimeter.push((width - 1, y));
+        }
+        for (x, y) in perimeter {
+            let (idx, _) = self.tile_index(x, y);
+            let tile = &self.tiles[idx];
+            if !tile.stage.is_natural()
+                && !tile.has_building
+                && tile.stage == TileStage::DrySoil
+                && tile.installation.is_none()
+                && tile.fire.is_none()
+                && tile.trash_level == 0
+            {
+                self.tiles[idx].has_building = true;
+                break;
+            }
+        }
+    }
+
+    /// En ciclos fijos (cada 50 ticks = 5 s), el edificio suma +1 a trash_level
+    /// en una casilla vecina (3 x 3), eliminando plantas e instalaciones preexistentes (Fase 4).
+    fn emit_trash(&mut self, tick: u64) {
+        let interval = 5 * TICKS_PER_SECOND;
+        if !tick.is_multiple_of(interval) {
+            return;
+        }
+        let building_indices: Vec<usize> = self
+            .tiles
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.has_building)
+            .map(|(i, _)| i)
+            .collect();
+
+        for b_idx in building_indices {
+            let (bx, by) = self.tile_xy(b_idx);
+            let area = area_indices(bx, by, 3, self.width, self.height);
+            let candidate = area.into_iter().find(|&idx| {
+                idx != b_idx
+                    && !self.tiles[idx].stage.is_natural()
+                    && !self.tiles[idx].has_building
+            });
+            if let Some(target_idx) = candidate {
+                let tile = &mut self.tiles[target_idx];
+                tile.trash_level = (tile.trash_level + 1).min(3);
+                tile.stage = TileStage::DrySoil;
+                tile.humidity = 0;
+                tile.installation = None;
+                tile.fire = None;
+            }
+        }
+    }
+
+    /// Una casilla con trash_level == 3 incrementa en +1 la basura de casillas
+    /// adyacentes no protegidas (Fase 4).
+    fn propagate_trash(&mut self, tick: u64) {
+        let interval = 10 * TICKS_PER_SECOND;
+        if !tick.is_multiple_of(interval) {
+            return;
+        }
+        let trash_bins = self.active_installations(InstallationKind::TrashBin, tick);
+        let mut protected = vec![false; self.tiles.len()];
+        for (tb_idx, _) in trash_bins {
+            let (tx, ty) = self.tile_xy(tb_idx);
+            for p_idx in area_indices(tx, ty, 3, self.width, self.height) {
+                protected[p_idx] = true;
+            }
+        }
+
+        let level_3_indices: Vec<usize> = self
+            .tiles
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.trash_level == 3)
+            .map(|(i, _)| i)
+            .collect();
+
+        for l3_idx in level_3_indices {
+            let (x, y) = self.tile_xy(l3_idx);
+            for n_idx in orthogonal_neighbor_indices(x, y, self.width, self.height) {
+                let tile = &mut self.tiles[n_idx];
+                if !protected[n_idx]
+                    && !tile.stage.is_natural()
+                    && !tile.has_building
+                    && tile.trash_level < 3
+                {
+                    tile.trash_level += 1;
+                    tile.stage = TileStage::DrySoil;
+                    tile.humidity = 0;
+                    tile.installation = None;
+                    tile.fire = None;
+                }
+            }
         }
     }
 
@@ -610,9 +887,29 @@ impl World {
     /// `min(humedad, evaporación) - min(humedad, evaporación reducida)`. Una
     /// casilla ardiendo se evapora (y ahorra) como cualquier otra: el fuego
     /// congela la etapa, no la humedad.
-    fn evaporate_valley(&mut self, tick: u64) {
+    fn shoreline_mask(&self) -> Vec<bool> {
+        let (width, height) = (self.width, self.height);
+        let mut mask = vec![false; self.tiles.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y as usize * width as usize + x as usize;
+                if self.tiles[idx].stage != TileStage::Water {
+                    mask[idx] = orthogonal_neighbor_indices(x, y, width, height)
+                        .any(|n| self.tiles[n].stage == TileStage::Water);
+                }
+            }
+        }
+        mask
+    }
+
+    /// Evaporación del segundo, con el goteo (Reducir) y la orilla de agua: en el cuadrado de
+    /// `drip.area_side` casillas de lado de un riego por goteo la casilla
+    /// pierde `humidity_per_second / evaporation_divisor`. En la orilla de agua,
+    /// la pérdida se reduce a la mitad.
+    fn evaporate_valley(&mut self, tick: u64, shoreline: &[bool]) {
         let amount = self.catalog.evaporation.humidity_per_second;
         let reduced = amount / u64::from(self.catalog.drip.evaporation_divisor).max(1);
+        let shoreline_amount = amount / 2;
         let drips = self.active_installations(InstallationKind::Drip, tick);
         let side = self.catalog.drip.area_side;
         // Para cada casilla, qué goteo la cubre (el primero en orden).
@@ -624,14 +921,23 @@ impl World {
             }
         }
         let mut saved = vec![0u64; drips.len()];
-        for (tile, covered_by) in self.tiles.iter_mut().zip(cover) {
+        for (idx, (tile, covered_by)) in self.tiles.iter_mut().zip(cover).enumerate() {
+            if tile.stage.is_natural() {
+                continue;
+            }
+            let base_evap = if shoreline[idx] { shoreline_amount } else { amount };
             let Some(n) = covered_by else {
-                growth::evaporate(tile, amount);
+                growth::evaporate(tile, base_evap);
                 continue;
             };
+            let effective_reduced = if shoreline[idx] {
+                reduced.min(shoreline_amount)
+            } else {
+                reduced
+            };
             let h = tile.humidity;
-            saved[n] = saved[n].saturating_add(h.min(amount) - h.min(reduced));
-            growth::evaporate(tile, reduced);
+            saved[n] = saved[n].saturating_add(h.min(base_evap) - h.min(effective_reduced));
+            growth::evaporate(tile, effective_reduced);
         }
         for ((_, owner), amount) in drips.iter().zip(saved) {
             let player = &mut self.player_slot(owner).record;
@@ -645,6 +951,8 @@ impl World {
         self.refill_tanks(tick);
         self.run_treatment_plants(tick);
         self.run_sprinklers(tick);
+        self.run_drips(tick);
+        self.run_trash_bins(tick);
         // Los fuegos avanzan también en modo demo: un fuego siempre se
         // resuelve (gotas, aspersor o consumirse).
         self.burn_fires();
@@ -654,16 +962,23 @@ impl World {
         if self.demo_mode {
             return;
         }
+        self.spawn_urban_buildings();
+        self.emit_trash(tick);
+        self.propagate_trash(tick);
+        let drip_covered = self.active_drip_coverage(tick);
+        let shoreline = self.shoreline_mask();
         // La cifra del catálogo es por segundo: se aplica entera una vez por
         // segundo (cada TICKS_PER_SECOND ticks), nunca como fracción.
         if tick.is_multiple_of(TICKS_PER_SECOND) {
-            self.evaporate_valley(tick);
+            self.evaporate_valley(tick, &shoreline);
         }
-        for tile in &mut self.tiles {
-            growth::wither(tile, &self.catalog.evaporation);
+        for (index, tile) in self.tiles.iter_mut().enumerate() {
+            if !drip_covered[index] && !shoreline[index] {
+                growth::wither(tile, &self.catalog.evaporation);
+            }
         }
-        self.propagate_fires();
-        self.ignite_fires();
+        self.propagate_fires(&drip_covered, &shoreline);
+        self.ignite_fires(&drip_covered, &shoreline);
     }
 
     /// Un tick más de fuego en cada casilla que arde; las que llegan a
@@ -681,9 +996,10 @@ impl World {
     /// estuviera ardiendo al inicio de la fase, hace un sorteo con
     /// `fire.propagation_chance_ppm`. Si sale, la casilla se enciende. Solo
     /// gasta un número la casilla elegible con vecina en llamas.
+    /// Casillas bajo el área 5x5 de un goteo activo y orillas de agua están protegidas.
     /// Solo propaga desde los incendios que ya ardían al entrar al paso,
     /// evitando cascadas instantáneas en un mismo tick.
-    fn propagate_fires(&mut self) {
+    fn propagate_fires(&mut self, drip_covered: &[bool], shoreline: &[bool]) {
         let ppm = self.catalog.fire.propagation_chance_ppm;
         let burning_at_start: Vec<bool> = self.tiles.iter().map(|t| t.fire.is_some()).collect();
         if !burning_at_start.contains(&true) {
@@ -695,7 +1011,9 @@ impl World {
             for x in 0..width {
                 let index = y as usize * width as usize + x as usize;
                 let tile = &mut self.tiles[index];
-                if fire::is_eligible(tile)
+                if !drip_covered[index]
+                    && !shoreline[index]
+                    && fire::is_eligible(tile)
                     && orthogonal_neighbor_indices(x, y, width, height).any(|n| burning_at_start[n])
                     && self.rng.chance_ppm(ppm)
                 {
@@ -707,15 +1025,12 @@ impl World {
 
     /// Ignición al azar (RF-29): recorre las casillas por filas y, por cada
     /// una elegible (con planta, humedad 0 y sin fuego), hace un sorteo con
-    /// `fire.ignition_chance_ppm` partes por millón. Un sorteo por casilla
-    /// elegible y en ese orden fijo: con la misma semilla y el mismo estado
-    /// la secuencia es siempre la misma. Va al final del tick, así que una
-    /// casilla que acaba de marchitarse a tierra seca ya no cuenta y una
-    /// recién encendida empieza a contar sus ticks en el siguiente.
-    fn ignite_fires(&mut self) {
+    /// `fire.ignition_chance_ppm` partes por millón. Casillas bajo el área
+    /// 5x5 de un goteo activo y orillas de agua tienen la ignición suprimida.
+    fn ignite_fires(&mut self, drip_covered: &[bool], shoreline: &[bool]) {
         let ppm = self.catalog.fire.ignition_chance_ppm;
-        for tile in &mut self.tiles {
-            if fire::is_eligible(tile) && self.rng.chance_ppm(ppm) {
+        for (index, tile) in self.tiles.iter_mut().enumerate() {
+            if !drip_covered[index] && !shoreline[index] && fire::is_eligible(tile) && self.rng.chance_ppm(ppm) {
                 fire::ignite(tile);
             }
         }
@@ -723,16 +1038,15 @@ impl World {
 
     /// Reinicio del valle (RF-31): el mundo vuelve a su estado inicial y los
     /// jugadores a los valores de arranque del catálogo, con los contadores
-    /// de RF-27 y de las 3R a cero.
-    ///
-    /// No toca el tick, el modo demo, el generador de azar ni
-    /// `humidity_contributed` (que solo crece), y conserva a los jugadores y
-    /// su ventana de `action_id`. Incrementa la época.
+    /// de RF-27 y de las 3R a cero. Regenera de forma determinista el terreno natural.
     fn reset_valley(&mut self) {
         if let Some(catalog) = self.reset_catalog.take() {
             self.catalog = catalog;
         }
         self.tiles.fill(Tile::default());
+        if self.seed != 0 {
+            generate_natural_terrain(&mut self.tiles, self.width, self.height, self.seed);
+        }
         self.epoch = self.epoch.saturating_add(1);
         let tank = self.catalog.tank.capacity;
         for slot in self.players.values_mut() {
@@ -896,6 +1210,61 @@ fn orthogonal_neighbor_indices(
         count += 1;
     }
     neighbors.into_iter().take(count)
+}
+
+/// Genera de forma determinista franjas de río/lago y dispersión de rocas (Fase 3).
+pub fn generate_natural_terrain(tiles: &mut [Tile], width: u32, height: u32, seed: u64) {
+    if width < 20 || height < 20 {
+        return;
+    }
+    let mut trng = SplitMix64::new(seed ^ 0x5445_5252_4149_4E5F);
+
+    // 1. Franja de río / lago (alrededor de x=24 en 32x32 para no colisionar con zonas de prueba x<=15)
+    let base_x = 24i32 + ((trng.next_u64() % 3) as i32 - 1);
+    for y in 0..height {
+        let offset = ((y as i32 / 4) % 3) - 1;
+        let rx = (base_x + offset).clamp(18, (width - 4) as i32) as u32;
+        let idx1 = (y * width + rx) as usize;
+        let idx2 = (y * width + rx + 1) as usize;
+        if idx1 < tiles.len() {
+            tiles[idx1].stage = TileStage::Water;
+        }
+        if idx2 < tiles.len() {
+            tiles[idx2].stage = TileStage::Water;
+        }
+    }
+
+    // Lago a media altura (y: 13..=16) ensanchando el río
+    for ly in 13..=16u32 {
+        if ly < height {
+            let offset = ((ly as i32 / 4) % 3) - 1;
+            let rx = (base_x + offset).clamp(18, (width - 4) as i32) as u32;
+            for lx in rx.saturating_sub(1)..=(rx + 2).min(width - 2) {
+                let idx = (ly * width + lx) as usize;
+                if idx < tiles.len() {
+                    tiles[idx].stage = TileStage::Water;
+                }
+            }
+        }
+    }
+
+    // 2. Dispersión de rocas (obstáculos naturales no transitables)
+    let num_rocks = 12;
+    let mut placed = 0;
+    let mut attempts = 0;
+    while placed < num_rocks && attempts < 100 {
+        attempts += 1;
+        let rx = 17 + (trng.next_u64() % u64::from(width.saturating_sub(20).max(1))) as u32;
+        let ry = (trng.next_u64() % u64::from(height)) as u32;
+        if rx == ry || (rx == 20 && ry == 20) || (rx == 31 && ry == 31) {
+            continue;
+        }
+        let idx = (ry * width + rx) as usize;
+        if idx < tiles.len() && tiles[idx].stage == TileStage::DrySoil {
+            tiles[idx].stage = TileStage::Rock;
+            placed += 1;
+        }
+    }
 }
 
 fn tile_count(width: u32, height: u32) -> usize {
@@ -2872,5 +3241,298 @@ mod tests {
         let ana = w.player(ANA).unwrap();
         assert!(ana.offline_summary.is_empty());
         assert_eq!((ana.fires_extinguished, ana.tiles_grown), (0, 0));
+    }
+
+    // ---- Pruebas de Fase 1 (Riego por Goteo y Planta de Tratamiento) ----
+
+    #[test]
+    fn drip_shield_pauses_dry_ticks_and_prevents_withering() {
+        let mut w = rich(&[(ANA, 100)]);
+        // Colocar goteo en (5, 5)
+        w.step(&[place_cmd(&action(1), ANA, Drip, 5, 5)]);
+        // Hacer crecer una casilla en su área 5x5: (6, 6) a Pasto
+        w.step(&[drop_cmd(&action(2), ANA, 6, 6)]);
+        w.step(&[drop_cmd(&action(3), ANA, 6, 6)]);
+        assert_eq!(w.tile(6, 6).unwrap().stage, TileStage::Grass);
+        // Dejarla con humedad 0
+        w.tiles[index(6, 6)].humidity = 0;
+        // Avanzar más ticks que wither_after_ticks (100)
+        advance_to(&mut w, 200);
+        // Debe conservar la etapa Pasto y dry_ticks debe haber quedado pausado en 0
+        assert_eq!(w.tile(6, 6).unwrap().stage, TileStage::Grass);
+        assert_eq!(w.tile(6, 6).unwrap().dry_ticks, 0);
+    }
+
+    #[test]
+    fn drip_shield_suppresses_fire_ignition() {
+        let mut catalog = Catalog::d01();
+        catalog.fire.ignition_chance_ppm = 1_000_000; // Cierto al 100%
+        let mut w = rich_world(catalog, &[(ANA, 100)]);
+        w.step(&[place_cmd(&action(1), ANA, Drip, 5, 5)]);
+        // Casilla con planta y humedad 0 dentro del área 5x5: (6, 6)
+        w.tiles[index(6, 6)].stage = TileStage::Grass;
+        w.tiles[index(6, 6)].humidity = 0;
+        // Casilla con planta y humedad 0 fuera del área: (20, 20)
+        w.tiles[index(20, 20)].stage = TileStage::Grass;
+        w.tiles[index(20, 20)].humidity = 0;
+
+        w.step(&[]);
+        // La protegida no debe arder
+        assert!(w.tile(6, 6).unwrap().fire.is_none());
+        // La desprotegida sí debe arder
+        assert!(w.tile(20, 20).unwrap().fire.is_some());
+    }
+
+    #[test]
+    fn drip_shield_doubles_drop_humidity() {
+        let mut w = rich(&[(ANA, 100)]);
+        w.step(&[place_cmd(&action(1), ANA, Drip, 10, 10)]);
+        // Gota fuera del área de goteo: (0, 0)
+        w.step(&[drop_cmd(&action(2), ANA, 0, 0)]);
+        assert_eq!(w.tile(0, 0).unwrap().humidity, 25);
+        // Gota dentro del área de goteo: (11, 11)
+        w.step(&[drop_cmd(&action(3), ANA, 11, 11)]);
+        assert_eq!(w.tile(11, 11).unwrap().humidity, 50, "aporte duplicado bajo goteo");
+    }
+
+    #[test]
+    fn treatment_plant_pulses_growth_to_neighbors_and_credits_owner() {
+        let mut w = rich(&[(ANA, 100)]);
+        w.step(&[place_cmd(&action(1), ANA, TreatmentPlant, 5, 5)]);
+        let leaves_before = w.player(ANA).unwrap().leaves;
+        // Avanzar al tick 20 (intervalo 2 s = 20 ticks)
+        advance_to(&mut w, 20);
+        // Las casillas vecinas 3x3 deben haber avanzado de Tierra Seca a Pasto
+        assert_eq!(w.tile(4, 4).unwrap().stage, TileStage::Grass);
+        assert_eq!(w.tile(5, 4).unwrap().stage, TileStage::Grass);
+        assert_eq!(w.tile(6, 6).unwrap().stage, TileStage::Grass);
+        // La casilla central (la planta en 5, 5) no avanza
+        assert_eq!(w.tile(5, 5).unwrap().stage, TileStage::DrySoil);
+        // Ana debe haber ganado hojas por las casillas que crecieron
+        let ana = w.player(ANA).unwrap();
+        assert!(ana.leaves > leaves_before);
+        assert!(ana.tiles_grown > 0);
+    }
+
+    // ---- Pruebas de Fase 2 (Durabilidad de Instalaciones) ----
+
+    #[test]
+    fn installation_placed_initializes_with_catalog_durability() {
+        let mut w = rich(&[(ANA, 100)]);
+        w.step(&[place_cmd(&action(1), ANA, Sprinkler, 5, 5)]);
+        let inst = w.tile(5, 5).unwrap().installation.unwrap();
+        assert_eq!(inst.remaining_durability, 30);
+    }
+
+    #[test]
+    fn installation_durability_decrements_per_cycle_and_uninstalls_at_zero() {
+        let mut w = rich(&[(ANA, 100)]);
+        w.step(&[place_cmd(&action(1), ANA, Sprinkler, 5, 5)]);
+        // Forzar durabilidad restante a 2 para probar la transición
+        w.tiles[index(5, 5)].installation.as_mut().unwrap().remaining_durability = 2;
+
+        // Avanzar 1 ciclo (20 ticks)
+        advance_to(&mut w, 20);
+        let inst = w.tile(5, 5).unwrap().installation.as_ref().unwrap();
+        assert_eq!(inst.remaining_durability, 1);
+
+        // Avanzar 2do ciclo (40 ticks): la durabilidad llega a cero y se desinstala
+        advance_to(&mut w, 40);
+        assert!(w.tile(5, 5).unwrap().installation.is_none(), "la instalación debe desinstalarse al llegar a 0");
+    }
+
+    #[test]
+    fn drip_durability_decrements_and_uninstalls_at_zero() {
+        let mut w = rich(&[(ANA, 100)]);
+        w.step(&[place_cmd(&action(1), ANA, Drip, 8, 8)]);
+        w.tiles[index(8, 8)].installation.as_mut().unwrap().remaining_durability = 1;
+
+        // Avanzar 1 ciclo (20 ticks)
+        advance_to(&mut w, 20);
+        assert!(w.tile(8, 8).unwrap().installation.is_none(), "el goteo debe desinstalarse al agotarse");
+    }
+
+    // ---- Pruebas de Fase 3 (Terreno Natural: Agua y Rocas) ----
+
+    #[test]
+    fn natural_terrain_rejects_drop_with_tile_occupied() {
+        let mut w = World::with_seed(Catalog::d01(), 42);
+        let water_pos = (0..w.tiles().len())
+            .find(|&i| w.tiles()[i].stage == TileStage::Water)
+            .map(|i| (i as u32 % 32, i as u32 / 32))
+            .unwrap();
+        let rock_pos = (0..w.tiles().len())
+            .find(|&i| w.tiles()[i].stage == TileStage::Rock)
+            .map(|i| (i as u32 % 32, i as u32 / 32))
+            .unwrap();
+
+        let out = w.step(&[
+            drop_cmd(&action(1), ANA, water_pos.0, water_pos.1),
+            drop_cmd(&action(2), ANA, rock_pos.0, rock_pos.1),
+        ]);
+
+        assert_eq!(
+            outcomes(&out),
+            vec![
+                CommandOutcome::Rejected(RejectReason::TileOccupied),
+                CommandOutcome::Rejected(RejectReason::TileOccupied),
+            ]
+        );
+    }
+
+    #[test]
+    fn natural_terrain_rejects_place_installation_with_tile_occupied() {
+        let mut w = World::with_seed(Catalog::d01(), 42);
+        w.player_slot(ANA).record.leaves = 100;
+        let water_pos = (0..w.tiles().len())
+            .find(|&i| w.tiles()[i].stage == TileStage::Water)
+            .map(|i| (i as u32 % 32, i as u32 / 32))
+            .unwrap();
+        let rock_pos = (0..w.tiles().len())
+            .find(|&i| w.tiles()[i].stage == TileStage::Rock)
+            .map(|i| (i as u32 % 32, i as u32 / 32))
+            .unwrap();
+
+        let out = w.step(&[
+            place_cmd(&action(1), ANA, Sprinkler, water_pos.0, water_pos.1),
+            place_cmd(&action(2), ANA, Sprinkler, rock_pos.0, rock_pos.1),
+        ]);
+
+        assert_eq!(
+            outcomes(&out),
+            vec![
+                CommandOutcome::Rejected(RejectReason::TileOccupied),
+                CommandOutcome::Rejected(RejectReason::TileOccupied),
+            ]
+        );
+    }
+
+    #[test]
+    fn shoreline_suppresses_fire_ignition_and_propagation() {
+        let mut w = World::with_seed(Catalog::d01(), 42);
+        let water_idx = (0..w.tiles().len())
+            .find(|&i| w.tiles()[i].stage == TileStage::Water)
+            .unwrap();
+        let (wx, wy) = (water_idx as u32 % 32, water_idx as u32 / 32);
+        let neighbor_idx = orthogonal_neighbor_indices(wx, wy, 32, 32)
+            .find(|&n| w.tiles()[n].stage == TileStage::DrySoil)
+            .unwrap();
+
+        w.tiles[neighbor_idx].stage = TileStage::Grass;
+        w.tiles[neighbor_idx].humidity = 0;
+
+        let mut catalog = Catalog::d01();
+        catalog.fire.ignition_chance_ppm = 1_000_000;
+        catalog.fire.propagation_chance_ppm = 1_000_000;
+        w.catalog = catalog;
+
+        w.step(&[]);
+        assert!(w.tiles[neighbor_idx].fire.is_none(), "la orilla de agua debe suprimir el fuego");
+    }
+
+    #[test]
+    fn reset_valley_regenerates_natural_terrain_deterministically() {
+        let mut w = World::with_seed(Catalog::d01(), 42);
+        let water_count_before = w.tiles().iter().filter(|t| t.stage == TileStage::Water).count();
+        let rock_count_before = w.tiles().iter().filter(|t| t.stage == TileStage::Rock).count();
+
+        assert!(water_count_before > 0);
+        assert!(rock_count_before > 0);
+
+        w.step(&[reset_cmd(&action(1))]);
+
+        let water_count_after = w.tiles().iter().filter(|t| t.stage == TileStage::Water).count();
+        let rock_count_after = w.tiles().iter().filter(|t| t.stage == TileStage::Rock).count();
+
+        assert_eq!(water_count_before, water_count_after);
+        assert_eq!(rock_count_before, rock_count_after);
+    }
+
+    // ---- Pruebas de Fase 4 (Presión Urbana, Basura y Cesto de Reciclaje) ----
+
+    #[test]
+    fn clean_trash_reduces_level_and_pays_incentive_leaves() {
+        let mut w = rich(&[(ANA, 10)]);
+        w.tiles[index(2, 2)].trash_level = 2;
+        w.tiles[index(2, 2)].stage = TileStage::DrySoil;
+
+        // Primer clean_trash: nivel 2 -> 1 (sin hojas de incentivo aún)
+        let out1 = w.step(&[Command {
+            action_id: action(1),
+            player_id: ANA.to_string(),
+            kind: Some(CommandKind::CleanTrash { x: 2, y: 2 }),
+        }]);
+        assert_eq!(outcomes(&out1), vec![CommandOutcome::Applied]);
+        assert_eq!(w.tile(2, 2).unwrap().trash_level, 1);
+        assert_eq!(w.player(ANA).unwrap().leaves, 10);
+
+        // Segundo clean_trash: nivel 1 -> 0 (+2 hojas de incentivo)
+        let out2 = w.step(&[Command {
+            action_id: action(2),
+            player_id: ANA.to_string(),
+            kind: Some(CommandKind::CleanTrash { x: 2, y: 2 }),
+        }]);
+        assert_eq!(outcomes(&out2), vec![CommandOutcome::Applied]);
+        assert_eq!(w.tile(2, 2).unwrap().trash_level, 0);
+        assert_eq!(w.player(ANA).unwrap().leaves, 12);
+        assert_eq!(w.player(ANA).unwrap().leaves_earned, 12);
+
+        // Tercer clean_trash sobre casilla sin basura: rechazado
+        let out3 = w.step(&[Command {
+            action_id: action(3),
+            player_id: ANA.to_string(),
+            kind: Some(CommandKind::CleanTrash { x: 2, y: 2 }),
+        }]);
+        assert_eq!(outcomes(&out3), vec![CommandOutcome::Rejected(RejectReason::InvalidCommand)]);
+    }
+
+    #[test]
+    fn urban_building_spawns_and_is_immune_to_fire() {
+        let mut w = rich(&[(ANA, 100)]);
+        // Simular progreso alto
+        w.humidity_contributed = 600;
+        advance_to(&mut w, 1);
+
+        let building_idx = w.tiles().iter().position(|t| t.has_building);
+        assert!(building_idx.is_some(), "un edificio debe aparecer tras superar el umbral de progreso");
+
+        let b_idx = building_idx.unwrap();
+        let (bx, by) = (b_idx as u32 % 32, b_idx as u32 / 32);
+
+        // Inmune a fuego
+        assert!(!fire::is_eligible(&w.tiles[b_idx]));
+
+        // Intento de colocar instalación sobre edificio rechazado
+        let out = w.step(&[place_cmd(&action(1), ANA, Sprinkler, bx, by)]);
+        assert_eq!(outcomes(&out), vec![CommandOutcome::Rejected(RejectReason::TileOccupied)]);
+    }
+
+    #[test]
+    fn trash_bin_cleans_trash_and_consumes_durability() {
+        let mut w = rich(&[(ANA, 100)]);
+        // Colocar cesto de reciclaje en (4, 4)
+        w.step(&[Command {
+            action_id: action(1),
+            player_id: ANA.to_string(),
+            kind: Some(CommandKind::PlaceInstallation {
+                kind: InstallationKind::TrashBin,
+                x: 4,
+                y: 4,
+            }),
+        }]);
+
+        // Sembrar basura nivel 2 en (5, 5) dentro del radio 3x3 del cesto
+        w.tiles[index(5, 5)].trash_level = 2;
+
+        let initial_durability = w.tile(4, 4).unwrap().installation.as_ref().unwrap().remaining_durability;
+        assert_eq!(initial_durability, 30);
+
+        // Avanzar 1 ciclo de trabajo (20 ticks = 2 s)
+        advance_to(&mut w, 20);
+
+        // El cesto debe haber reducido 1 nivel de basura y 1 de durabilidad
+        assert_eq!(w.tile(5, 5).unwrap().trash_level, 1);
+        let updated_durability = w.tile(4, 4).unwrap().installation.as_ref().unwrap().remaining_durability;
+        assert_eq!(updated_durability, 29);
     }
 }

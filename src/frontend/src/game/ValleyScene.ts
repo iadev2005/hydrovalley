@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { type StateFrame } from "../logic/play.ts";
-import { buildTiles, type Tile } from "../logic/valley.ts";
+import { type StateFrame, type PlacedInstallation } from "../logic/play.ts";
+import { buildTiles, isTileInDripArea, type Tile } from "../logic/valley.ts";
 import {
   gridToIsometric,
   isometricToGrid,
@@ -53,6 +53,7 @@ export class ValleyScene extends Phaser.Scene {
 
   // Acciones pendientes ("gota en el aire")
   private pendingDrops: Map<string, PendingDropItem> = new Map();
+  private currentInstallations: PlacedInstallation[] = [];
 
   constructor() {
     super({ key: ValleyScene.KEY });
@@ -66,10 +67,17 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("tile_4_flowers", "/assets/tiles/tile_4_flowers.png");
     this.load.image("tile_5_tree", "/assets/tiles/tile_5_tree.png");
 
-    // 2. Instalaciones de las 3R
+    // 2. Instalaciones de las 3R y reciclaje
     this.load.image("sprinkler", "/assets/installations/sprinkler.png");
     this.load.image("drip", "/assets/installations/drip.png");
     this.load.image("treatment_plant", "/assets/installations/treatment_plant.png");
+    this.load.image("trash_bin", "/assets/installations/trash_bin.png");
+
+    // 2b. Estructuras urbanas y basura (Fase 4)
+    this.load.image("building_house", "/assets/structures/building_house.png");
+    this.load.image("trash_1_small", "/assets/trash/trash_1_small.png");
+    this.load.image("trash_2_medium", "/assets/trash/trash_2_medium.png");
+    this.load.image("trash_3_large", "/assets/trash/trash_3_large.png");
 
     // 3. Fuego, gotas y efectos
     this.load.spritesheet("fire_sheet", "/assets/effects/fire_sheet.png", {
@@ -170,6 +178,15 @@ export class ValleyScene extends Phaser.Scene {
 
     // Configuración de controles de cámara y clics
     this.setupCameraAndInput();
+
+    // Pulso periódico visual de las plantas de tratamiento (cada 2 segundos)
+    this.time.addEvent({
+      delay: 2000,
+      loop: true,
+      callback: () => {
+        this.emitTreatmentPlantPulses();
+      },
+    });
 
     this.isMapReady = true;
 
@@ -420,6 +437,13 @@ export class ValleyScene extends Phaser.Scene {
     }
     if (!state || state.stages.length === 0) return;
 
+    this.currentInstallations = state.installations;
+
+    // Coordenadas de los goteos activos para calcular el sombreado 5x5
+    const dripPositions = state.installations
+      .filter((inst) => inst.installation === "drip")
+      .map((inst) => ({ x: inst.x, y: inst.y }));
+
     const domainTiles = buildTiles(state);
     if (domainTiles.length === 0) return;
 
@@ -428,53 +452,192 @@ export class ValleyScene extends Phaser.Scene {
       const view: TileView | undefined = this.tiles[i];
       if (!tileData || !view) continue;
 
-      this.updateSingleTile(view, tileData);
+      const inDripArea = isTileInDripArea(tileData.x, tileData.y, dripPositions);
+
+      this.updateSingleTile(view, tileData, inDripArea);
     }
   }
 
-  private updateSingleTile(view: TileView, tile: Tile): void {
-    // 1. Actualización de etapa de suelo y vegetación
-    switch (tile.stage) {
-      case 1: // Tierra seca
-        view.baseSprite.setTexture("tile_1_dry");
-        view.overlaySprite.setVisible(false);
-        break;
-      case 2: // Pasto
-        view.baseSprite.setTexture("tile_2_grass");
-        view.overlaySprite.setVisible(false);
-        break;
-      case 3: // Arbusto
-        view.baseSprite.setTexture("tile_2_grass");
+  /**
+   * Emite ondas de pulso visual desde todas las plantas de tratamiento activas.
+   */
+  private emitTreatmentPlantPulses(): void {
+    if (!this.isMapReady || !this.currentInstallations) return;
+    for (const inst of this.currentInstallations) {
+      if (inst.installation === "treatment_plant") {
+        this.spawnPulseEffect(inst.x, inst.y);
+      }
+    }
+  }
+
+  /**
+   * Efecto visual de pulso expansivo de agua con splash.png cubriendo el área 3x3.
+   */
+  private spawnPulseEffect(gridX: number, gridY: number): void {
+    const screenPos = gridToIsometric(
+      gridX,
+      gridY,
+      this.originX,
+      this.originY,
+      ISO_TILE_WIDTH,
+      ISO_TILE_HEIGHT,
+    );
+    const depth = getIsometricDepth(gridX, gridY, VALLEY_GRID_SIZE) + 10;
+
+    // Onda primaria de pulso hídrico
+    const pulse1 = this.add
+      .image(screenPos.x, screenPos.y, "splash")
+      .setOrigin(0.5, 0.5)
+      .setDepth(depth)
+      .setScale(0.8)
+      .setAlpha(0.9)
+      .setTint(0x40c4ff);
+
+    this.tweens.add({
+      targets: pulse1,
+      scaleX: 2.8,
+      scaleY: 2.8,
+      alpha: 0,
+      duration: 800,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        pulse1.destroy();
+      },
+    });
+
+    // Onda secundaria concéntrica para mayor riqueza visual
+    this.time.delayedCall(150, () => {
+      if (!this.scene.isActive()) return;
+      const pulse2 = this.add
+        .image(screenPos.x, screenPos.y, "splash")
+        .setOrigin(0.5, 0.5)
+        .setDepth(depth)
+        .setScale(0.5)
+        .setAlpha(0.7)
+        .setTint(0x80d8ff);
+
+      this.tweens.add({
+        targets: pulse2,
+        scaleX: 3.2,
+        scaleY: 3.2,
+        alpha: 0,
+        duration: 900,
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          pulse2.destroy();
+        },
+      });
+    });
+  }
+
+  private updateSingleTile(view: TileView, tile: Tile, inDripArea = false): void {
+    // 1. Actualización de etapa de suelo y vegetación / estructuras urbanas y basura (Fase 4)
+    if (tile.has_building) {
+      view.baseSprite.setTexture("tile_1_dry");
+      if (this.textures.exists("building_house")) {
         view.overlaySprite
-          .setTexture("tile_3_bush")
+          .setTexture("building_house")
           .setOrigin(0.5, 0.75)
           .setVisible(true);
-        break;
-      case 4: // Flores
-        view.baseSprite.setTexture("tile_2_grass");
-        view.overlaySprite
-          .setTexture("tile_4_flowers")
-          .setOrigin(0.5, 0.8)
-          .setVisible(true);
-        break;
-      case 5: // Árbol
-        view.baseSprite.setTexture("tile_2_grass");
-        view.overlaySprite
-          .setTexture("tile_5_tree")
-          .setOrigin(0.5, 0.95)
-          .setVisible(true);
-        break;
-      default:
-        view.baseSprite.setTexture("tile_1_dry");
+        view.baseSprite.clearTint();
+      } else {
         view.overlaySprite.setVisible(false);
-        break;
-    }
-
-    // 2. Tinte por humedad (humedad > 0 en pasto da un tono más hidratado)
-    if (tile.stage >= 2 && tile.humidity > 40n) {
-      view.baseSprite.setTint(0xccffcc);
+        view.baseSprite.setTint(0xff5722); // Fallback: tinte ladrillo urbano
+      }
+    } else if (tile.trash_level && tile.trash_level > 0) {
+      view.baseSprite.setTexture("tile_1_dry");
+      const trashTex = tile.trash_level >= 3 ? "trash_3_large" : tile.trash_level === 2 ? "trash_2_medium" : "trash_1_small";
+      if (this.textures.exists(trashTex)) {
+        view.overlaySprite
+          .setTexture(trashTex)
+          .setOrigin(0.5, 0.6)
+          .setVisible(true);
+        view.baseSprite.clearTint();
+      } else {
+        view.overlaySprite.setVisible(false);
+        const tints = [0x8d6e63, 0x5d4037, 0x3e2723];
+        view.baseSprite.setTint(tints[Math.min(tile.trash_level, 3) - 1] ?? 0x8d6e63);
+      }
     } else {
-      view.baseSprite.clearTint();
+      switch (tile.stage) {
+        case 1: // Tierra seca
+          view.baseSprite.setTexture("tile_1_dry");
+          view.overlaySprite.setVisible(false);
+          break;
+        case 2: // Pasto
+          view.baseSprite.setTexture("tile_2_grass");
+          view.overlaySprite.setVisible(false);
+          break;
+        case 3: // Arbusto
+          view.baseSprite.setTexture("tile_2_grass");
+          view.overlaySprite
+            .setTexture("tile_3_bush")
+            .setOrigin(0.5, 0.75)
+            .setVisible(true);
+          break;
+        case 4: // Flores
+          view.baseSprite.setTexture("tile_2_grass");
+          view.overlaySprite
+            .setTexture("tile_4_flowers")
+            .setOrigin(0.5, 0.8)
+            .setVisible(true);
+          break;
+        case 5: // Árbol
+          view.baseSprite.setTexture("tile_2_grass");
+          view.overlaySprite
+            .setTexture("tile_5_tree")
+            .setOrigin(0.5, 0.95)
+            .setVisible(true);
+          break;
+        case 6: // Agua (Fase 3)
+          if (this.textures.exists("tile_water")) {
+            view.baseSprite.setTexture("tile_water");
+          } else {
+            view.baseSprite.setTexture("tile_1_dry");
+          }
+          view.overlaySprite.setVisible(false);
+          break;
+        case 7: // Roca (Fase 3)
+          view.baseSprite.setTexture("tile_1_dry");
+          if (this.textures.exists("tile_rock")) {
+            view.overlaySprite
+              .setTexture("tile_rock")
+              .setOrigin(0.5, 0.75)
+              .setVisible(true);
+          } else {
+            view.overlaySprite.setVisible(false);
+          }
+          break;
+        default:
+          view.baseSprite.setTexture("tile_1_dry");
+          view.overlaySprite.setVisible(false);
+          break;
+      }
+
+      // 2. Tinte por terreno natural, humedad y sombreado de suelo húmedo (área de goteo 5x5)
+      if (tile.stage === 6) {
+        if (!this.textures.exists("tile_water")) {
+          view.baseSprite.setTint(0x29b6f6);
+        } else {
+          view.baseSprite.clearTint();
+        }
+      } else if (tile.stage === 7) {
+        if (!this.textures.exists("tile_rock")) {
+          view.baseSprite.setTint(0x78909c);
+        } else {
+          view.baseSprite.clearTint();
+        }
+      } else if (inDripArea) {
+        if (tile.stage === 1) {
+          view.baseSprite.setTint(0x9ab2c0);
+        } else {
+          view.baseSprite.setTint(0x80e8c0);
+        }
+      } else if (tile.stage >= 2 && tile.humidity > 40n) {
+        view.baseSprite.setTint(0xccffcc);
+      } else {
+        view.baseSprite.clearTint();
+      }
     }
 
     // 3. Instalación
@@ -486,11 +649,7 @@ export class ValleyScene extends Phaser.Scene {
         view.installationSprite.setTexture("sprinkler");
       }
 
-      // Las instalaciones verticales 32x32 (potabilizadora y aspersor) tienen su
-      // base en y=24: se anclan con origin (0.5, 0.75) para que su rombo base calce
-      // con la casilla y la estructura se eleve sin enterrarse en el suelo.
-      // El goteo (32x16) es plano al ras del suelo y usa origin (0.5, 0.5).
-      if (kind === "treatment_plant" || kind === "sprinkler") {
+      if (kind === "treatment_plant" || kind === "sprinkler" || kind === "trash_bin") {
         view.installationSprite.setOrigin(0.5, 0.75);
       } else {
         view.installationSprite.setOrigin(0.5, 0.5);

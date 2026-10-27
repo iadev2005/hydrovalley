@@ -19,7 +19,7 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | Clave | Significado | Valor |
 | --- | --- | --- |
 | `drop.water_cost_liters` | Agua que cuesta una gota (en modo demo es gratis) | 1 |
-| `drop.humidity_points` | Humedad que suma una gota a su casilla | 25 |
+| `drop.humidity_points` | Humedad que suma una gota a su casilla | 100 |
 | `drop.demo_humidity_points` | Humedad que suma una gota en modo demo (gratis y de una sola casilla) | 1 |
 | `tank.capacity_liters` | Capacidad inicial del depósito | 20 |
 | `tank.refill_liters` | Litros que recarga el depósito en cada intervalo | 1 |
@@ -45,12 +45,15 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `sprinkler.area_side_tiles` | Lado del área cuadrada que riega | 3 |
 | `sprinkler.humidity_points` | Humedad que suma a cada casilla de su área | 25 |
 | `sprinkler.interval_seconds` | Segundos entre riegos | 2 |
+| `sprinkler.durability` | Durabilidad base (ciclos de riego antes de destruirse) | 30 |
 | `drip.price_leaves` | Precio del primer riego por goteo (Reducir) | 25 |
 | `drip.area_side_tiles` | Lado del área cuadrada que cubre | 5 |
 | `drip.evaporation_divisor` | Divisor de la evaporación en su área (2 = la mitad) | 2 |
+| `drip.durability` | Durabilidad base (ciclos de tiempo antes de destruirse) | 30 |
 | `treatment_plant.price_leaves` | Precio de la primera planta de tratamiento (Reciclar) | 40 |
-| `treatment_plant.refill_liters` | Litros extra de recarga del depósito de su dueño por intervalo | 1 |
+| `treatment_plant.refill_liters` | Litros extra de recarga del depósito de su dueño por intervalo | 3 |
 | `treatment_plant.interval_seconds` | Segundos entre recargas | 2 |
+| `treatment_plant.durability` | Durabilidad base (pulsos antes de destruirse) | 30 |
 
 ### `upgrades`
 
