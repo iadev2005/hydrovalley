@@ -63,7 +63,7 @@ describe("chat resilience and decoupling (RF-15)", { skip: SKIP }, () => {
       // 1. Línea base: enviar una gota con el stack normal
       const baseActionId = randomUUID();
       const baseStart = performance.now();
-      play.send({ type: "drop", action_id: baseActionId, x: 2, y: 2 });
+      play.send({ type: "drop", action_id: baseActionId, x: 8, y: 10 });
       const baseResult = await play.first("baseline drop result", (f) => f.type === "result" && f.action_id === baseActionId, 5000);
       const baseMs = performance.now() - baseStart;
       assert.equal(baseResult.status, "applied");
@@ -73,7 +73,7 @@ describe("chat resilience and decoupling (RF-15)", { skip: SKIP }, () => {
 
       const stoppedActionId = randomUUID();
       const stoppedStart = performance.now();
-      play.send({ type: "drop", action_id: stoppedActionId, x: 3, y: 3 });
+      play.send({ type: "drop", action_id: stoppedActionId, x: 9, y: 11 });
       const stoppedResult = await play.first("drop while chat is stopped", (f) => f.type === "result" && f.action_id === stoppedActionId, 5000);
       const stoppedMs = performance.now() - stoppedStart;
 
@@ -96,7 +96,7 @@ describe("chat resilience and decoupling (RF-15)", { skip: SKIP }, () => {
 
       const pausedActionId = randomUUID();
       const pausedStart = performance.now();
-      play.send({ type: "drop", action_id: pausedActionId, x: 4, y: 4 });
+      play.send({ type: "drop", action_id: pausedActionId, x: 10, y: 12 });
       const pausedResult = await play.first("drop while chat is paused", (f) => f.type === "result" && f.action_id === pausedActionId, 5000);
       const pausedMs = performance.now() - pausedStart;
 

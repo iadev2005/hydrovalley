@@ -100,7 +100,7 @@ async function startupCycle(order) {
     let session;
     try {
       session = await openSession(token);
-      await command(session, { type: "drop", x: 1, y: 30 });
+      await command(session, { type: "drop", x: 8, y: 26 });
       return session;
     } catch {
       session?.close();

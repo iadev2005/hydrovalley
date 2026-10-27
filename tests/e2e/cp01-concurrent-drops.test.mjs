@@ -65,11 +65,15 @@ describe("concurrent drops (CP-01 / RF-08)", () => {
       // 100 gotas repartidas en 8 jugadores: 4 mandan 13 y 4 mandan 12.
       const plan = sessions.map((_, i) => (i < TOTAL_DROPS % PLAYERS ? Math.ceil(TOTAL_DROPS / PLAYERS) : Math.floor(TOTAL_DROPS / PLAYERS)));
       assert.equal(plan.reduce((a, b) => a + b, 0), TOTAL_DROPS);
+      // Una casilla distinta por gota, en la mitad izquierda del valle y lejos de
+      // las esquinas: el río y las rocas de la expansión de jugabilidad caen en
+      // las columnas 17 en adelante, y los edificios (y su basura) en el borde;
+      // todos rechazarían la gota.
       let tile = 0;
       const actions = plan.map((n) =>
         Array.from({ length: n }, () => {
           const t = tile++;
-          return { id: randomUUID(), x: t % 32, y: Math.floor(t / 32) };
+          return { id: randomUUID(), x: t % 16, y: 8 + Math.floor(t / 16) };
         }),
       );
 

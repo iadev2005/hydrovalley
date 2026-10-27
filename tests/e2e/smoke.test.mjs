@@ -378,7 +378,9 @@ describe("growth end to end (RF-04, RF-05)", () => {
     const account = await registerPlayer();
     grownAccount = account;
     player = await openReadySession(account.token, { map: true });
-    const x = 25;
+    // La mitad izquierda del valle nunca tiene río ni rocas (el terreno natural
+    // de la expansión de jugabilidad cae en las columnas 17 en adelante).
+    const x = 5;
     const y = 6;
 
     const before = await player.first(
@@ -516,14 +518,21 @@ describe("administration (RF-31)", () => {
       (f) =>
         f.type === "state" &&
         f.stages?.length === 32 * 32 &&
-        f.stages.every((stage) => stage === 1) &&
+        // Sin crecimiento: solo tierra seca (1) y el terreno natural que el
+        // reinicio vuelve a sortear (6 agua, 7 roca).
+        f.stages.every((stage) => stage === 1 || stage === 6 || stage === 7) &&
         (f.humidity ?? []).every((h) => h === "0") &&
+        (f.trash ?? []).every((level) => level === 0) &&
+        !(f.buildings ?? []).some(Boolean) &&
         // protojson omite las listas vacías.
         (f.fires ?? []).length === 0 &&
         (f.installations ?? []).length === 0,
       10_000,
     );
     assert.equal(reset.width, 32);
+    // La expansión de jugabilidad: el reinicio genera río y rocas con el azar del simulador.
+    assert.ok(reset.stages.includes(6), "el reinicio debe dejar agua en el valle");
+    assert.ok(reset.stages.includes(7), "el reinicio debe dejar rocas en el valle");
   });
 
   it("wipes a grown tile on reset_valley", async () => {

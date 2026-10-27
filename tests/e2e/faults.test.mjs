@@ -90,8 +90,8 @@ describe("CP-05: the world service fails and comes back", { skip: SKIP }, () => 
 
   const cases = [
     { name: "killed (SIGKILL, no final snapshot)", kind: "kill", inject: async (n) => { await killService(n); await stopService(n); }, restore: startService, x: 7, y: 8 },
-    { name: "stopped (process down, connection refused)", kind: "stop", inject: stopService, restore: startService, x: 3, y: 4 },
-    { name: "paused (machine off, connection hangs)", kind: "pause", inject: pauseService, restore: unpauseService, x: 5, y: 6 },
+    { name: "stopped (process down, connection refused)", kind: "stop", inject: stopService, restore: startService, x: 9, y: 14 },
+    { name: "paused (machine off, connection hangs)", kind: "pause", inject: pauseService, restore: unpauseService, x: 11, y: 16 },
   ];
 
   for (const c of cases) {

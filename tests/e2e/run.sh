@@ -143,6 +143,10 @@ node --test --test-reporter=spec "${repo_root}/tests/e2e/request-id.test.mjs"
 # borra con la siguiente acción. Espera unos 14 s de ausencia del jugador.
 node --test --test-reporter=spec "${repo_root}/tests/e2e/offline-summary.test.mjs"
 
+# Expansión de jugabilidad (nivel 2, RF-32 a RF-34): terreno natural, cesto de
+# reciclaje con durabilidad, edificios, basura y su limpieza.
+node --test --test-reporter=spec "${repo_root}/tests/e2e/gameplay-expansion.test.mjs"
+
 # CP-05 a CP-08, CP-12 y RF-15: fallos de servicios (faults*.test.mjs; CP-08, el más
 # disruptivo, va al final). Corren después de la prueba de
 # humo, con el mismo stack y el administrador efímero.
