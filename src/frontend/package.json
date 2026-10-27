@@ -18,6 +18,9 @@
     "test:vitest": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@fontsource/bungee": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/outfit": "^5.3.0",
     "phaser": "^4.2.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

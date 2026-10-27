@@ -178,3 +178,17 @@ El frontend se compila dentro de la imagen de Nginx mediante una construcción m
    - Al recargar la página, si Phaser no puede instanciar el renderer, `ValleyPhaser` notifica el error y conmuta automáticamente a `<ValleyCanvas />`.
    - La interfaz muestra la insignia `(Salida de emergencia activa)` y el valle continúa 100% jugable sin bloqueos ni pantallas en blanco.
 
+
+---
+
+## Tipografías (sin red)
+
+El laboratorio es una red cerrada, así que las páginas no piden nada a Google Fonts. Las fuentes se instalan como dependencias de `@fontsource` y Vite las empaqueta en `dist/assets/` (se importan en `src/fonts.ts`, desde `main.tsx` y `system.tsx`). Solo se incluyen los pesos que usa `styles.css`.
+
+| Fuente | Paquete | Pesos | Uso | Licencia |
+| --- | --- | --- | --- | --- |
+| Bungee | `@fontsource/bungee` | 400 | Títulos | SIL OFL 1.1 |
+| Outfit | `@fontsource/outfit` | 400, 600, 700 | Texto principal | SIL OFL 1.1 |
+| Inter | `@fontsource/inter` | 400, 500, 600, 700 | Texto de respaldo | SIL OFL 1.1 |
+
+Cada paquete incluye el texto de la licencia. Los nombres de familia (`"Bungee"`, `"Outfit"`, `"Inter"`) no cambian, así que el CSS sigue igual.
