@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { SystemApp } from "./containers/SystemApp.tsx";
+import "./fonts.ts";
 import "../styles.css";
 
 const rootElement = document.getElementById("root");
