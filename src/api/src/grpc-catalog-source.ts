@@ -28,6 +28,9 @@ const GROUPS = [
   "sprinkler",
   "drip",
   "treatmentPlant",
+  "trashBin",
+  "terrain",
+  "urban",
   "biggerDrop",
   "biggerTank",
 ] as const;

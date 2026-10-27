@@ -85,16 +85,38 @@ const catalogSchema = group("Catálogo del juego", {
     area_side: u32("Lado del área cuadrada que cubre, en casillas"),
     humidity: u64("Humedad que suma a cada casilla por intervalo"),
     interval_seconds: u32("Segundos entre riegos"),
+    durability: u32("Durabilidad base: riegos antes de destruirse"),
   }),
   drip: group("Riego por goteo (Reducir)", {
     price: u64("Precio del primero, en hojas"),
     area_side: u32("Lado del área cuadrada que cubre, en casillas"),
     evaporation_divisor: u32("La evaporación en su área se divide entre este valor"),
+    durability: u32("Durabilidad base: puntos de desgaste antes de destruirse"),
+    wear_interval_seconds: u32("Segundos de trabajo activo que cuestan un punto de durabilidad"),
   }),
   treatment_plant: group("Planta de tratamiento (Reciclar)", {
     price: u64("Precio de la primera, en hojas"),
     refill_amount: u64("Recarga extra del depósito de su dueño por intervalo, en litros"),
     interval_seconds: u32("Segundos entre recargas"),
+    durability: u32("Durabilidad base: pulsos antes de destruirse"),
+  }),
+  trash_bin: group("Cesto de reciclaje (limpieza)", {
+    price: u64("Precio del primero, en hojas"),
+    area_side: u32("Lado del área cuadrada que limpia y protege, en casillas"),
+    interval_seconds: u32("Segundos entre limpiezas"),
+    durability: u32("Durabilidad base: limpiezas antes de destruirse"),
+  }),
+  terrain: group("Terreno natural (expansión de jugabilidad)", {
+    river_width: u32("Ancho del río en casillas (0 = sin río)"),
+    rock_count: u32("Rocas sueltas que se intentan colocar (0 = sin rocas)"),
+  }),
+  urban: group("Presión urbana (expansión de jugabilidad)", {
+    building_tree_threshold: u32("Árboles a partir de los cuales aparece el primer edificio"),
+    building_humidity_threshold: u64("Humedad total aportada a partir de la cual aparece el primer edificio"),
+    max_buildings: u32("Tope de edificios en el valle"),
+    trash_interval_seconds: u32("Segundos entre dos emisiones de basura de un edificio"),
+    trash_spread_interval_seconds: u32("Segundos entre dos propagaciones de la basura de nivel 3"),
+    clean_reward_leaves: u64("Hojas de quien deja limpia una casilla de basura"),
   }),
   installation_price_increase_percent: u32(
     "Aumento de precio, en porcentaje, por cada compra del mismo tipo de instalación",
@@ -114,7 +136,7 @@ const catalogSchema = group("Catálogo del juego", {
 
 const routeSchema = {
   summary: "Catálogo del juego",
-  description: `Instalaciones (aspersor, goteo, planta de tratamiento), mejoras (gota más grande, depósito mayor) y demás cifras del juego, tal como las sirve la persistencia (\`catalog/catalog.json\`, sección D-01). Sin token. La API guarda una copia ${String(CATALOG_CACHE_TTL_SECONDS)} s (\`Cache-Control: public, max-age=${String(CATALOG_CACHE_TTL_SECONDS)}\`) y \`ETag\` es el hash del catálogo: con \`If-None-Match\` responde \`304\`. Si la persistencia no responde y hay una copia vencida, se sirve esa (con \`Cache-Control: no-cache\`); sin copia, \`503\`. Límite por instancia (429): ${String(CATALOG_LIMIT_PER_IP.limit)} consultas ${describeWindow(CATALOG_LIMIT_PER_IP.windowMs)} por IP.`,
+  description: `Instalaciones (aspersor, goteo, planta de tratamiento, cesto de reciclaje), mejoras (gota más grande, depósito mayor) y demás cifras del juego, tal como las sirve la persistencia (\`catalog/catalog.json\`, sección D-01). Sin token. La API guarda una copia ${String(CATALOG_CACHE_TTL_SECONDS)} s (\`Cache-Control: public, max-age=${String(CATALOG_CACHE_TTL_SECONDS)}\`) y \`ETag\` es el hash del catálogo: con \`If-None-Match\` responde \`304\`. Si la persistencia no responde y hay una copia vencida, se sirve esa (con \`Cache-Control: no-cache\`); sin copia, \`503\`. Límite por instancia (429): ${String(CATALOG_LIMIT_PER_IP.limit)} consultas ${describeWindow(CATALOG_LIMIT_PER_IP.windowMs)} por IP.`,
   tags: ["catalog"],
   response: {
     200: {
