@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { describeOfflineSummary } from "../logic/offlineSummary.ts";
 import type { OfflineSummary } from "../logic/play.ts";
 
@@ -27,10 +28,44 @@ export function OfflineSummaryPanel({
   onDismiss,
 }: OfflineSummaryPanelProps) {
   const text = describeOfflineSummary(summary);
+  const visible = text !== null;
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Al abrirse: foco en «Cerrar»; Escape cierra; Tab no sale del diálogo.
+  useEffect(() => {
+    if (!visible) return;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onDismiss();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])");
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable.item(0);
+      const last = focusable.item(focusable.length - 1);
+      const active = document.activeElement;
+      const outside = !dialogRef.current?.contains(active);
+      if (event.shiftKey && (active === first || outside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || outside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [visible, onDismiss]);
+
   if (!text) return null;
   return (
     <div className="offline-summary-backdrop">
       <section
+        ref={dialogRef}
         id="offline-summary"
         className="offline-summary"
         role="dialog"
@@ -45,7 +80,7 @@ export function OfflineSummaryPanel({
           </p>
           {offlineDurationMs !== null && offlineDurationMs >= 0 ? (
             <p className="offline-summary-duration">
-              Tiempo desconectado: <strong>{formatDuration(offlineDurationMs)}</strong>
+              Tiempo sin conexión: <strong>{formatDuration(offlineDurationMs)}</strong>
             </p>
           ) : null}
           <p>{text.headline}</p>
@@ -60,7 +95,7 @@ export function OfflineSummaryPanel({
             </dl>
           ) : null}
         </div>
-        <button type="button" id="btn-dismiss-offline-summary" onClick={onDismiss}>
+        <button ref={closeRef} type="button" id="btn-dismiss-offline-summary" onClick={onDismiss}>
           Cerrar
         </button>
       </section>
