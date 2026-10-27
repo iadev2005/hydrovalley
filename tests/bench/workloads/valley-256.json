@@ -11,5 +11,16 @@
   "hot_percent": 75,
   "installations_per_1000_tiles": 2,
   "catalog_file": "catalog/catalog.json",
-  "catalog_set": {"rules.tank.capacity_liters": 1000000000000}
+  "catalog_set": {
+    "rules.tank.capacity_liters": 1000000000000,
+    "rules.drop.humidity_points": 25,
+    "installations.treatment_plant.refill_liters": 1,
+    "rules.terrain.river_width_tiles": 0,
+    "rules.terrain.rock_count": 0,
+    "rules.urban.max_buildings": 0,
+    "installations.sprinkler.durability": 4294967295,
+    "installations.drip.durability": 4294967295,
+    "installations.treatment_plant.durability": 4294967295,
+    "installations.trash_bin.durability": 4294967295
+  }
 }
