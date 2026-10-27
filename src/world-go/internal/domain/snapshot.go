@@ -114,6 +114,12 @@ func Restore(catalog Catalog, parts WorldParts) (*World, error) {
 	tiles := make([]Tile, len(parts.Tiles))
 	for i, tile := range parts.Tiles {
 		tiles[i] = cloneTile(tile)
+		// Una instantánea anterior al desgaste trae las instalaciones con
+		// durabilidad 0 (campo ausente): se restauran como nuevas. Una
+		// instalación colocada con el desgaste nunca llega a 0 viva.
+		if installation := tiles[i].Installation; installation != nil && installation.RemainingDurability == 0 {
+			installation.RemainingDurability = catalog.InstallationBaseDurability(installation.Kind)
+		}
 	}
 	return &World{
 		catalog:             catalog,

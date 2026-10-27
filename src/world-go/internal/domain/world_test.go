@@ -1069,3 +1069,19 @@ func TestCleaningPaysTheCatalogRewardAndANewPlayerCanClean(t *testing.T) {
 		t.Errorf("leaves = %d, want 7", player.Leaves)
 	}
 }
+
+func TestAnInstallationFromASnapshotWithoutWearIsRestoredAsNew(t *testing.T) {
+	parts := newTestWorld().Parts()
+	parts.Tiles[4*32+4].Installation = &Installation{Kind: Sprinkler, OwnerID: ana, RemainingDurability: 0}
+	parts.Tiles[4*32+5].Installation = &Installation{Kind: TrashBin, OwnerID: ana, RemainingDurability: 7}
+	w, err := Restore(d01(), parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := w.Tiles()[4*32+4].Installation.RemainingDurability; got != 30 {
+		t.Errorf("legacy installation durability = %d, want 30", got)
+	}
+	if got := w.Tiles()[4*32+5].Installation.RemainingDurability; got != 7 {
+		t.Errorf("worn installation durability = %d, want 7", got)
+	}
+}

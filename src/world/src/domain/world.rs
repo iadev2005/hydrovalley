@@ -182,6 +182,18 @@ impl World {
                 len: parts.rng_state.len(),
             })?
         };
+        // Una instantánea anterior al desgaste trae las instalaciones con
+        // durabilidad 0 (campo ausente): se restauran como nuevas. Una
+        // instalación colocada con el desgaste nunca llega a 0 viva.
+        let mut tiles = parts.tiles;
+        for tile in &mut tiles {
+            if let Some(installation) = tile.installation.as_mut()
+                && installation.remaining_durability == 0
+            {
+                installation.remaining_durability =
+                    catalog.installation_base_durability(installation.kind);
+            }
+        }
         let mut players = BTreeMap::new();
         for mut record in parts.players {
             record.recent_actions.sort_by_key(|applied| applied.tick);
@@ -207,7 +219,7 @@ impl World {
             humidity_contributed: parts.humidity_contributed,
             width: VALLEY_WIDTH,
             height: VALLEY_HEIGHT,
-            tiles: parts.tiles,
+            tiles,
             players,
             reset_catalog: None,
         })
@@ -3751,5 +3763,30 @@ mod tests {
         }]);
         assert_eq!(outcomes(&out), vec![CommandOutcome::Applied]);
         assert_eq!(w.player(ANA).unwrap().leaves, 7);
+    }
+
+    #[test]
+    fn an_installation_from_a_snapshot_without_wear_is_restored_as_new() {
+        let mut parts = world().parts();
+        parts.tiles[index(4, 4)].installation = Some(Installation {
+            kind: InstallationKind::Sprinkler,
+            owner_id: ANA.to_string(),
+            remaining_durability: 0,
+        });
+        parts.tiles[index(5, 4)].installation = Some(Installation {
+            kind: InstallationKind::TrashBin,
+            owner_id: ANA.to_string(),
+            remaining_durability: 7,
+        });
+        let w = World::restore(Catalog::d01(), parts).unwrap();
+        let durability = |x| {
+            w.tile(x, 4)
+                .unwrap()
+                .installation
+                .as_ref()
+                .unwrap()
+                .remaining_durability
+        };
+        assert_eq!((durability(4), durability(5)), (30, 7));
     }
 }
