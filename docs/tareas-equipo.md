@@ -170,6 +170,7 @@ Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y 
 | B6 | Resumen al volver | 2 | M | A2 | Rust + TypeScript |
 | B7 | Prometheus y Grafana | 2 | M | — | Contenedores |
 | B8 | Mantener el juego con una máquina apagada (orquestación) | 2 | L | B1, B5 | Contenedores + Go |
+| B9 | Expansión de jugabilidad (terreno, durabilidad, basura y cesto) | 2 | L | B5 | Rust + Go + TypeScript |
 | C1 | Informe | — | L | — | Todos |
 | C2 | Ensayo de la defensa y video de respaldo | — | M | B1 | Todos |
 | D1–D3 | Decisiones del equipo | — | — | — | Todos |
@@ -373,6 +374,13 @@ Cada uno es un PR pequeño:
   - **Hub (`H2`):** `hub-standby` vigila `/healthz` del primario y se promueve con `hub_generation = 2` en `StepRequest`. Si el hub primario se despausa (`docker unpause`), recibe `FAILED_PRECONDITION`, detiene su bucle, responde `503` en `/healthz` y cierra sus WebSockets con `1001`.
 - **Desglose de implementación (`odd/tasks/b8-failover.md`):** `T1` (entrada doble y cliente con rotación automática), `T2` (simulador `standby` y regreso `world-go → Rust`), `T3` (hub `standby` y *fencing* con retirada al despausar), `T4` (`standby.yml`, `simulate.sh` y scripts del laboratorio), `T5` (casos e2e de failover y `unpause`), `T6` (documentación y diagramas 04 y 08). `T7` (`kind` multinodo) queda descartada por calendario.
 - **Aceptación:** apagar o pausar la máquina de `world`, `hub` o `proxy` mantiene el juego en marcha ($\le 50\text{ ticks}$ perdidos), sin que el jugador tenga que cambiar de IP y sin que despausar la máquina original genere dos escritores ni retroceda el tick.
+
+#### B9 · Expansión de jugabilidad (terreno, durabilidad, basura y cesto)
+
+- **Estado:** expansión de jugabilidad en evaluación (Cristian, FonsoP; integrada por Claude). Está en la rama `feature/gameplay-expansion`, que reúne `pulido` (durabilidad, basura, cesto y las cifras 100 / 3) y `feature/new-assets` (sprites y rediseño de la escena), y se fusiona en `dev` solo si el equipo la prueba jugando y le gusta.
+- **Qué hace:** ver `docs/plan-expansion-mecanicas.md` y la fila «Expansión de jugabilidad» de D-01. Rust y `world-go` dan los mismos bytes (guion `10-expansion-jugabilidad` de la conformidad); las cifras nuevas viven en `catalog/` y D-01 las recoge como «Valores elegidos por el equipo para la jugabilidad».
+- **Cambios respecto a las ramas originales (para revisar):** el terreno natural usa el generador con semilla del mundo (regla 6) en lugar de uno derivado de una semilla que la instantánea no guarda; las cifras que estaban escritas en el código (intervalos urbanos, recompensa, número de rocas, desgaste del goteo) pasaron al catálogo; `clean_trash` comparte con la gota el límite de 15 por segundo; una gota sobre basura se rechaza; los aspersores y la planta no hacen crecer casillas con basura o edificio; el cesto aparece en `next_prices`; las instantáneas anteriores se restauran con las instalaciones nuevas. Los guiones de conformidad 01 a 09 fijan las cifras originales de D-01.
+- **Pendiente:** `[DATO: decidir si los valores del equipo se congelan]`, y confirmar la autoría y la licencia de los sprites nuevos (`src/frontend/assets/README.md`).
 
 ---
 
