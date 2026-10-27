@@ -43,7 +43,11 @@ message Catalog {
   // Las instalaciones siguen trabajando este tiempo después de la última
   // acción de su dueño (7200 = 2 h, RF-25).
   uint64 offline_installation_seconds = 13;
+  // Expansión de jugabilidad (nivel 2): cesto de reciclaje, terreno natural y
+  // presión urbana.
   TrashBinRules trash_bin = 14;
+  TerrainRules terrain = 15;
+  UrbanRules urban = 16;
 }
 
 message DropRules {
@@ -121,6 +125,8 @@ message DripRules {
   uint32 evaporation_divisor = 3;
   // Durabilidad base (ciclos de trabajo hasta destruirse).
   uint32 durability = 4;
+  // Segundos de trabajo activo que cuestan un punto de durabilidad (2).
+  uint32 wear_interval_seconds = 5;
 }
 
 message TreatmentPlantRules {
@@ -155,4 +161,29 @@ message TrashBinRules {
   uint32 interval_seconds = 3;
   // Durabilidad base (ciclos de trabajo hasta destruirse).
   uint32 durability = 4;
+}
+
+// Terreno natural que se genera al crear o reiniciar el valle (Fase 3). Con
+// los dos valores en cero el valle empieza vacío.
+message TerrainRules {
+  // Ancho del río en casillas (2); 0 = sin río ni lago.
+  uint32 river_width = 1;
+  // Rocas sueltas que se intentan colocar (12); 0 = sin rocas.
+  uint32 rock_count = 2;
+}
+
+// Presión urbana: edificios que ensucian el valle (Fase 4).
+message UrbanRules {
+  // Aparece el primer edificio cuando hay al menos tantos árboles (2)...
+  uint32 building_tree_threshold = 1;
+  // ...o cuando se ha aportado al menos tanta humedad en total (500).
+  uint64 building_humidity_threshold = 2;
+  // Tope de edificios en el valle (2).
+  uint32 max_buildings = 3;
+  // Segundos entre dos emisiones de basura de un edificio (5).
+  uint32 trash_interval_seconds = 4;
+  // Segundos entre dos propagaciones de las casillas con basura nivel 3 (10).
+  uint32 trash_spread_interval_seconds = 5;
+  // Hojas que gana quien deja limpia una casilla (2).
+  uint64 clean_reward_leaves = 6;
 }

@@ -34,6 +34,14 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `fire.burn_out_ticks` | Ticks hasta que un incendio sin atender se consume | 300 |
 | `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón (0 = no hay incendios) | 50 |
 | `fire.propagation_chance_ppm` | Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por millón (0 = no hay propagación) | 2000 |
+| `terrain.river_width_tiles` | Ancho del río en casillas; 0 = sin río ni lago (expansión, nivel 2) | 2 |
+| `terrain.rock_count` | Rocas sueltas que se intentan colocar al crear o reiniciar el valle; 0 = sin rocas | 12 |
+| `urban.building_tree_threshold` | Árboles en el valle a partir de los cuales aparece el primer edificio... | 2 |
+| `urban.building_humidity_points_threshold` | ...o humedad total aportada a partir de la cual aparece | 500 |
+| `urban.max_buildings` | Tope de edificios en el valle | 2 |
+| `urban.trash_interval_seconds` | Segundos entre dos emisiones de basura de un edificio | 5 |
+| `urban.trash_spread_interval_seconds` | Segundos entre dos propagaciones de la basura de nivel 3 | 10 |
+| `urban.clean_reward_leaves` | Hojas de quien deja limpia una casilla de basura | 2 |
 | `installation_price_increase_percent` | Aumento del precio por cada compra del mismo tipo de instalación (RF-07) | 15 |
 | `offline_installation_seconds` | Tiempo que las instalaciones siguen trabajando tras la última acción de su dueño (RF-25) | 7200 |
 
@@ -50,10 +58,15 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `drip.area_side_tiles` | Lado del área cuadrada que cubre | 5 |
 | `drip.evaporation_divisor` | Divisor de la evaporación en su área (2 = la mitad) | 2 |
 | `drip.durability` | Durabilidad base (ciclos de tiempo antes de destruirse) | 30 |
+| `drip.wear_interval_seconds` | Segundos de trabajo activo que cuestan un punto de durabilidad del goteo | 2 |
 | `treatment_plant.price_leaves` | Precio de la primera planta de tratamiento (Reciclar) | 40 |
 | `treatment_plant.refill_liters` | Litros extra de recarga del depósito de su dueño por intervalo | 3 |
 | `treatment_plant.interval_seconds` | Segundos entre recargas | 2 |
 | `treatment_plant.durability` | Durabilidad base (pulsos antes de destruirse) | 30 |
+| `trash_bin.price_leaves` | Precio del primer cesto de reciclaje (expansión, nivel 2) | 15 |
+| `trash_bin.area_side_tiles` | Lado del área cuadrada que limpia y protege de la basura | 3 |
+| `trash_bin.interval_seconds` | Segundos entre limpiezas (1 nivel de basura por casilla del área) | 2 |
+| `trash_bin.durability` | Durabilidad base (limpiezas antes de destruirse) | 30 |
 
 ### `upgrades`
 
@@ -63,6 +76,16 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `bigger_drop.area_side_tiles` | Lado del área cuadrada que humedece una gota | 3 |
 | `bigger_tank.price_leaves` | Precio del depósito mayor | 20 |
 | `bigger_tank.extra_capacity_liters` | Capacidad extra del depósito | 10 |
+
+## Valores elegidos por el equipo para la jugabilidad
+
+La expansión de jugabilidad (`docs/plan-expansion-mecanicas.md`) cambió dos cifras de arranque de D-01 y añadió las demás. Son decisiones de ajuste del equipo, no cifras de D-01; D-01 las recoge en su sección «Valores elegidos por el equipo para la jugabilidad»:
+
+- `drop.humidity_points` pasa de 25 a 100: una gota hace subir una etapa (`growth.humidity_per_stage_points` sigue en 100).
+- `treatment_plant.refill_liters` pasa de 1 a 3.
+- Las `durability` de las cuatro instalaciones (30), el cesto de reciclaje, el terreno natural y la presión urbana son nuevos.
+
+Los guiones de conformidad 01 a 09 fijan las cifras originales de D-01 (ver `tests/conformance/README.md`); solo el 10 usa este archivo sin cambios.
 
 ## Datos pendientes
 

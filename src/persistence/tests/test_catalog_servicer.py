@@ -64,7 +64,7 @@ def error_of(call) -> grpc.RpcError:
 
 def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
     catalog = get_catalog(stub)
-    assert (catalog.drop.water_cost, catalog.drop.humidity) == (1, 25)
+    assert (catalog.drop.water_cost, catalog.drop.humidity) == (1, 100)
     assert catalog.drop.demo_humidity == 1
     assert (catalog.tank.capacity, catalog.tank.refill_amount) == (20, 1)
     assert catalog.tank.refill_interval_seconds == 2
@@ -86,8 +86,22 @@ def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
     assert (catalog.drip.price, catalog.drip.area_side) == (25, 5)
     assert catalog.drip.evaporation_divisor == 2
     assert catalog.treatment_plant.price == 40
-    assert catalog.treatment_plant.refill_amount == 1
+    assert catalog.treatment_plant.refill_amount == 3
     assert catalog.treatment_plant.interval_seconds == 2
+    assert [
+        catalog.sprinkler.durability,
+        catalog.drip.durability,
+        catalog.treatment_plant.durability,
+        catalog.trash_bin.durability,
+    ] == [30, 30, 30, 30]
+    assert catalog.drip.wear_interval_seconds == 2
+    assert (catalog.trash_bin.price, catalog.trash_bin.area_side) == (15, 3)
+    assert catalog.trash_bin.interval_seconds == 2
+    assert (catalog.terrain.river_width, catalog.terrain.rock_count) == (2, 12)
+    assert (catalog.urban.building_tree_threshold, catalog.urban.building_humidity_threshold) == (2, 500)
+    assert catalog.urban.max_buildings == 2
+    assert (catalog.urban.trash_interval_seconds, catalog.urban.trash_spread_interval_seconds) == (5, 10)
+    assert catalog.urban.clean_reward_leaves == 2
     assert catalog.installation_price_increase_percent == 15
     assert (catalog.bigger_drop.price, catalog.bigger_drop.area_side) == (30, 3)
     assert (catalog.bigger_tank.price, catalog.bigger_tank.extra_capacity) == (20, 10)

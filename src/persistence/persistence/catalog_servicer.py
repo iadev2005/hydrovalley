@@ -28,6 +28,9 @@ _MESSAGES = {
     "sprinkler": (pb.SprinklerRules, "sprinkler"),
     "drip": (pb.DripRules, "drip"),
     "treatment_plant": (pb.TreatmentPlantRules, "treatment_plant"),
+    "trash_bin": (pb.TrashBinRules, "trash_bin"),
+    "terrain": (pb.TerrainRules, "terrain"),
+    "urban": (pb.UrbanRules, "urban"),
     "bigger_drop": (pb.BiggerDropRules, "bigger_drop"),
     "bigger_tank": (pb.BiggerTankRules, "bigger_tank"),
 }

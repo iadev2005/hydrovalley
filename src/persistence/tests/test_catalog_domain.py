@@ -39,6 +39,17 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
     assert values["drip"]["durability"] == 30
     assert values["treatment_plant"]["price_leaves"] == 40
     assert values["treatment_plant"]["durability"] == 30
+    assert values["treatment_plant"]["refill_liters"] == 3
+    assert values["trash_bin"] == {
+        "price_leaves": 15,
+        "area_side_tiles": 3,
+        "interval_seconds": 2,
+        "durability": 30,
+    }
+    assert values["drip"]["wear_interval_seconds"] == 2
+    assert values["terrain"] == {"river_width_tiles": 2, "rock_count": 12}
+    assert values["urban"]["max_buildings"] == 2
+    assert values["urban"]["clean_reward_leaves"] == 2
     assert values["bigger_drop"]["price_leaves"] == 30
     assert values["bigger_tank"]["extra_capacity_liters"] == 10
     assert values["installation_price_increase_percent"] == 15
@@ -53,7 +64,10 @@ def test_every_entry_has_the_kind_of_its_group(document):
     assert kinds["installation_price_increase_percent"] == "rule"
     assert kinds["sprinkler"] == "installation"
     assert kinds["bigger_tank"] == "upgrade"
-    assert len(kinds) == 12
+    assert kinds["trash_bin"] == "installation"
+    assert kinds["terrain"] == "rule"
+    assert kinds["urban"] == "rule"
+    assert len(kinds) == 15
 
 
 def test_version_is_a_sha256_of_the_canonical_json(document):
@@ -135,6 +149,16 @@ def mutate(document, path, value):
         (("shop",), {}),  # grupo desconocido
         (("installations", "sprinkler"), KeyError),  # falta un elemento
         (("rules", "offline_installation_seconds"), 2**64),  # no cabe en uint64
+        (("installations", "trash_bin"), KeyError),  # falta el cesto
+        (("installations", "trash_bin", "durability"), 0),  # se destruiría al colocarlo
+        (("installations", "sprinkler", "durability"), 0),
+        (("installations", "drip", "wear_interval_seconds"), 0),  # intervalo cero
+        (("rules", "terrain"), KeyError),  # falta el terreno
+        (("rules", "terrain", "river_width_tiles"), 9),  # río más ancho que el tope
+        (("rules", "terrain", "rock_count"), 1025),  # más rocas que el tope
+        (("rules", "urban", "max_buildings"), 1025),  # más edificios que el tope
+        (("rules", "urban", "trash_interval_seconds"), 0),  # intervalo cero
+        (("rules", "urban", "trash_spread_interval_seconds"), 0),  # intervalo cero
     ],
 )
 def test_invalid_documents_are_rejected(document, path, value):

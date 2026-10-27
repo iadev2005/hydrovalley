@@ -46,7 +46,7 @@ def test_the_catalog_is_seeded_after_the_migrations_and_before_the_connection_is
     repository._open_connection()
     assert events == ["migrate"]
     inserts = [sql for sql in connection.statements if "INSERT INTO catalog_entries" in sql]
-    assert len(inserts) == 12
+    assert len(inserts) == 15
     assert any("DELETE FROM catalog_entries" in sql for sql in connection.statements)
     assert not connection.closed
 
@@ -134,7 +134,10 @@ def test_connecting_seeds_one_row_per_element_and_load_returns_the_same_catalog(
         ("offline_installation_seconds", "rule"),
         ("sprinkler", "installation"),
         ("tank", "rule"),
+        ("terrain", "rule"),
+        ("trash_bin", "installation"),
         ("treatment_plant", "installation"),
+        ("urban", "rule"),
     ]
     stored = catalog_from_entries(seeded.load_entries())
     assert stored == load_catalog_file(REPO_CATALOG)
