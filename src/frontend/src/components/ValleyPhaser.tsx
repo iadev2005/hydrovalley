@@ -90,9 +90,13 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
       const config: Phaser.Types.Core.GameConfig = {
         type: Phaser.AUTO,
         parent,
-        width: 512,
-        height: 512,
-        backgroundColor: "#2e1c0c",
+        width: 1024,
+        height: 640,
+        scale: {
+          mode: Phaser.Scale.FIT,
+          autoCenter: Phaser.Scale.CENTER_BOTH,
+        },
+        backgroundColor: "#8fb9c7",
         pixelArt: true,
         roundPixels: true,
         scene: [ValleyScene],
@@ -153,7 +157,17 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
         id="valley"
         ref={containerRef}
         aria-label="Valle isométrico de 32 por 32 casillas"
+        aria-describedby="isometric-help"
+        tabIndex={0}
+        onWheel={(event) => {
+          if ((event.target as HTMLElement).closest(".valley-toolbar")) return;
+          event.preventDefault();
+          getScene()?.zoomBy(event.deltaY);
+        }}
       />
+      <p id="isometric-help" className="visually-hidden">
+        Arrastra el mapa para mover la vista y usa la rueda para acercar o alejar.
+      </p>
       <div className="valley-toolbar">
         <div className="valley-toolbar-left">
           <button

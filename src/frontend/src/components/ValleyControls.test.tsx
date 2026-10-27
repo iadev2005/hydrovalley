@@ -106,11 +106,11 @@ describe("ValleyControls", () => {
     fireEvent.click(dropBtn);
     expect(onDrop).toHaveBeenCalledTimes(1);
 
-    const sprinklerBtn = screen.getByRole("button", { name: /Colocar aspersor/i });
+    const sprinklerBtn = screen.getByRole("button", { name: /Aspersor/i });
     fireEvent.click(sprinklerBtn);
     expect(onPlaceInstallation).toHaveBeenCalledWith("sprinkler");
 
-    const buyDropBtn = screen.getByRole("button", { name: "Comprar gota grande" });
+    const buyDropBtn = screen.getByRole("button", { name: "Gota grande" });
     fireEvent.click(buyDropBtn);
     expect(onBuyUpgrade).toHaveBeenCalledWith("bigger_drop");
   });

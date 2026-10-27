@@ -53,6 +53,8 @@ export interface UseGameSocketReturn {
   gameState: StateFrame | null;
   /** Resumen al volver (RF-25) todavía sin cerrar, o null. */
   offlineSummary: OfflineSummary | null;
+  /** Tiempo transcurrido entre la desconexión y la reconexión, en milisegundos. */
+  offlineDurationMs: number | null;
   actionMessage: ActionMessage | null;
   pendingCount: number;
   logs: string[];
@@ -86,6 +88,7 @@ export function useGameSocket({
   const [statusText, setStatusText] = useState<string>("desconectado");
   const [gameState, setGameState] = useState<StateFrame | null>(null);
   const [offlineSummary, setOfflineSummary] = useState<OfflineSummary | null>(null);
+  const [offlineDurationMs, setOfflineDurationMs] = useState<number | null>(null);
   const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(0);
   const [logs, setLogs] = useState<string[]>([]);
@@ -93,6 +96,7 @@ export function useGameSocket({
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectedAtRef = useRef<number | null>(null);
   const pendingRef = useRef<PendingActionsManager>(createPendingActions({ now }));
   const backoffRef = useRef(createReconnectBackoff({ random, now }));
   const backupHostsKey = backupHosts ? backupHosts.join(",") : "";
@@ -226,6 +230,10 @@ export function useGameSocket({
       ws.addEventListener("open", () => {
         if (!isEffectActive || socketRef.current !== ws) return;
         backoffRef.current.opened();
+        if (disconnectedAtRef.current !== null) {
+          setOfflineDurationMs(Math.max(0, now() - disconnectedAtRef.current));
+          disconnectedAtRef.current = null;
+        }
         setStatus("connected");
         setStatusText("conectado");
         armSilenceTimer(ws);
@@ -293,6 +301,7 @@ export function useGameSocket({
         backoffRef.current.closed();
         onResetPending?.();
         setStatus("disconnected");
+        setOfflineSummary(null);
 
         if (decision !== "reconnect") {
           socketRef.current = null;
@@ -301,6 +310,7 @@ export function useGameSocket({
           return;
         }
 
+        disconnectedAtRef.current = now();
         rotatorRef.current.advance();
         const delay = backoffRef.current.nextDelay();
         setStatusText(`desconectado (reintento en ${(delay / 1000).toFixed(1)} s)`);
@@ -329,6 +339,7 @@ export function useGameSocket({
   const effectiveStatusText = session ? statusText : "desconectado";
   const effectiveGameState = session ? gameState : null;
   const effectiveOfflineSummary = session ? offlineSummary : null;
+  const effectiveOfflineDurationMs = session ? offlineDurationMs : null;
   const effectivePendingCount = session ? pendingCount : 0;
 
   return {
@@ -336,6 +347,7 @@ export function useGameSocket({
     statusText: effectiveStatusText,
     gameState: effectiveGameState,
     offlineSummary: effectiveOfflineSummary,
+    offlineDurationMs: effectiveOfflineDurationMs,
     actionMessage,
     pendingCount: effectivePendingCount,
     logs,
