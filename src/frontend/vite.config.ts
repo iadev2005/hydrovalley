@@ -17,7 +17,18 @@ export default defineConfig({
         main: resolve(import.meta.dirname, "index.html"),
         sistema: resolve(import.meta.dirname, "sistema.html"),
       },
+      output: {
+        // Phaser pesa más de 1 MB: va en su propio fragmento para que se
+        // cachee aparte del código de la aplicación.
+        manualChunks(id) {
+          if (id.includes("node_modules/phaser/")) {
+            return "phaser";
+          }
+        },
+      },
     },
+    // El fragmento de Phaser pasa del límite por defecto (500 kB) a propósito.
+    chunkSizeWarningLimit: 1500,
   },
   server: {
     proxy: {
