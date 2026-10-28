@@ -272,6 +272,9 @@ func (a *API) do(req *http.Request, token string, out any) (http.Header, time.Du
 	start := time.Now()
 	resp, err := a.HTTP.Do(req)
 	latency := time.Since(start)
+	if latency <= 0 {
+		latency = time.Microsecond
+	}
 	if err != nil {
 		return nil, latency, err
 	}

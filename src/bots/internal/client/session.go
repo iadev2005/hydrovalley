@@ -470,7 +470,11 @@ func (s *Session) resolve(ctx context.Context, id, status, reason string) bool {
 	if !ok {
 		return false
 	}
-	s.emit(ctx, Outcome{ActionID: id, Kind: p.kind, Status: status, Reason: reason, Latency: now.Sub(p.sentAt)})
+	lat := now.Sub(p.sentAt)
+	if lat <= 0 {
+		lat = time.Microsecond
+	}
+	s.emit(ctx, Outcome{ActionID: id, Kind: p.kind, Status: status, Reason: reason, Latency: lat})
 	return true
 }
 

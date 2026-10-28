@@ -13,7 +13,7 @@ use super::growth;
 use super::limits::{RECENT_ACTIONS_WINDOW_TICKS, TICKS_PER_SECOND, VALLEY_HEIGHT, VALLEY_WIDTH};
 use super::player::{AppliedAction, OfflineSummary, Player};
 use super::rng::SplitMix64;
-use super::tile::{Installation, InstallationKind, Tile, UpgradeKind};
+use super::tile::{Installation, InstallationKind, Tile, TileStage, UpgradeKind};
 
 /// Cada cuántos ticks se toma una instantánea (Capa 5).
 pub const SNAPSHOT_INTERVAL_TICKS: u64 = 50;
@@ -524,7 +524,7 @@ impl World {
         let mut incentive = 0u64;
         if tile.trash_level == 0 {
             tile.stage = TileStage::DrySoil;
-            incentive = 2;
+            incentive = 1;
         }
         let player = &mut self.player_slot(player_id).record;
         player.leaves = player.leaves.saturating_add(incentive);
@@ -785,7 +785,9 @@ impl World {
             perimeter.push((width - 1, y));
         }
         for (x, y) in perimeter {
-            let (idx, _) = self.tile_index(x, y);
+            let Some(idx) = self.tile_index(x, y) else {
+                continue;
+            };
             let tile = &self.tiles[idx];
             if !tile.stage.is_natural()
                 && !tile.has_building
@@ -800,10 +802,10 @@ impl World {
         }
     }
 
-    /// En ciclos fijos (cada 50 ticks = 5 s), el edificio suma +1 a trash_level
+    /// En ciclos fijos (cada 60 ticks = 6 s), el edificio suma +1 a trash_level
     /// en una casilla vecina (3 x 3), eliminando plantas e instalaciones preexistentes (Fase 4).
     fn emit_trash(&mut self, tick: u64) {
-        let interval = 5 * TICKS_PER_SECOND;
+        let interval = 6 * TICKS_PER_SECOND;
         if !tick.is_multiple_of(interval) {
             return;
         }
@@ -818,11 +820,22 @@ impl World {
         for b_idx in building_indices {
             let (bx, by) = self.tile_xy(b_idx);
             let area = area_indices(bx, by, 3, self.width, self.height);
-            let candidate = area.into_iter().find(|&idx| {
-                idx != b_idx
-                    && !self.tiles[idx].stage.is_natural()
-                    && !self.tiles[idx].has_building
-            });
+            let candidate = area
+                .iter()
+                .copied()
+                .find(|&idx| {
+                    idx != b_idx
+                        && !self.tiles[idx].stage.is_natural()
+                        && !self.tiles[idx].has_building
+                        && self.tiles[idx].trash_level < 3
+                })
+                .or_else(|| {
+                    area.into_iter().find(|&idx| {
+                        idx != b_idx
+                            && !self.tiles[idx].stage.is_natural()
+                            && !self.tiles[idx].has_building
+                    })
+                });
             if let Some(target_idx) = candidate {
                 let tile = &mut self.tiles[target_idx];
                 tile.trash_level = (tile.trash_level + 1).min(3);
@@ -834,11 +847,15 @@ impl World {
         }
     }
 
-    /// Una casilla con trash_level == 3 incrementa en +1 la basura de casillas
-    /// adyacentes no protegidas (Fase 4).
+    /// Una casilla con trash_level >= 2 incrementa en +1 su propia basura (hasta 3)
+    /// y propaga +1 de basura a sus casillas adyacentes no protegidas cada 8 s (Fase 4).
     fn propagate_trash(&mut self, tick: u64) {
-        let interval = 10 * TICKS_PER_SECOND;
+        let interval = 8 * TICKS_PER_SECOND;
         if !tick.is_multiple_of(interval) {
+            return;
+        }
+        let mut polluted_count = self.tiles.iter().filter(|t| t.trash_level > 0).count();
+        if polluted_count >= 60 {
             return;
         }
         let trash_bins = self.active_installations(InstallationKind::TrashBin, tick);
@@ -850,28 +867,43 @@ impl World {
             }
         }
 
-        let level_3_indices: Vec<usize> = self
+        let source_indices: Vec<usize> = self
             .tiles
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.trash_level == 3)
+            .filter(|(_, t)| t.trash_level >= 1)
             .map(|(i, _)| i)
             .collect();
 
-        for l3_idx in level_3_indices {
-            let (x, y) = self.tile_xy(l3_idx);
-            for n_idx in orthogonal_neighbor_indices(x, y, self.width, self.height) {
-                let tile = &mut self.tiles[n_idx];
-                if !protected[n_idx]
-                    && !tile.stage.is_natural()
-                    && !tile.has_building
-                    && tile.trash_level < 3
-                {
-                    tile.trash_level += 1;
-                    tile.stage = TileStage::DrySoil;
-                    tile.humidity = 0;
-                    tile.installation = None;
-                    tile.fire = None;
+        for s_idx in source_indices {
+            if protected[s_idx] {
+                continue;
+            }
+            let current_level = self.tiles[s_idx].trash_level;
+            if current_level < 3 {
+                self.tiles[s_idx].trash_level = current_level + 1;
+            }
+            if current_level >= 2 {
+                let (x, y) = self.tile_xy(s_idx);
+                for n_idx in orthogonal_neighbor_indices(x, y, self.width, self.height) {
+                    let tile = &mut self.tiles[n_idx];
+                    if !protected[n_idx]
+                        && !tile.stage.is_natural()
+                        && !tile.has_building
+                        && tile.trash_level < 3
+                    {
+                        if tile.trash_level == 0 {
+                            if polluted_count >= 60 {
+                                continue;
+                            }
+                            polluted_count += 1;
+                        }
+                        tile.trash_level += 1;
+                        tile.stage = TileStage::DrySoil;
+                        tile.humidity = 0;
+                        tile.installation = None;
+                        tile.fire = None;
+                    }
                 }
             }
         }
@@ -1234,8 +1266,8 @@ pub fn generate_natural_terrain(tiles: &mut [Tile], width: u32, height: u32, see
         }
     }
 
-    // Lago a media altura (y: 13..=16) ensanchando el río
-    for ly in 13..=16u32 {
+    // Lago a media altura (y: 12..=16) ensanchando el río
+    for ly in 12..=16u32 {
         if ly < height {
             let offset = ((ly as i32 / 4) % 3) - 1;
             let rx = (base_x + offset).clamp(18, (width - 4) as i32) as u32;
@@ -1243,6 +1275,20 @@ pub fn generate_natural_terrain(tiles: &mut [Tile], width: u32, height: u32, see
                 let idx = (ly * width + lx) as usize;
                 if idx < tiles.len() {
                     tiles[idx].stage = TileStage::Water;
+                }
+            }
+        }
+    }
+
+    // Lago / laguna sur independiente (x: 17..=19, y: 26..=28)
+    for ly in 26..=28u32 {
+        if ly < height {
+            for lx in 17..=19u32 {
+                if lx < width {
+                    let idx = (ly * width + lx) as usize;
+                    if idx < tiles.len() {
+                        tiles[idx].stage = TileStage::Water;
+                    }
                 }
             }
         }
@@ -3466,7 +3512,7 @@ mod tests {
         assert_eq!(w.tile(2, 2).unwrap().trash_level, 1);
         assert_eq!(w.player(ANA).unwrap().leaves, 10);
 
-        // Segundo clean_trash: nivel 1 -> 0 (+2 hojas de incentivo)
+        // Segundo clean_trash: nivel 1 -> 0 (+1 hoja de incentivo)
         let out2 = w.step(&[Command {
             action_id: action(2),
             player_id: ANA.to_string(),
@@ -3474,8 +3520,8 @@ mod tests {
         }]);
         assert_eq!(outcomes(&out2), vec![CommandOutcome::Applied]);
         assert_eq!(w.tile(2, 2).unwrap().trash_level, 0);
-        assert_eq!(w.player(ANA).unwrap().leaves, 12);
-        assert_eq!(w.player(ANA).unwrap().leaves_earned, 12);
+        assert_eq!(w.player(ANA).unwrap().leaves, 11);
+        assert_eq!(w.player(ANA).unwrap().leaves_earned, 11);
 
         // Tercer clean_trash sobre casilla sin basura: rechazado
         let out3 = w.step(&[Command {

@@ -129,7 +129,7 @@ export function ValleyControls({
             disabled={!canActOnTile}
             onClick={onCleanTrash}
           >
-            Limpiar basura (+2 hojas)
+            Limpiar basura (+1 hoja)
           </button>
         )}
         <button

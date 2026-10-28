@@ -224,7 +224,7 @@ export interface PlacedInstallation {
   y: number;
   installation: string;
   owner_id: string;
-  remaining_durability: number;
+  remaining_durability?: number;
 }
 
 /**
@@ -247,7 +247,7 @@ export interface PlayerState {
   next_sprinkler_price: bigint;
   next_drip_price: bigint;
   next_treatment_plant_price: bigint;
-  next_trash_bin_price: bigint;
+  next_trash_bin_price?: bigint;
   offline_summary: OfflineSummary | null;
 }
 
@@ -275,8 +275,8 @@ export interface StateFrame {
   humidity: bigint[];
   fires: FireState[];
   installations: PlacedInstallation[];
-  buildings: boolean[];
-  trash: number[];
+  buildings?: boolean[];
+  trash?: number[];
   player: PlayerState | null;
 }
 

@@ -118,6 +118,7 @@ export function GameApp({
   const handleCleanTrash = useCallback(() => {
     if (selected) {
       socketHook.sendCleanTrash(selected.x, selected.y);
+      phaserRef.current?.spawnCleanEffect?.(selected.x, selected.y);
     }
   }, [selected, socketHook]);
 

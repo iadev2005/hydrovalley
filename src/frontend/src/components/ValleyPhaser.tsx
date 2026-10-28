@@ -16,6 +16,7 @@ export interface ValleyPhaserHandle {
   resolvePendingDrop: (actionId: string, status: string) => void;
   clearPendingDrops: () => void;
   resetCamera: () => void;
+  spawnCleanEffect?: (x: number, y: number) => void;
 }
 
 export interface ValleyPhaserProps {
@@ -70,6 +71,9 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
       },
       resetCamera: () => {
         getScene()?.resetCamera();
+      },
+      spawnCleanEffect: (x: number, y: number) => {
+        getScene()?.spawnCleanEffect(x, y);
       },
     }),
     [getScene],

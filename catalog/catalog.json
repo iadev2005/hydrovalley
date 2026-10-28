@@ -6,7 +6,7 @@
       "demo_humidity_points": 1
     },
     "tank": {
-      "capacity_liters": 20,
+      "capacity_liters": 10,
       "refill_liters": 1,
       "refill_interval_seconds": 2
     },
@@ -14,20 +14,20 @@
       "humidity_per_stage_points": 100,
       "leaves_grass": 1,
       "leaves_shrub": 2,
-      "leaves_flowers": 4,
-      "leaves_tree": 8,
+      "leaves_flowers": 3,
+      "leaves_tree": 5,
       "tree_max_humidity_points": 100
     },
     "evaporation": {
       "humidity_per_second_points": 2,
-      "wither_after_ticks": 100
+      "wither_after_ticks": 140
     },
     "fire": {
       "drops_to_extinguish": 3,
-      "extinguish_bonus_leaves": 5,
+      "extinguish_bonus_leaves": 3,
       "burn_out_ticks": 300,
-      "ignition_chance_ppm": 50,
-      "propagation_chance_ppm": 2000
+      "ignition_chance_ppm": 1250,
+      "propagation_chance_ppm": 10000
     },
     "installation_price_increase_percent": 15,
     "offline_installation_seconds": 7200

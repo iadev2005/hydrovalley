@@ -24,6 +24,7 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 	sprinkler := message.GetSprinkler()
 	drip := message.GetDrip()
 	plant := message.GetTreatmentPlant()
+	trashBin := message.GetTrashBin()
 	biggerDrop := message.GetBiggerDrop()
 	biggerTank := message.GetBiggerTank()
 
@@ -64,6 +65,25 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 	} {
 		if figure.value == 0 {
 			return domain.Catalog{}, invalidCatalog(figure.name + " debe ser mayor que 0")
+		}
+	}
+
+	var tb domain.TrashBinRules
+	if trashBin != nil {
+		if trashBin.GetAreaSide() == 0 {
+			return domain.Catalog{}, invalidCatalog("trash_bin.area_side debe ser mayor que 0")
+		}
+		if trashBin.GetIntervalSeconds() == 0 {
+			return domain.Catalog{}, invalidCatalog("trash_bin.interval_seconds debe ser mayor que 0")
+		}
+		if trashBin.GetDurability() == 0 {
+			return domain.Catalog{}, invalidCatalog("trash_bin.durability debe ser mayor que 0")
+		}
+		tb = domain.TrashBinRules{
+			Price:           trashBin.GetPrice(),
+			AreaSide:        trashBin.GetAreaSide(),
+			IntervalSeconds: trashBin.GetIntervalSeconds(),
+			Durability:      trashBin.GetDurability(),
 		}
 	}
 
@@ -117,6 +137,7 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 			IntervalSeconds: plant.GetIntervalSeconds(),
 			Durability:      plant.GetDurability(),
 		},
+		TrashBin: tb,
 		InstallationPriceIncreasePercent: message.GetInstallationPriceIncreasePercent(),
 		BiggerDrop: domain.BiggerDropRules{
 			Price:    biggerDrop.GetPrice(),

@@ -201,6 +201,28 @@ func setNumber(t *testing.T, doc map[string]any, path string, value uint64) {
 	object[keys[len(keys)-1]] = json.Number(strconv.FormatUint(value, 10))
 }
 
+func numberOpt(doc map[string]any, path string) (uint64, bool) {
+	var node any = doc
+	for _, key := range strings.Split(path, ".") {
+		object, ok := node.(map[string]any)
+		if !ok {
+			return 0, false
+		}
+		if node, ok = object[key]; !ok {
+			return 0, false
+		}
+	}
+	text, ok := node.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	val, err := strconv.ParseUint(text.String(), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return val, true
+}
+
 func catalogMessage(t *testing.T, doc map[string]any, version string) *persistencev1.Catalog {
 	n := func(path string) uint64 { return number(t, doc, path) }
 	n32 := func(path string) uint32 {
@@ -209,6 +231,21 @@ func catalogMessage(t *testing.T, doc map[string]any, version string) *persisten
 			t.Fatalf("%s no cabe en 32 bits", path)
 		}
 		return uint32(value)
+	}
+	n32Opt := func(path string, def uint32) uint32 {
+		if val, ok := numberOpt(doc, path); ok {
+			if val > 1<<32-1 {
+				t.Fatalf("%s no cabe en 32 bits", path)
+			}
+			return uint32(val)
+		}
+		return def
+	}
+	nOpt := func(path string, def uint64) uint64 {
+		if val, ok := numberOpt(doc, path); ok {
+			return val
+		}
+		return def
 	}
 	return &persistencev1.Catalog{
 		CatalogVersion: version,
@@ -246,16 +283,25 @@ func catalogMessage(t *testing.T, doc map[string]any, version string) *persisten
 			AreaSide:        n32("installations.sprinkler.area_side_tiles"),
 			Humidity:        n("installations.sprinkler.humidity_points"),
 			IntervalSeconds: n32("installations.sprinkler.interval_seconds"),
+			Durability:      n32Opt("installations.sprinkler.durability", 30),
 		},
 		Drip: &persistencev1.DripRules{
 			Price:              n("installations.drip.price_leaves"),
 			AreaSide:           n32("installations.drip.area_side_tiles"),
 			EvaporationDivisor: n32("installations.drip.evaporation_divisor"),
+			Durability:         n32Opt("installations.drip.durability", 30),
 		},
 		TreatmentPlant: &persistencev1.TreatmentPlantRules{
 			Price:           n("installations.treatment_plant.price_leaves"),
 			RefillAmount:    n("installations.treatment_plant.refill_liters"),
 			IntervalSeconds: n32("installations.treatment_plant.interval_seconds"),
+			Durability:      n32Opt("installations.treatment_plant.durability", 30),
+		},
+		TrashBin: &persistencev1.TrashBinRules{
+			Price:           nOpt("installations.trash_bin.price_leaves", 15),
+			AreaSide:        n32Opt("installations.trash_bin.area_side_tiles", 3),
+			IntervalSeconds: n32Opt("installations.trash_bin.interval_seconds", 2),
+			Durability:      n32Opt("installations.trash_bin.durability", 30),
 		},
 		InstallationPriceIncreasePercent: n32("rules.installation_price_increase_percent"),
 		BiggerDrop: &persistencev1.BiggerDropRules{

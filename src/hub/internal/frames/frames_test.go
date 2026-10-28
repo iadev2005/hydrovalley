@@ -247,7 +247,8 @@ func sampleWorld() *worldv1.WorldState {
 	for i := range tiles {
 		tiles[i] = &worldv1.Tile{Stage: worldv1.TileStage_TILE_STAGE_DRY_SOIL}
 	}
-	tiles[1] = &worldv1.Tile{Stage: worldv1.TileStage_TILE_STAGE_GRASS, Humidity: 25}
+	tiles[0].HasBuilding = true
+	tiles[1] = &worldv1.Tile{Stage: worldv1.TileStage_TILE_STAGE_GRASS, Humidity: 25, TrashLevel: 2}
 	tiles[2].Fire = &worldv1.Fire{DropsReceived: 2}
 	tiles[3].Installation = &worldv1.Installation{Kind: worldv1.InstallationKind_INSTALLATION_KIND_DRIP, OwnerId: "owner"}
 	return &worldv1.WorldState{
@@ -275,6 +276,12 @@ func TestStateWithMapAndPlayer(t *testing.T) {
 	if got := msg.GetHumidity(); len(got) != 4 || got[1] != 25 {
 		t.Fatalf("humidity = %v", got)
 	}
+	if got := msg.GetBuildings(); len(got) != 4 || !got[0] || got[1] {
+		t.Fatalf("buildings = %v", got)
+	}
+	if got := msg.GetTrash(); len(got) != 4 || got[1] != 2 {
+		t.Fatalf("trash = %v", got)
+	}
 	if f := msg.GetFires(); len(f) != 1 || f[0].GetX() != 0 || f[0].GetY() != 1 || f[0].GetDropsReceived() != 2 {
 		t.Fatalf("fires = %v", f)
 	}
@@ -284,7 +291,7 @@ func TestStateWithMapAndPlayer(t *testing.T) {
 	p := msg.GetPlayer()
 	if p.GetWater() != 19 || p.GetTankCapacity() != 20 || p.GetLeaves() != 3 ||
 		len(p.GetUpgrades()) != 1 || p.GetUpgrades()[0] != "bigger_tank" ||
-		p.GetNextSprinklerPrice() != 10 || p.GetNextDripPrice() != 20 || p.GetNextTreatmentPlantPrice() != 30 {
+		p.GetNextSprinklerPrice() != 10 || p.GetNextDripPrice() != 20 || p.GetNextTreatmentPlantPrice() != 30 || p.GetNextTrashBinPrice() != 15 {
 		t.Fatalf("player = %v", p)
 	}
 	data, _ := Marshal(msg)

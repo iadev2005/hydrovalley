@@ -17,7 +17,15 @@ export default defineConfig({
         main: resolve(import.meta.dirname, "index.html"),
         sistema: resolve(import.meta.dirname, "sistema.html"),
       },
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/phaser/")) {
+            return "phaser";
+          }
+        },
+      },
     },
+    chunkSizeWarningLimit: 1500,
   },
   server: {
     proxy: {

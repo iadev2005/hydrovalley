@@ -14,23 +14,32 @@ Para lograr una perspectiva isométrica limpia y fiel al documento del proyecto,
 
 ## 2. Catálogo de Recursos
 
-### 2.1 Terreno e Ilustraciones por Etapa (`tiles/`)
+### 2.1 Terreno, Vegetación y Estructuras (`tiles/`)
 
-| Archivo | Etapa (`TileStage`) | Dimensiones | Capa | Descripción visual |
+| Archivo | Etapa / Elemento | Dimensiones | Capa | Descripción visual |
 | :--- | :--- | :--- | :--- | :--- |
 | `tile_1_dry.png` | 1 (Tierra seca) | $32 \times 16\text{ px}$ | Base (Suelo) | Rombo plano árido en tono ocre/tierra con borde pixelado. |
 | `tile_2_grass.png` | 2 (Pasto) | $32 \times 16\text{ px}$ | Base (Suelo) | Rombo plano verde claro que cubre la casilla. |
 | `tile_3_bush.png` | 3 (Arbusto) | $32 \times 32\text{ px}$ | Overlay (Planta) | Arbusto denso de follaje verde que se apoya sobre el pasto. |
 | `tile_4_flowers.png` | 4 (Flores) | $32 \times 32\text{ px}$ | Overlay (Planta) | Ramillete de flores rosadas con tallo que se apoya sobre el pasto. |
 | `tile_5_tree.png` | 5 (Árbol) | $64 \times 80\text{ px}$ | Overlay (Planta) | Árbol frondoso con tronco de madera y copa escalonada anclado al centro del pasto. |
+| `tile_water.png` | 6 (Agua natural) | $32 \times 16\text{ px}$ | Base (Suelo) | Rombo plano isométrico de agua azul con destellos pixelados. |
+| `tile_rock.png` | 7 (Roca natural) | $32 \times 32\text{ px}$ | Overlay (Terreno) | Formación rocosa gris musgosa encajada en la base del rombo. |
+| `tile_polluted_soil.png` | Suelo degradado / contaminado | $32 \times 16\text{ px}$ | Base (Suelo) | Rombo plano árido oscurecido y degradado por acumulación de residuos. |
+| `building_house.png` | Estructura urbana / casa | $32 \times 48\text{ px}$ | Overlay (Estructura) | Casa urbana isométrica de tejas rojas y paredes de ladrillo. |
+| `trash_1_small.png` | Basura nivel 1 | $32 \times 32\text{ px}$ | Overlay (Residuo) | Pila pequeña de desperdicios (bolsas y latas dispersas). |
+| `trash_2_medium.png` | Basura nivel 2 | $32 \times 32\text{ px}$ | Overlay (Residuo) | Montón mediano de cajas y bolsas acumuladas. |
+| `trash_3_large.png` | Basura nivel 3 | $32 \times 32\text{ px}$ | Overlay (Residuo) | Montículo desbordado con vapores nocivos (riesgo de propagación). |
+| `trash_water.png` | Basura en agua | $32 \times 32\text{ px}$ | Overlay (Residuo) | Residuos flotantes y manchas plásticas en casilla acuática. |
 
-### 2.2 Instalaciones de las 3R (`installations/`)
+### 2.2 Instalaciones de las 3R y Gestión de Residuos (`installations/`)
 
 | Archivo | Instalación | Dimensiones | Capa | Descripción visual |
 | :--- | :--- | :--- | :--- | :--- |
 | `sprinkler.png` | `sprinkler` (Aspersor - Reutilizar) | $32 \times 32\text{ px}$ | Overlay | Aspersor metálico con boquilla giratoria y agua pulverizada. |
 | `drip.png` | `drip` (Riego por goteo - Reducir) | $32 \times 16\text{ px}$ | Overlay | Tubería diagonal con válvula y gotas de precisión que bordea el rombo. |
 | `treatment_plant.png` | `treatment_plant` (Planta - Reciclar) | $32 \times 32\text{ px}$ | Overlay | Depósito de filtrado y tratamiento con grifería sobre suelo técnico. |
+| `trash_bin.png` | `trash_bin` (Contenedor de reciclaje) | $32 \times 32\text{ px}$ | Overlay | Contenedor de reciclaje verde con símbolo de reciclaje. |
 
 ### 2.3 Efectos, Fuego e Indicadores (`effects/`)
 
@@ -41,6 +50,7 @@ Para lograr una perspectiva isométrica limpia y fiel al documento del proyecto,
 | `droplet.png` | Gota en el aire (acción pendiente) | $16 \times 16\text{ px}$ | Entidad flotante | Gota de agua en trayectoria aérea. |
 | `splash.png` | Salpicadura de gota aplicada | $32 \times 16\text{ px}$ | Overlay en suelo | Onda expansiva de impacto de agua sobre el rombo. |
 | `tile_selector.png` | Cursor de selección | $32 \times 16\text{ px}$ | Overlay en suelo | Rombo amarillo brillante para resaltar la casilla seleccionada. |
+| `clean_sparkle.png` | Destello de limpieza de residuos | $16 \times 16\text{ px}$ | Efecto visual | Destello dorado/celeste al recoger o limpiar basura de una casilla. |
 
 ---
 

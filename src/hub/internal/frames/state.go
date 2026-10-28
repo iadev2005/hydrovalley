@@ -19,6 +19,8 @@ type StateBuilder struct {
 	humidity      []uint64
 	fires         []*playv1.FireView
 	installations []*playv1.InstallationView
+	buildings     []bool
+	trash         []uint32
 	players       map[string]*worldv1.PlayerState
 }
 
@@ -34,9 +36,13 @@ func NewStateBuilder(tick uint64, paused bool, world *worldv1.WorldState, accept
 	tiles := world.GetTiles()
 	b.stages = make([]uint32, len(tiles))
 	b.humidity = make([]uint64, len(tiles))
+	b.buildings = make([]bool, len(tiles))
+	b.trash = make([]uint32, len(tiles))
 	for i, tile := range tiles {
 		b.stages[i] = uint32(tile.GetStage())
 		b.humidity[i] = tile.GetHumidity()
+		b.buildings[i] = tile.GetHasBuilding()
+		b.trash[i] = tile.GetTrashLevel()
 		if width == 0 {
 			continue
 		}
@@ -77,6 +83,8 @@ func (b *StateBuilder) For(playerID string, withMap bool) *playv1.StateMessage {
 		msg.Humidity = b.humidity
 		msg.Fires = b.fires
 		msg.Installations = b.installations
+		msg.Buildings = b.buildings
+		msg.Trash = b.trash
 	}
 	if p, ok := b.players[playerID]; ok {
 		msg.Player = playerView(p)
@@ -122,7 +130,12 @@ func playerView(p *worldv1.PlayerState) *playv1.PlayerView {
 			view.NextDripPrice = price.GetLeaves()
 		case worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT:
 			view.NextTreatmentPlantPrice = price.GetLeaves()
+		case worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN:
+			view.NextTrashBinPrice = price.GetLeaves()
 		}
+	}
+	if view.NextTrashBinPrice == 0 {
+		view.NextTrashBinPrice = 15
 	}
 	return view
 }

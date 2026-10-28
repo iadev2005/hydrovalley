@@ -1,0 +1,17 @@
+{
+  "name": "hydrovalley",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "dev": "npm --prefix src/frontend run dev",
+    "build": "npm --prefix src/frontend run build",
+    "typecheck": "npm --prefix src/frontend run typecheck && npm --prefix src/api run typecheck",
+    "test": "npm --prefix src/frontend test && npm --prefix src/api test",
+    "setup:env": "node scripts/setup-env.js",
+    "up": "docker compose up --build -d",
+    "down": "docker compose down"
+  },
+  "author": "",
+  "license": "ISC"
+}

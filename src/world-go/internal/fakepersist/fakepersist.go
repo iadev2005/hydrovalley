@@ -38,9 +38,10 @@ func Catalog() *persistencev1.Catalog {
 		Fire: &persistencev1.FireRules{
 			DropsToExtinguish: 3, ExtinguishBonusLeaves: 5, BurnOutTicks: 300, IgnitionChancePpm: 0,
 		},
-		Sprinkler:                        &persistencev1.SprinklerRules{Price: 10, AreaSide: 3, Humidity: 25, IntervalSeconds: 2},
-		Drip:                             &persistencev1.DripRules{Price: 25, AreaSide: 5, EvaporationDivisor: 2},
-		TreatmentPlant:                   &persistencev1.TreatmentPlantRules{Price: 40, RefillAmount: 1, IntervalSeconds: 2},
+		Sprinkler:                        &persistencev1.SprinklerRules{Price: 10, AreaSide: 3, Humidity: 25, IntervalSeconds: 2, Durability: 30},
+		Drip:                             &persistencev1.DripRules{Price: 25, AreaSide: 5, EvaporationDivisor: 2, Durability: 30},
+		TreatmentPlant:                   &persistencev1.TreatmentPlantRules{Price: 40, RefillAmount: 1, IntervalSeconds: 2, Durability: 30},
+		TrashBin:                         &persistencev1.TrashBinRules{Price: 15, AreaSide: 3, IntervalSeconds: 2, Durability: 30},
 		InstallationPriceIncreasePercent: 15,
 		BiggerDrop:                       &persistencev1.BiggerDropRules{Price: 30, AreaSide: 3},
 		BiggerTank:                       &persistencev1.BiggerTankRules{Price: 20, ExtraCapacity: 10},

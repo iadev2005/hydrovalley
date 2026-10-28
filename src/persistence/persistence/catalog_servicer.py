@@ -30,6 +30,7 @@ _MESSAGES = {
     "treatment_plant": (pb.TreatmentPlantRules, "treatment_plant"),
     "bigger_drop": (pb.BiggerDropRules, "bigger_drop"),
     "bigger_tank": (pb.BiggerTankRules, "bigger_tank"),
+    "trash_bin": (pb.TrashBinRules, "trash_bin"),
 }
 
 

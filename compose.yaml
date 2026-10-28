@@ -1,0 +1,3 @@
+include:
+  - path: deploy/compose.yml
+    env_file: deploy/.env

@@ -500,8 +500,8 @@ func (w *World) generateNaturalTerrain() {
 		}
 	}
 
-	// Lago a media altura (y: 13..=16) ensanchando el río
-	for ly := uint32(13); ly <= 16; ly++ {
+	// Lago a media altura (y: 12..=16) ensanchando el río
+	for ly := uint32(12); ly <= 16; ly++ {
 		if ly < w.height {
 			offset := (int32(ly)/4)%3 - 1
 			rx := baseX + offset
@@ -523,6 +523,20 @@ func (w *World) generateNaturalTerrain() {
 				idx := ly*w.width + lx
 				if int(idx) < len(w.tiles) {
 					w.tiles[idx].Stage = Water
+				}
+			}
+		}
+	}
+
+	// Lago / laguna sur independiente (x: 17..=19, y: 26..=28)
+	for ly := uint32(26); ly <= 28; ly++ {
+		if ly < w.height {
+			for lx := uint32(17); lx <= 19; lx++ {
+				if lx < w.width {
+					idx := ly*w.width + lx
+					if int(idx) < len(w.tiles) {
+						w.tiles[idx].Stage = Water
+					}
 				}
 			}
 		}
@@ -726,7 +740,7 @@ func tileCount(width, height uint32) int {
 
 // cleanTrash limpia un nivel de basura de una casilla (Fase 4).
 // Cada ejecución reduce en 1 el TrashLevel. Al llegar a 0, la casilla
-// retorna a tierra seca y otorga hojas de incentivo (+2).
+// retorna a tierra seca y otorga hojas de incentivo (+1).
 func (w *World) cleanTrash(playerID string, x, y uint32) CommandOutcome {
 	index, inside := w.tileIndex(x, y)
 	if !inside {
@@ -740,7 +754,7 @@ func (w *World) cleanTrash(playerID string, x, y uint32) CommandOutcome {
 	var incentive uint64
 	if tile.TrashLevel == 0 {
 		tile.Stage = DrySoil
-		incentive = 2
+		incentive = 1
 	}
 	player := &w.playerSlot(playerID).record
 	player.Leaves = satAdd(player.Leaves, incentive)
@@ -795,10 +809,10 @@ func (w *World) spawnUrbanBuildings() {
 	}
 }
 
-// emitTrash: En ciclos fijos (cada 50 ticks = 5 s), el edificio suma +1 a TrashLevel
+// emitTrash: En ciclos fijos (cada 60 ticks = 6 s), el edificio suma +1 a TrashLevel
 // en una casilla vecina (3 x 3), eliminando plantas e instalaciones preexistentes (Fase 4).
 func (w *World) emitTrash(tick uint64) {
-	interval := satMul(5, TicksPerSecond)
+	interval := satMul(6, TicksPerSecond)
 	if !isMultiple(tick, interval) {
 		return
 	}
@@ -813,9 +827,17 @@ func (w *World) emitTrash(tick uint64) {
 		area := areaIndices(bx, by, 3, w.width, w.height)
 		var targetIdx int = -1
 		for _, idx := range area {
-			if idx != bIdx && !w.tiles[idx].Stage.IsNatural() && !w.tiles[idx].HasBuilding {
+			if idx != bIdx && !w.tiles[idx].Stage.IsNatural() && !w.tiles[idx].HasBuilding && w.tiles[idx].TrashLevel < 3 {
 				targetIdx = idx
 				break
+			}
+		}
+		if targetIdx == -1 {
+			for _, idx := range area {
+				if idx != bIdx && !w.tiles[idx].Stage.IsNatural() && !w.tiles[idx].HasBuilding {
+					targetIdx = idx
+					break
+				}
 			}
 		}
 		if targetIdx != -1 {
@@ -831,11 +853,20 @@ func (w *World) emitTrash(tick uint64) {
 	}
 }
 
-// propagateTrash: Una casilla con TrashLevel == 3 incrementa en +1 la basura de casillas
-// adyacentes no protegidas (Fase 4).
+// propagateTrash: Una casilla con TrashLevel >= 2 incrementa su basura y propaga +1
+// a casillas adyacentes no protegidas cada 8 s (Fase 4), acotada a 60 casillas.
 func (w *World) propagateTrash(tick uint64) {
-	interval := satMul(10, TicksPerSecond)
+	interval := satMul(8, TicksPerSecond)
 	if !isMultiple(tick, interval) {
+		return
+	}
+	pollutedCount := 0
+	for i := range w.tiles {
+		if w.tiles[i].TrashLevel > 0 {
+			pollutedCount++
+		}
+	}
+	if pollutedCount >= 60 {
 		return
 	}
 	trashBins := w.activeInstallations(TrashBin, tick)
@@ -847,23 +878,38 @@ func (w *World) propagateTrash(tick uint64) {
 		}
 	}
 
-	var level3Indices []int
+	var sourceIndices []int
 	for i := range w.tiles {
-		if w.tiles[i].TrashLevel == 3 {
-			level3Indices = append(level3Indices, i)
+		if w.tiles[i].TrashLevel >= 1 {
+			sourceIndices = append(sourceIndices, i)
 		}
 	}
 
-	for _, l3Idx := range level3Indices {
-		x, y := w.tileXY(l3Idx)
-		for _, nIdx := range orthogonalNeighborIndices(x, y, w.width, w.height) {
-			tile := &w.tiles[nIdx]
-			if !protected[nIdx] && !tile.Stage.IsNatural() && !tile.HasBuilding && tile.TrashLevel < 3 {
-				tile.TrashLevel++
-				tile.Stage = DrySoil
-				tile.Humidity = 0
-				tile.Installation = nil
-				tile.Fire = nil
+	for _, sIdx := range sourceIndices {
+		if protected[sIdx] {
+			continue
+		}
+		currentLevel := w.tiles[sIdx].TrashLevel
+		if currentLevel < 3 {
+			w.tiles[sIdx].TrashLevel = currentLevel + 1
+		}
+		if currentLevel >= 2 {
+			x, y := w.tileXY(sIdx)
+			for _, nIdx := range orthogonalNeighborIndices(x, y, w.width, w.height) {
+				tile := &w.tiles[nIdx]
+				if !protected[nIdx] && !tile.Stage.IsNatural() && !tile.HasBuilding && tile.TrashLevel < 3 {
+					if tile.TrashLevel == 0 {
+						if pollutedCount >= 60 {
+							continue
+						}
+						pollutedCount++
+					}
+					tile.TrashLevel++
+					tile.Stage = DrySoil
+					tile.Humidity = 0
+					tile.Installation = nil
+					tile.Fire = nil
+				}
 			}
 		}
 	}

@@ -171,16 +171,25 @@ func catalogMessage(doc map[string]any) (*persistencev1.Catalog, error) {
 			AreaSide:        n32("installations.sprinkler.area_side_tiles"),
 			Humidity:        n("installations.sprinkler.humidity_points"),
 			IntervalSeconds: n32("installations.sprinkler.interval_seconds"),
+			Durability:      30,
 		},
 		Drip: &persistencev1.DripRules{
 			Price:              n("installations.drip.price_leaves"),
 			AreaSide:           n32("installations.drip.area_side_tiles"),
 			EvaporationDivisor: n32("installations.drip.evaporation_divisor"),
+			Durability:         30,
 		},
 		TreatmentPlant: &persistencev1.TreatmentPlantRules{
 			Price:           n("installations.treatment_plant.price_leaves"),
 			RefillAmount:    n("installations.treatment_plant.refill_liters"),
 			IntervalSeconds: n32("installations.treatment_plant.interval_seconds"),
+			Durability:      30,
+		},
+		TrashBin: &persistencev1.TrashBinRules{
+			Price:           15,
+			AreaSide:        3,
+			IntervalSeconds: 2,
+			Durability:      30,
 		},
 		InstallationPriceIncreasePercent: n32("rules.installation_price_increase_percent"),
 		BiggerDrop: &persistencev1.BiggerDropRules{

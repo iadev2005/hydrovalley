@@ -66,6 +66,9 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("tile_3_bush", "/assets/tiles/tile_3_bush.png");
     this.load.image("tile_4_flowers", "/assets/tiles/tile_4_flowers.png");
     this.load.image("tile_5_tree", "/assets/tiles/tile_5_tree.png");
+    this.load.image("tile_water", "/assets/tiles/tile_water.png");
+    this.load.image("tile_rock", "/assets/tiles/tile_rock.png");
+    this.load.image("tile_polluted_soil", "/assets/tiles/tile_polluted_soil.png");
 
     // 2. Instalaciones de las 3R y reciclaje
     this.load.image("sprinkler", "/assets/installations/sprinkler.png");
@@ -74,10 +77,11 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("trash_bin", "/assets/installations/trash_bin.png");
 
     // 2b. Estructuras urbanas y basura (Fase 4)
-    this.load.image("building_house", "/assets/structures/building_house.png");
-    this.load.image("trash_1_small", "/assets/trash/trash_1_small.png");
-    this.load.image("trash_2_medium", "/assets/trash/trash_2_medium.png");
-    this.load.image("trash_3_large", "/assets/trash/trash_3_large.png");
+    this.load.image("building_house", "/assets/tiles/building_house.png");
+    this.load.image("trash_1_small", "/assets/tiles/trash_1_small.png");
+    this.load.image("trash_2_medium", "/assets/tiles/trash_2_medium.png");
+    this.load.image("trash_3_large", "/assets/tiles/trash_3_large.png");
+    this.load.image("trash_water", "/assets/tiles/trash_water.png");
 
     // 3. Fuego, gotas y efectos
     this.load.spritesheet("fire_sheet", "/assets/effects/fire_sheet.png", {
@@ -88,6 +92,7 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("droplet", "/assets/effects/droplet.png");
     this.load.image("splash", "/assets/effects/splash.png");
     this.load.image("tile_selector", "/assets/effects/tile_selector.png");
+    this.load.image("clean_sparkle", "/assets/effects/clean_sparkle.png");
   }
 
   public create(): void {
@@ -427,6 +432,42 @@ export class ValleyScene extends Phaser.Scene {
   }
 
   /**
+   * Efecto visual de destello de limpieza al recoger o limpiar basura (Fase 4).
+   */
+  public spawnCleanEffect(gridX: number, gridY: number): void {
+    if (!this.isMapReady) return;
+    const screenPos = gridToIsometric(
+      gridX,
+      gridY,
+      this.originX,
+      this.originY,
+      ISO_TILE_WIDTH,
+      ISO_TILE_HEIGHT,
+    );
+    const depth = getIsometricDepth(gridX, gridY, VALLEY_GRID_SIZE) + 0.5;
+
+    const sparkle = this.add
+      .image(screenPos.x, screenPos.y - 10, "clean_sparkle")
+      .setOrigin(0.5, 0.5)
+      .setDepth(depth)
+      .setScale(0.8)
+      .setAlpha(1.0);
+
+    this.tweens.add({
+      targets: sparkle,
+      y: screenPos.y - 25,
+      scaleX: 1.3,
+      scaleY: 1.3,
+      alpha: 0,
+      duration: 500,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        sparkle.destroy();
+      },
+    });
+  }
+
+  /**
    * Actualiza el estado visual de las 1024 casillas a partir del StateFrame difundido por el hub.
    * Realiza actualización diferencial en el pool de sprites sin destruir ningún GameObject.
    */
@@ -545,18 +586,36 @@ export class ValleyScene extends Phaser.Scene {
         view.baseSprite.setTint(0xff5722); // Fallback: tinte ladrillo urbano
       }
     } else if (tile.trash_level && tile.trash_level > 0) {
-      view.baseSprite.setTexture("tile_1_dry");
-      const trashTex = tile.trash_level >= 3 ? "trash_3_large" : tile.trash_level === 2 ? "trash_2_medium" : "trash_1_small";
-      if (this.textures.exists(trashTex)) {
+      if (tile.stage === 6 && this.textures.exists("trash_water")) {
+        view.baseSprite.setTexture(this.textures.exists("tile_water") ? "tile_water" : "tile_1_dry");
         view.overlaySprite
-          .setTexture(trashTex)
+          .setTexture("trash_water")
           .setOrigin(0.5, 0.6)
           .setVisible(true);
         view.baseSprite.clearTint();
       } else {
-        view.overlaySprite.setVisible(false);
-        const tints = [0x8d6e63, 0x5d4037, 0x3e2723];
-        view.baseSprite.setTint(tints[Math.min(tile.trash_level, 3) - 1] ?? 0x8d6e63);
+        if (this.textures.exists("tile_polluted_soil")) {
+          view.baseSprite.setTexture("tile_polluted_soil");
+        } else {
+          view.baseSprite.setTexture("tile_1_dry");
+        }
+        const trashTex =
+          tile.trash_level >= 3
+            ? "trash_3_large"
+            : tile.trash_level === 2
+              ? "trash_2_medium"
+              : "trash_1_small";
+        if (this.textures.exists(trashTex)) {
+          view.overlaySprite
+            .setTexture(trashTex)
+            .setOrigin(0.5, 0.6)
+            .setVisible(true);
+          view.baseSprite.clearTint();
+        } else {
+          view.overlaySprite.setVisible(false);
+          const tints = [0x8d6e63, 0x5d4037, 0x3e2723];
+          view.baseSprite.setTint(tints[Math.min(tile.trash_level, 3) - 1] ?? 0x8d6e63);
+        }
       }
     } else {
       switch (tile.stage) {
