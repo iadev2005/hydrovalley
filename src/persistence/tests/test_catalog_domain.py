@@ -31,7 +31,7 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
         "humidity_points": 100,
         "demo_humidity_points": 1,
     }
-    assert values["tank"]["capacity_liters"] == 20
+    assert values["tank"]["capacity_liters"] == 10
     assert values["growth"]["humidity_per_stage_points"] == 100
     assert values["sprinkler"]["price_leaves"] == 10
     assert values["sprinkler"]["durability"] == 30
@@ -49,13 +49,13 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
     assert values["drip"]["wear_interval_seconds"] == 2
     assert values["terrain"] == {"river_width_tiles": 2, "rock_count": 12}
     assert values["urban"]["max_buildings"] == 2
-    assert values["urban"]["clean_reward_leaves"] == 2
+    assert values["urban"]["clean_reward_leaves"] == 1
     assert values["bigger_drop"]["price_leaves"] == 30
     assert values["bigger_tank"]["extra_capacity_liters"] == 10
     assert values["installation_price_increase_percent"] == 15
     assert values["offline_installation_seconds"] == 7200
-    assert values["fire"]["ignition_chance_ppm"] == 50
-    assert values["fire"]["propagation_chance_ppm"] == 2000
+    assert values["fire"]["ignition_chance_ppm"] == 1250
+    assert values["fire"]["propagation_chance_ppm"] == 10000
 
 
 def test_every_entry_has_the_kind_of_its_group(document):
