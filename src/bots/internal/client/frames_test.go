@@ -72,3 +72,29 @@ func TestDecodeStateReadsDemoCounters(t *testing.T) {
 		t.Fatalf("omitted counters must read 0, got %d/%d", zero.HumidityContributed, zero.AcceptedDrops)
 	}
 }
+
+// El simulador responde `tile_occupied` a una gota sobre agua, roca, un
+// edificio o una casilla con basura; AcceptsDrop lo anticipa con el mapa.
+func TestAcceptsDropFollowsTheSimulatorRules(t *testing.T) {
+	raw := `{"type":"state","tick":"1","width":3,"height":2,
+	"stages":[1,6,7,5,1,1],"humidity":["0","0","0","0","0","0"],
+	"buildings":[false,false,false,false,true,false],"trash":[0,0,0,0,0,2]}`
+	var st State
+	if err := json.Unmarshal([]byte(raw), &st); err != nil {
+		t.Fatal(err)
+	}
+	want := []bool{true, false, false, true, false, false}
+	for i, w := range want {
+		if got := st.AcceptsDrop(i); got != w {
+			t.Errorf("AcceptsDrop(%d) = %v, want %v", i, got, w)
+		}
+	}
+	// Sin edificios ni basura en el mensaje (hub anterior) solo cuenta la etapa.
+	bare := State{Width: 2, Height: 1, Stages: []uint32{1, 6}}
+	if !bare.AcceptsDrop(0) || bare.AcceptsDrop(1) {
+		t.Fatal("without buildings or trash only the stage decides")
+	}
+	if !(State{}).AcceptsDrop(0) {
+		t.Fatal("without map every tile is a candidate")
+	}
+}

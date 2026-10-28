@@ -132,7 +132,11 @@ type State struct {
 	Humidity      []U64          `json:"humidity"`
 	Fires         []Fire         `json:"fires"`
 	Installations []Installation `json:"installations"`
-	Player        *Player        `json:"player"`
+	// Buildings y Trash marcan, por casilla, los edificios y el nivel de
+	// basura (0 a 3); también solo llegan con map=true.
+	Buildings []bool   `json:"buildings"`
+	Trash     []uint32 `json:"trash"`
+	Player    *Player  `json:"player"`
 	// HumidityContributed y AcceptedDrops son los contadores del modo demo
 	// (RF-30): llegan siempre, también con map=false, y un cero se omite.
 	HumidityContributed U64 `json:"humidity_contributed"`
@@ -155,3 +159,23 @@ type errorFrame struct {
 }
 
 func jsonUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
+
+// Etapas de hydrovalley.world.v1.TileStage que el simulador trata como
+// terreno natural.
+const (
+	stageWater = 6
+	stageRock  = 7
+)
+
+// AcceptsDrop indica si el simulador admitiría una gota en la casilla i
+// (índice = y*Width + x): el agua, la roca, los edificios y las casillas con
+// basura la rechazan con `tile_occupied`. Sin mapa no se sabe, y devuelve true.
+func (s State) AcceptsDrop(i int) bool {
+	if i < len(s.Stages) && (s.Stages[i] == stageWater || s.Stages[i] == stageRock) {
+		return false
+	}
+	if i < len(s.Buildings) && s.Buildings[i] {
+		return false
+	}
+	return i >= len(s.Trash) || s.Trash[i] == 0
+}
