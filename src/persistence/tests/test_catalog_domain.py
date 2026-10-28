@@ -31,7 +31,7 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
         "humidity_points": 100,
         "demo_humidity_points": 1,
     }
-    assert values["tank"]["capacity_liters"] == 20
+    assert values["tank"]["capacity_liters"] == 10
     assert values["growth"]["humidity_per_stage_points"] == 100
     assert values["sprinkler"]["price_leaves"] == 10
     assert values["sprinkler"]["durability"] == 30
@@ -43,8 +43,8 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
     assert values["bigger_tank"]["extra_capacity_liters"] == 10
     assert values["installation_price_increase_percent"] == 15
     assert values["offline_installation_seconds"] == 7200
-    assert values["fire"]["ignition_chance_ppm"] == 50
-    assert values["fire"]["propagation_chance_ppm"] == 2000
+    assert values["fire"]["ignition_chance_ppm"] == 1250
+    assert values["fire"]["propagation_chance_ppm"] == 10000
 
 
 def test_every_entry_has_the_kind_of_its_group(document):
@@ -53,7 +53,7 @@ def test_every_entry_has_the_kind_of_its_group(document):
     assert kinds["installation_price_increase_percent"] == "rule"
     assert kinds["sprinkler"] == "installation"
     assert kinds["bigger_tank"] == "upgrade"
-    assert len(kinds) == 12
+    assert len(kinds) == 13
 
 
 def test_version_is_a_sha256_of_the_canonical_json(document):

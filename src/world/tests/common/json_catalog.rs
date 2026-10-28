@@ -273,16 +273,19 @@ pub fn catalog_message(doc: &Json, version: &str) -> persistence_pb::Catalog {
             area_side: n32("installations.sprinkler.area_side_tiles"),
             humidity: n("installations.sprinkler.humidity_points"),
             interval_seconds: n32("installations.sprinkler.interval_seconds"),
+            durability: n32("installations.sprinkler.durability"),
         }),
         drip: Some(p::DripRules {
             price: n("installations.drip.price_leaves"),
             area_side: n32("installations.drip.area_side_tiles"),
             evaporation_divisor: n32("installations.drip.evaporation_divisor"),
+            durability: n32("installations.drip.durability"),
         }),
         treatment_plant: Some(p::TreatmentPlantRules {
             price: n("installations.treatment_plant.price_leaves"),
             refill_amount: n("installations.treatment_plant.refill_liters"),
             interval_seconds: n32("installations.treatment_plant.interval_seconds"),
+            durability: n32("installations.treatment_plant.durability"),
         }),
         installation_price_increase_percent: n32("rules.installation_price_increase_percent"),
         bigger_drop: Some(p::BiggerDropRules {
@@ -292,6 +295,12 @@ pub fn catalog_message(doc: &Json, version: &str) -> persistence_pb::Catalog {
         bigger_tank: Some(p::BiggerTankRules {
             price: n("upgrades.bigger_tank.price_leaves"),
             extra_capacity: n("upgrades.bigger_tank.extra_capacity_liters"),
+        }),
+        trash_bin: Some(p::TrashBinRules {
+            price: n("installations.trash_bin.price_leaves"),
+            area_side: n32("installations.trash_bin.area_side_tiles"),
+            interval_seconds: n32("installations.trash_bin.interval_seconds"),
+            durability: n32("installations.trash_bin.durability"),
         }),
         offline_installation_seconds: n("rules.offline_installation_seconds"),
     }

@@ -596,9 +596,12 @@ func (w *World) resetValley() {
 		w.catalog = *w.resetCatalog
 		w.resetCatalog = nil
 	}
-	clear(w.tiles)
-	if w.seed != 0 {
-		w.generateNaturalTerrain()
+	for i := range w.tiles {
+		var stage TileStage = DrySoil
+		if w.tiles[i].Stage.IsNatural() {
+			stage = w.tiles[i].Stage
+		}
+		w.tiles[i] = Tile{Stage: stage}
 	}
 	w.epoch = satAdd32(w.epoch, 1)
 	tank := w.catalog.Tank.Capacity
@@ -786,7 +789,12 @@ func (w *World) spawnUrbanBuildings() {
 	width, height := w.width, w.height
 	type pt struct{ x, y uint32 }
 	var perimeter []pt
-	for x := uint32(0); x < width; x++ {
+	startX := min(uint32(14), width)
+	for x := startX; x < width; x++ {
+		perimeter = append(perimeter, pt{x, 0})
+		perimeter = append(perimeter, pt{x, height - 1})
+	}
+	for x := uint32(0); x < startX; x++ {
 		perimeter = append(perimeter, pt{x, 0})
 		perimeter = append(perimeter, pt{x, height - 1})
 	}

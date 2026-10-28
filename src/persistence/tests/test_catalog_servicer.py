@@ -64,9 +64,9 @@ def error_of(call) -> grpc.RpcError:
 
 def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
     catalog = get_catalog(stub)
-    assert (catalog.drop.water_cost, catalog.drop.humidity) == (1, 25)
+    assert (catalog.drop.water_cost, catalog.drop.humidity) == (1, 100)
     assert catalog.drop.demo_humidity == 1
-    assert (catalog.tank.capacity, catalog.tank.refill_amount) == (20, 1)
+    assert (catalog.tank.capacity, catalog.tank.refill_amount) == (10, 1)
     assert catalog.tank.refill_interval_seconds == 2
     assert catalog.growth.humidity_per_stage == 100
     assert [
@@ -74,19 +74,19 @@ def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
         catalog.growth.leaves_shrub,
         catalog.growth.leaves_flowers,
         catalog.growth.leaves_tree,
-    ] == [1, 2, 4, 8]
+    ] == [1, 2, 3, 5]
     assert catalog.growth.tree_max_humidity == 100
     assert catalog.evaporation.humidity_per_second == 2
-    assert catalog.evaporation.wither_after_ticks == 100
+    assert catalog.evaporation.wither_after_ticks == 140
     assert catalog.fire.drops_to_extinguish == 3
-    assert catalog.fire.extinguish_bonus_leaves == 5
+    assert catalog.fire.extinguish_bonus_leaves == 3
     assert catalog.fire.burn_out_ticks == 300
     assert (catalog.sprinkler.price, catalog.sprinkler.area_side) == (10, 3)
     assert (catalog.sprinkler.humidity, catalog.sprinkler.interval_seconds) == (25, 2)
     assert (catalog.drip.price, catalog.drip.area_side) == (25, 5)
     assert catalog.drip.evaporation_divisor == 2
     assert catalog.treatment_plant.price == 40
-    assert catalog.treatment_plant.refill_amount == 1
+    assert catalog.treatment_plant.refill_amount == 3
     assert catalog.treatment_plant.interval_seconds == 2
     assert catalog.installation_price_increase_percent == 15
     assert (catalog.bigger_drop.price, catalog.bigger_drop.area_side) == (30, 3)
@@ -95,7 +95,7 @@ def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
 
 
 def test_the_seeded_ignition_chance_is_delivered(stub):
-    assert get_catalog(stub).fire.ignition_chance_ppm == 50
+    assert get_catalog(stub).fire.ignition_chance_ppm == 1250
 
 
 def test_a_changed_ignition_chance_is_delivered(stub, catalog_repository):

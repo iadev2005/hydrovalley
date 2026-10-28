@@ -857,14 +857,14 @@ func TestCleanTrashReducesLevelAndPaysIncentiveLeaves(t *testing.T) {
 		t.Errorf("leaves = %d, want 10", p.Leaves)
 	}
 
-	// Segundo clean_trash: nivel 1 -> 0 (+2 hojas de incentivo)
+	// Segundo clean_trash: nivel 1 -> 0 (+1 hoja de incentivo)
 	out2 := w.Step([]Command{cleanCmd(action(2), ana, 2, 2)})
 	wantOutcomes(t, outcomes(out2), AppliedOutcome)
 	if w.tiles[idx].TrashLevel != 0 {
 		t.Errorf("trash level = %d, want 0", w.tiles[idx].TrashLevel)
 	}
-	if p, _ := w.Player(ana); p.Leaves != 12 || p.LeavesEarned != 12 {
-		t.Errorf("leaves = %d, leaves_earned = %d, want 12", p.Leaves, p.LeavesEarned)
+	if p, _ := w.Player(ana); p.Leaves != 11 || p.LeavesEarned != 11 {
+		t.Errorf("leaves = %d, leaves_earned = %d, want 11", p.Leaves, p.LeavesEarned)
 	}
 
 	// Tercer clean_trash sobre casilla sin basura: rechazado

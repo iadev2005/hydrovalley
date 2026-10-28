@@ -100,7 +100,6 @@ struct PlayerSlot {
 #[derive(Debug, Clone)]
 pub struct World {
     catalog: Catalog,
-    seed: u64,
     tick: u64,
     epoch: u32,
     rng: SplitMix64,
@@ -143,7 +142,6 @@ impl World {
         }
         Self {
             catalog,
-            seed,
             tick: 0,
             epoch: 0,
             rng: SplitMix64::new(seed),
@@ -204,7 +202,6 @@ impl World {
         }
         Ok(Self {
             catalog,
-            seed: parts.tick,
             tick: parts.tick,
             epoch: parts.epoch,
             rng,
@@ -776,7 +773,7 @@ impl World {
         }
         let (width, height) = (self.width, self.height);
         let mut perimeter = Vec::new();
-        for x in 0..width {
+        for x in (14..width).chain(0..14.min(width)) {
             perimeter.push((x, 0));
             perimeter.push((x, height - 1));
         }
@@ -1075,9 +1072,12 @@ impl World {
         if let Some(catalog) = self.reset_catalog.take() {
             self.catalog = catalog;
         }
-        self.tiles.fill(Tile::default());
-        if self.seed != 0 {
-            generate_natural_terrain(&mut self.tiles, self.width, self.height, self.seed);
+        for tile in &mut self.tiles {
+            let natural = tile.stage.is_natural().then_some(tile.stage);
+            *tile = Tile::default();
+            if let Some(stage) = natural {
+                tile.stage = stage;
+            }
         }
         self.epoch = self.epoch.saturating_add(1);
         let tank = self.catalog.tank.capacity;
@@ -1332,6 +1332,10 @@ mod tests {
 
     const ANA: &str = "6f1c1a52-2d0e-4f4e-9c1e-0c6c2d9b8a01";
     const BETO: &str = "9a0b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c02";
+
+    fn index(x: u32, y: u32) -> usize {
+        (y * VALLEY_WIDTH + x) as usize
+    }
 
     fn action(n: u32) -> String {
         format!("00000000-0000-4000-8000-{n:012}")
@@ -2098,6 +2102,7 @@ mod tests {
                 burning_ticks: 0,
             }),
             installation: None,
+            ..Tile::default()
         };
         parts.tiles[1] = Tile {
             stage: TileStage::Grass,
@@ -2105,6 +2110,7 @@ mod tests {
             dry_ticks: 90,
             fire: parts.tiles[0].fire,
             installation: None,
+            ..Tile::default()
         };
         w = World::restore(Catalog::d01(), parts).unwrap();
         advance_to(&mut w, 20);
@@ -3366,7 +3372,7 @@ mod tests {
     fn installation_placed_initializes_with_catalog_durability() {
         let mut w = rich(&[(ANA, 100)]);
         w.step(&[place_cmd(&action(1), ANA, Sprinkler, 5, 5)]);
-        let inst = w.tile(5, 5).unwrap().installation.unwrap();
+        let inst = w.tile(5, 5).unwrap().installation.as_ref().unwrap();
         assert_eq!(inst.remaining_durability, 30);
     }
 

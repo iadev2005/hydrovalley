@@ -44,16 +44,19 @@ pub fn catalog() -> p::Catalog {
             area_side: 3,
             humidity: 25,
             interval_seconds: 2,
+            durability: 30,
         }),
         drip: Some(p::DripRules {
             price: 25,
             area_side: 5,
             evaporation_divisor: 2,
+            durability: 30,
         }),
         treatment_plant: Some(p::TreatmentPlantRules {
             price: 40,
             refill_amount: 1,
             interval_seconds: 2,
+            durability: 30,
         }),
         installation_price_increase_percent: 15,
         bigger_drop: Some(p::BiggerDropRules {
@@ -63,6 +66,12 @@ pub fn catalog() -> p::Catalog {
         bigger_tank: Some(p::BiggerTankRules {
             price: 20,
             extra_capacity: 10,
+        }),
+        trash_bin: Some(p::TrashBinRules {
+            price: 15,
+            area_side: 3,
+            interval_seconds: 2,
+            durability: 30,
         }),
         offline_installation_seconds: 7200,
     }

@@ -609,6 +609,7 @@ def offline_summary():
         "restauraciones).",
         55, 500,
         catalog_set={
+            "rules.drop.humidity_points": 25,
             "rules.fire.ignition_chance_ppm": 30000,
             "rules.fire.propagation_chance_ppm": 0,
             "rules.evaporation.wither_after_ticks": 100000,

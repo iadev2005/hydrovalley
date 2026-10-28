@@ -772,7 +772,9 @@ mod tests {
             installation: Some(Installation {
                 kind: InstallationKind::Drip,
                 owner_id: ANA.to_string(),
+                remaining_durability: 30,
             }),
+            ..Tile::default()
         };
         let player = &mut parts.players[0];
         player.leaves = 9;
@@ -1068,6 +1070,12 @@ mod tests {
             bigger_tank: Some(p::BiggerTankRules {
                 price: c.bigger_tank.price,
                 extra_capacity: c.bigger_tank.extra_capacity,
+            }),
+            trash_bin: Some(p::TrashBinRules {
+                price: c.trash_bin.price,
+                area_side: c.trash_bin.area_side,
+                interval_seconds: c.trash_bin.interval_seconds,
+                durability: c.trash_bin.durability,
             }),
             offline_installation_seconds: c.offline_installation_seconds,
         }
