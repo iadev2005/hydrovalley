@@ -11,7 +11,12 @@ use super::tile::{Fire, Tile, TileStage};
 /// ¿Puede arder? Casilla con planta, sin humedad y que no arde ya. Sirve igual
 /// para la ignición al azar y para la propagación a vecinas.
 pub fn is_eligible(tile: &Tile) -> bool {
-    tile.stage != TileStage::DrySoil && tile.humidity == 0 && tile.fire.is_none()
+    tile.stage != TileStage::DrySoil
+        && !tile.stage.is_natural()
+        && !tile.has_building
+        && tile.trash_level == 0
+        && tile.humidity == 0
+        && tile.fire.is_none()
 }
 
 /// Enciende la casilla: empieza sin gotas y con la cuenta de ticks a 0.
@@ -106,6 +111,7 @@ mod tests {
             installation: Some(crate::domain::Installation {
                 kind: crate::domain::InstallationKind::Drip,
                 owner_id: "ana".into(),
+                remaining_durability: 30,
             }),
             ..grass(0)
         };

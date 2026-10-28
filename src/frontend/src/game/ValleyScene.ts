@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { type StateFrame } from "../logic/play.ts";
-import { buildTiles, type Tile } from "../logic/valley.ts";
+import { type StateFrame, type PlacedInstallation } from "../logic/play.ts";
+import { buildTiles, isTileInDripArea, type Tile } from "../logic/valley.ts";
 import {
   gridToIsometric,
   isometricToGrid,
@@ -13,19 +13,30 @@ import {
 export interface TileView {
   x: number;
   y: number;
+  screenX: number;
+  screenY: number;
+  depth: number;
   baseSprite: Phaser.GameObjects.Image;
   overlaySprite: Phaser.GameObjects.Image;
   installationSprite: Phaser.GameObjects.Image;
   fireSprite: Phaser.GameObjects.Sprite;
-  fireBadgeText: Phaser.GameObjects.Text;
+  fireBadgeText: Phaser.GameObjects.Text | null;
+  lastGroundKey: string;
+  lastTrash: number;
+  lastInstallationKind: string;
+  lastFireDrops: number;
 }
 
 interface PendingDropItem {
+  gridX: number;
+  gridY: number;
   droplet: Phaser.GameObjects.Image;
   targetX: number;
   targetY: number;
   floatTween: Phaser.Tweens.Tween;
 }
+
+const MAX_VISUAL_PENDING_DROPS = 24;
 
 export type TileSelectedCallback = (coord: { x: number; y: number }) => void;
 
@@ -51,8 +62,10 @@ export class ValleyScene extends Phaser.Scene {
   private hasMovedPastThreshold = false;
   private readonly DRAG_THRESHOLD = 6;
 
-  // Acciones pendientes ("gota en el aire")
+  // Acciones pendientes ("gota en el aire") y efectos en resolución
   private pendingDrops: Map<string, PendingDropItem> = new Map();
+  private activeEffects: Set<Phaser.GameObjects.Image> = new Set();
+  private currentInstallations: PlacedInstallation[] = [];
 
   constructor() {
     super({ key: ValleyScene.KEY });
@@ -65,13 +78,25 @@ export class ValleyScene extends Phaser.Scene {
     this.load.image("tile_3_bush", "/assets/tiles/tile_3_bush.png");
     this.load.image("tile_4_flowers", "/assets/tiles/tile_4_flowers.png");
     this.load.image("tile_5_tree", "/assets/tiles/tile_5_tree.png");
+    this.load.image("tile_water", "/assets/tiles/tile_water.png");
+    this.load.image("tile_rock", "/assets/tiles/tile_rock.png");
+    this.load.image("tile_polluted_soil", "/assets/tiles/tile_polluted_soil.png");
 
-    // 2. Instalaciones de las 3R
+    // 2. Instalaciones de las 3R y reciclaje
     this.load.image("sprinkler", "/assets/installations/sprinkler.png");
     this.load.image("drip", "/assets/installations/drip.png");
     this.load.image("treatment_plant", "/assets/installations/treatment_plant.png");
+    this.load.image("trash_bin", "/assets/installations/trash_bin.png");
 
-    // 3. Fuego, gotas y efectos
+    // 3. Estructuras urbanas, basura y efectos de limpieza
+    this.load.image("building_house", "/assets/tiles/building_house.png");
+    this.load.image("trash_1_small", "/assets/tiles/trash_1_small.png");
+    this.load.image("trash_2_medium", "/assets/tiles/trash_2_medium.png");
+    this.load.image("trash_3_large", "/assets/tiles/trash_3_large.png");
+    this.load.image("trash_water", "/assets/tiles/trash_water.png");
+    this.load.image("clean_sparkle", "/assets/effects/clean_sparkle.png");
+
+    // 4. Fuego, gotas y efectos
     this.load.spritesheet("fire_sheet", "/assets/effects/fire_sheet.png", {
       frameWidth: 32,
       frameHeight: 32,
@@ -136,27 +161,24 @@ export class ValleyScene extends Phaser.Scene {
           .setVisible(false)
           .setDepth(depth + 0.3);
 
-        // 5. Contador de gotas recibidas por el fuego
-        const fireBadgeText = this.add
-          .text(screenPos.x, screenPos.y - 24, "", {
-            fontSize: "9px",
-            fontFamily: "monospace",
-            color: "#ffffff",
-            backgroundColor: "rgba(0,0,0,0.7)",
-            padding: { x: 2, y: 1 },
-          })
-          .setOrigin(0.5, 0.5)
-          .setVisible(false)
-          .setDepth(depth + 0.4);
-
+        // Nota: fireBadgeText se instancia bajo demanda únicamente en las casillas
+        // en llamas para evitar crear 1024 lienzos Canvas2D y 1024 texturas WebGL
+        // al iniciar la escena (causa principal de pérdida de contexto WebGL).
         this.tiles.push({
           x,
           y,
+          screenX: screenPos.x,
+          screenY: screenPos.y,
+          depth,
           baseSprite,
           overlaySprite,
           installationSprite,
           fireSprite,
-          fireBadgeText,
+          fireBadgeText: null,
+          lastGroundKey: "",
+          lastTrash: 0,
+          lastInstallationKind: "",
+          lastFireDrops: -1,
         });
       }
     }
@@ -170,6 +192,19 @@ export class ValleyScene extends Phaser.Scene {
 
     // Configuración de controles de cámara y clics
     this.setupCameraAndInput();
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.clearPendingDrops();
+    });
+
+    // Pulso periódico visual de las plantas de tratamiento (cada 2 segundos)
+    this.time.addEvent({
+      delay: 2000,
+      loop: true,
+      callback: () => {
+        this.emitTreatmentPlantPulses();
+      },
+    });
 
     this.isMapReady = true;
 
@@ -308,13 +343,35 @@ export class ValleyScene extends Phaser.Scene {
 
   /**
    * Muestra una gota "en el aire" flotando sobre la casilla destino mientras la
-   * acción está pendiente (RF-04).
+   * acción está pendiente (RF-04). Limita las gotas visuales simultáneas para evitar
+   * saturar el motor de tweens/WebGL cuando se envían ráfagas de gotas.
    */
   public spawnPendingDrop(actionId: string, gridX: number, gridY: number): void {
-    if (!this.isMapReady) return;
+    if (!this.isMapReady || !this.sys?.isActive()) return;
 
     // Si ya existe una gota para este actionId, no duplicar
     if (this.pendingDrops.has(actionId)) return;
+
+    // Si ya hay una gota flotando sobre esta misma casilla o se alcanzó el tope global,
+    // descartar la más antigua para mantener el número de GameObjects y tweens acotado.
+    for (const [existingId, existingItem] of this.pendingDrops.entries()) {
+      if (existingItem.gridX === gridX && existingItem.gridY === gridY) {
+        existingItem.floatTween.stop();
+        existingItem.droplet.destroy();
+        this.pendingDrops.delete(existingId);
+        break;
+      }
+    }
+    while (this.pendingDrops.size >= MAX_VISUAL_PENDING_DROPS) {
+      const oldestKey = this.pendingDrops.keys().next().value;
+      if (oldestKey === undefined) break;
+      const oldest = this.pendingDrops.get(oldestKey);
+      if (oldest) {
+        oldest.floatTween.stop();
+        oldest.droplet.destroy();
+      }
+      this.pendingDrops.delete(oldestKey);
+    }
 
     const screenPos = gridToIsometric(
       gridX,
@@ -342,6 +399,8 @@ export class ValleyScene extends Phaser.Scene {
     });
 
     this.pendingDrops.set(actionId, {
+      gridX,
+      gridY,
       droplet,
       targetX: screenPos.x,
       targetY: screenPos.y,
@@ -361,22 +420,34 @@ export class ValleyScene extends Phaser.Scene {
     this.pendingDrops.delete(actionId);
     item.floatTween.stop();
 
+    if (!this.sys?.isActive()) {
+      item.droplet.destroy();
+      return;
+    }
+
+    this.activeEffects.add(item.droplet);
+
     if (status === "applied" || status === "duplicate") {
       // Impacto y salpicadura
+      const targetDepth = item.droplet.depth;
       this.tweens.add({
         targets: item.droplet,
         y: item.targetY,
         duration: 150,
         ease: "Cubic.easeIn",
         onComplete: () => {
+          this.activeEffects.delete(item.droplet);
           item.droplet.destroy();
+
+          if (!this.sys?.isActive()) return;
 
           const splash = this.add
             .image(item.targetX, item.targetY, "splash")
             .setOrigin(0.5, 0.5)
             .setScale(0.5)
             .setAlpha(1.0)
-            .setDepth(item.droplet.depth);
+            .setDepth(targetDepth);
+          this.activeEffects.add(splash);
 
           this.tweens.add({
             targets: splash,
@@ -385,6 +456,7 @@ export class ValleyScene extends Phaser.Scene {
             duration: 350,
             ease: "Quad.easeOut",
             onComplete: () => {
+              this.activeEffects.delete(splash);
               splash.destroy();
             },
           });
@@ -399,6 +471,7 @@ export class ValleyScene extends Phaser.Scene {
         duration: 300,
         ease: "Quad.easeOut",
         onComplete: () => {
+          this.activeEffects.delete(item.droplet);
           item.droplet.destroy();
         },
       });
@@ -406,7 +479,7 @@ export class ValleyScene extends Phaser.Scene {
   }
 
   /**
-   * Limpia todas las gotas pendientes (por ejemplo, al desconectarse).
+   * Limpia todas las gotas pendientes y efectos en curso (por ejemplo, al desconectarse).
    */
   public clearPendingDrops(): void {
     for (const item of this.pendingDrops.values()) {
@@ -414,6 +487,12 @@ export class ValleyScene extends Phaser.Scene {
       item.droplet.destroy();
     }
     this.pendingDrops.clear();
+
+    for (const effect of this.activeEffects) {
+      this.tweens?.killTweensOf(effect);
+      effect.destroy();
+    }
+    this.activeEffects.clear();
   }
 
   /**
@@ -427,6 +506,13 @@ export class ValleyScene extends Phaser.Scene {
     }
     if (!state || state.stages.length === 0) return;
 
+    this.currentInstallations = state.installations;
+
+    // Coordenadas de los goteos activos para calcular el sombreado 5x5
+    const dripPositions = state.installations
+      .filter((inst) => inst.installation === "drip")
+      .map((inst) => ({ x: inst.x, y: inst.y }));
+
     const domainTiles = buildTiles(state);
     if (domainTiles.length === 0) return;
 
@@ -435,94 +521,242 @@ export class ValleyScene extends Phaser.Scene {
       const view: TileView | undefined = this.tiles[i];
       if (!tileData || !view) continue;
 
-      this.updateSingleTile(view, tileData);
+      const inDripArea = isTileInDripArea(tileData.x, tileData.y, dripPositions);
+
+      this.updateSingleTile(view, tileData, inDripArea);
     }
   }
 
-  private updateSingleTile(view: TileView, tile: Tile): void {
-    // 1. Actualización de etapa de suelo y vegetación
+  /**
+   * Emite ondas de pulso visual desde todas las plantas de tratamiento activas.
+   */
+  private emitTreatmentPlantPulses(): void {
+    if (!this.isMapReady || !this.currentInstallations) return;
+    for (const inst of this.currentInstallations) {
+      if (inst.installation === "treatment_plant") {
+        this.spawnPulseEffect(inst.x, inst.y);
+      }
+    }
+  }
+
+  /**
+   * Efecto visual de pulso expansivo de agua con splash.png cubriendo el área 3x3.
+   */
+  private spawnPulseEffect(gridX: number, gridY: number): void {
+    const screenPos = gridToIsometric(
+      gridX,
+      gridY,
+      this.originX,
+      this.originY,
+      ISO_TILE_WIDTH,
+      ISO_TILE_HEIGHT,
+    );
+    const depth = getIsometricDepth(gridX, gridY, VALLEY_GRID_SIZE) + 10;
+
+    // Onda primaria de pulso hídrico
+    const pulse1 = this.add
+      .image(screenPos.x, screenPos.y, "splash")
+      .setOrigin(0.5, 0.5)
+      .setDepth(depth)
+      .setScale(0.8)
+      .setAlpha(0.9)
+      .setTint(0x40c4ff);
+
+    this.tweens.add({
+      targets: pulse1,
+      scaleX: 2.8,
+      scaleY: 2.8,
+      alpha: 0,
+      duration: 800,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        pulse1.destroy();
+      },
+    });
+
+    // Onda secundaria concéntrica para mayor riqueza visual
+    this.time.delayedCall(150, () => {
+      if (!this.scene.isActive()) return;
+      const pulse2 = this.add
+        .image(screenPos.x, screenPos.y, "splash")
+        .setOrigin(0.5, 0.5)
+        .setDepth(depth)
+        .setScale(0.5)
+        .setAlpha(0.7)
+        .setTint(0x80d8ff);
+
+      this.tweens.add({
+        targets: pulse2,
+        scaleX: 3.2,
+        scaleY: 3.2,
+        alpha: 0,
+        duration: 900,
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          pulse2.destroy();
+        },
+      });
+    });
+  }
+
+  /** Destello breve sobre una casilla a la que se le quitó un nivel de basura. */
+  private spawnCleanSparkle(view: TileView): void {
+    if (!this.sys?.isActive() || !this.textures.exists("clean_sparkle")) return;
+    const sparkle = this.add
+      .image(view.screenX, view.screenY - 4, "clean_sparkle")
+      .setOrigin(0.5, 0.5)
+      .setDepth(view.depth + 0.5);
+    this.activeEffects.add(sparkle);
+    this.tweens.add({
+      targets: sparkle,
+      y: view.screenY - 16,
+      alpha: 0,
+      duration: 600,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        this.activeEffects.delete(sparkle);
+        sparkle.destroy();
+      },
+    });
+  }
+
+  /**
+   * Textura y capa superior de una casilla. El suelo base y el overlay se eligen
+   * juntos porque la estructura urbana, la basura, el agua y la roca sustituyen
+   * a la vegetación.
+   */
+  private applyGround(view: TileView, tile: Tile, inDripArea: boolean): void {
+    const { baseSprite, overlaySprite } = view;
+    baseSprite.clearTint();
+    overlaySprite.setVisible(false);
+
+    if (tile.has_building) {
+      baseSprite.setTexture("tile_1_dry");
+      overlaySprite.setTexture("building_house").setOrigin(0.5, 0.75).setVisible(true);
+      return;
+    }
+    const trash = tile.trash_level ?? 0;
+    if (trash > 0) {
+      baseSprite.setTexture("tile_polluted_soil");
+      const trashTexture =
+        trash >= 3 ? "trash_3_large" : trash === 2 ? "trash_2_medium" : "trash_1_small";
+      overlaySprite.setTexture(trashTexture).setOrigin(0.5, 0.75).setVisible(true);
+      return;
+    }
     switch (tile.stage) {
-      case 1: // Tierra seca
-        view.baseSprite.setTexture("tile_1_dry");
-        view.overlaySprite.setVisible(false);
-        break;
       case 2: // Pasto
-        view.baseSprite.setTexture("tile_2_grass");
-        view.overlaySprite.setVisible(false);
+        baseSprite.setTexture("tile_2_grass");
         break;
       case 3: // Arbusto
-        view.baseSprite.setTexture("tile_2_grass");
-        view.overlaySprite
-          .setTexture("tile_3_bush")
-          .setOrigin(0.5, 0.75)
-          .setVisible(true);
+        baseSprite.setTexture("tile_2_grass");
+        overlaySprite.setTexture("tile_3_bush").setOrigin(0.5, 0.75).setVisible(true);
         break;
       case 4: // Flores
-        view.baseSprite.setTexture("tile_2_grass");
-        view.overlaySprite
-          .setTexture("tile_4_flowers")
-          .setOrigin(0.5, 0.8)
-          .setVisible(true);
+        baseSprite.setTexture("tile_2_grass");
+        overlaySprite.setTexture("tile_4_flowers").setOrigin(0.5, 0.8).setVisible(true);
         break;
       case 5: // Árbol
-        view.baseSprite.setTexture("tile_2_grass");
-        view.overlaySprite
-          .setTexture("tile_5_tree")
-          .setOrigin(0.5, 0.95)
-          .setVisible(true);
+        baseSprite.setTexture("tile_2_grass");
+        overlaySprite.setTexture("tile_5_tree").setOrigin(0.5, 0.95).setVisible(true);
         break;
-      default:
-        view.baseSprite.setTexture("tile_1_dry");
-        view.overlaySprite.setVisible(false);
+      case 6: // Agua
+        baseSprite.setTexture("tile_water");
+        return;
+      case 7: // Roca
+        baseSprite.setTexture("tile_1_dry");
+        overlaySprite.setTexture("tile_rock").setOrigin(0.5, 0.75).setVisible(true);
+        return;
+      case 8: // Suelo contaminado: el simulador no emite esta etapa (la basura es un nivel aparte); se mantiene por contrato de arte
+        baseSprite.setTexture("tile_polluted_soil");
+        return;
+      default: // Tierra seca
+        baseSprite.setTexture("tile_1_dry");
         break;
     }
 
-    // 2. Tinte por humedad (humedad > 0 en pasto da un tono más hidratado)
-    if (tile.stage >= 2 && tile.humidity > 40n) {
-      view.baseSprite.setTint(0xccffcc);
-    } else {
-      view.baseSprite.clearTint();
+    // Tinte por sombreado de suelo húmedo (área de goteo 5x5) o humedad alta.
+    if (inDripArea) {
+      baseSprite.setTint(tile.stage === 1 ? 0x9ab2c0 : 0x80e8c0);
+    } else if (tile.stage >= 2 && tile.humidity > 40n) {
+      baseSprite.setTint(0xccffcc);
+    }
+  }
+
+  private updateSingleTile(view: TileView, tile: Tile, inDripArea = false): void {
+    // 1. Suelo y capa superior: solo se repinta si cambia algo visible.
+    const groundKey = [
+      tile.stage,
+      tile.has_building ? 1 : 0,
+      tile.trash_level ?? 0,
+      tile.stage >= 2 && tile.humidity > 40n ? 1 : 0,
+      inDripArea ? 1 : 0,
+    ].join("|");
+    if (view.lastGroundKey !== groundKey) {
+      // Destello cuando baja el nivel de basura (a mano o por un cesto), salvo en
+      // el primer estado que llega: ahí no se limpió nada.
+      const trash = tile.trash_level ?? 0;
+      if (view.lastGroundKey !== "" && trash < view.lastTrash) this.spawnCleanSparkle(view);
+      view.lastTrash = trash;
+      view.lastGroundKey = groundKey;
+      this.applyGround(view, tile, inDripArea);
     }
 
-    // 3. Instalación
-    if (tile.installation) {
-      const kind = tile.installation.kind;
-      if (this.textures.exists(kind)) {
-        view.installationSprite.setTexture(kind);
-      } else {
-        view.installationSprite.setTexture("sprinkler");
-      }
+    // 2. Instalación
+    const instKind = tile.installation ? tile.installation.kind : "";
+    if (view.lastInstallationKind !== instKind) {
+      view.lastInstallationKind = instKind;
+      if (instKind) {
+        view.installationSprite.setTexture(this.textures.exists(instKind) ? instKind : "sprinkler");
 
-      // Las instalaciones verticales 32x32 (potabilizadora y aspersor) tienen su
-      // base en y=24: se anclan con origin (0.5, 0.75) para que su rombo base calce
-      // con la casilla y la estructura se eleve sin enterrarse en el suelo.
-      // El goteo (32x16) es plano al ras del suelo y usa origin (0.5, 0.5).
-      if (kind === "treatment_plant" || kind === "sprinkler") {
-        view.installationSprite.setOrigin(0.5, 0.75);
+        // Las instalaciones verticales 32x32 (planta, aspersor y cesto) tienen su
+        // base en y=24: se anclan con origin (0.5, 0.75) para que su rombo base calce
+        // con la casilla. El goteo (32x16) es plano al ras del suelo (0.5, 0.5).
+        if (instKind === "treatment_plant" || instKind === "sprinkler" || instKind === "trash_bin") {
+          view.installationSprite.setOrigin(0.5, 0.75);
+        } else {
+          view.installationSprite.setOrigin(0.5, 0.5);
+        }
+        view.installationSprite.setVisible(true);
       } else {
-        view.installationSprite.setOrigin(0.5, 0.5);
+        view.installationSprite.setVisible(false);
       }
-
-      view.installationSprite.setVisible(true);
-    } else {
-      view.installationSprite.setVisible(false);
     }
 
-    // 4. Fuego
-    if (tile.fire) {
-      if (!view.fireSprite.anims.isPlaying) {
-        view.fireSprite.play("fire_burn", true);
+    // 3. Fuego (creación perezosa de fireBadgeText solo para casillas en llamas)
+    const fireDrops = tile.fire ? tile.fire.drops_received : -1;
+    if (view.lastFireDrops !== fireDrops) {
+      view.lastFireDrops = fireDrops;
+      if (tile.fire) {
+        if (!view.fireSprite.anims.isPlaying) {
+          view.fireSprite.play("fire_burn", true);
+        }
+        view.fireSprite.setVisible(true);
+        if (!view.fireBadgeText) {
+          view.fireBadgeText = this.add
+            .text(view.screenX, view.screenY - 24, `${tile.fire.drops_received}/3`, {
+              fontSize: "9px",
+              fontFamily: "monospace",
+              color: "#ffffff",
+              backgroundColor: "rgba(0,0,0,0.7)",
+              padding: { x: 2, y: 1 },
+            })
+            .setOrigin(0.5, 0.5)
+            .setDepth(view.depth + 0.4);
+        } else {
+          view.fireBadgeText
+            .setText(`${tile.fire.drops_received}/3`)
+            .setVisible(true);
+        }
+      } else {
+        if (view.fireSprite.anims.isPlaying) {
+          view.fireSprite.stop();
+        }
+        view.fireSprite.setVisible(false);
+        if (view.fireBadgeText) {
+          view.fireBadgeText.destroy();
+          view.fireBadgeText = null;
+        }
       }
-      view.fireSprite.setVisible(true);
-      view.fireBadgeText
-        .setText(`${tile.fire.drops_received}/3`)
-        .setVisible(true);
-    } else {
-      if (view.fireSprite.anims.isPlaying) {
-        view.fireSprite.stop();
-      }
-      view.fireSprite.setVisible(false);
-      view.fireBadgeText.setVisible(false);
     }
   }
 

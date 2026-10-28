@@ -7,6 +7,7 @@ import {
   planResend,
   selectionView,
   isAdminRole,
+  isTileInDripArea,
   playerPanel,
   stageName,
   tileAt,
@@ -34,8 +35,11 @@ describe("tokenRole / isAdminRole", () => {
 });
 
 describe("stageName", () => {
-  it("names the five stages and falls back to dry land", () => {
+  it("names the stages and falls back to dry land", () => {
     expect([1, 2, 3, 4, 5].map(stageName)).toEqual(["tierra seca", "pasto", "arbusto", "flores", "árbol"]);
+    expect(stageName(6)).toBe("agua");
+    expect(stageName(7)).toBe("roca");
+    expect(stageName(8)).toBe("suelo dañado");
     expect(stageName(0)).toBe("tierra seca");
     expect(stageName(99)).toBe("tierra seca");
   });
@@ -48,7 +52,7 @@ describe("buildTiles", () => {
     stages: [1, 2, 3, 5],
     humidity: [0n, 75n, 10n, 0n],
     fires: [{ x: 1, y: 0, drops_received: 2 }],
-    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1" }],
+    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1", remaining_durability: 30 }],
   };
 
   it("joins stage, humidity, fire and installation per tile, row by row", () => {
@@ -61,8 +65,14 @@ describe("buildTiles", () => {
       humidity: 75n,
       fire: { drops_received: 2 },
       installation: null,
+      has_building: false,
+      trash_level: 0,
     });
-    expect(tiles[2]?.installation).toEqual({ kind: "sprinkler", owner_id: "p1" });
+    expect(tiles[2]?.installation).toEqual({
+      kind: "sprinkler",
+      owner_id: "p1",
+      remaining_durability: 30,
+    });
     expect(tiles[2]?.fire).toBeNull();
     expect(tiles[3]?.stage).toBe(5);
   });
@@ -99,12 +109,13 @@ describe("playerPanel", () => {
       next_sprinkler_price: 10n,
       next_drip_price: 25n,
       next_treatment_plant_price: 40n,
+      next_trash_bin_price: 15n,
     });
     expect(panel).toEqual({
       water: "5 / 20",
       waterRatio: 0.25,
       leaves: "3",
-      prices: { sprinkler: "10", drip: "25", treatment_plant: "40" },
+      prices: { sprinkler: "10", drip: "25", treatment_plant: "40", trash_bin: "15" },
       owned: { bigger_drop: true, bigger_tank: false },
     });
   });
@@ -143,7 +154,7 @@ describe("describeActionResult", () => {
   it("explains the immediate rejections and expiry", () => {
     for (const [status, pattern] of [
       ["expired", /caducó/],
-      ["rate_limited", /demasiadas gotas/],
+      ["rate_limited", /demasiadas acciones/],
       ["paused", /pausa/],
       ["forbidden", /administrador/],
     ] as const) {
@@ -265,7 +276,7 @@ describe("selectionView", () => {
     stages: [1, 2, 3, 5],
     humidity: [0n, 75n, 10n, 0n],
     fires: [{ x: 1, y: 0, drops_received: 2 }],
-    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1" }],
+    installations: [{ x: 0, y: 1, installation: "sprinkler", owner_id: "p1", remaining_durability: 30 }],
   };
 
   it("clears the label and info when nothing is selected", () => {
@@ -280,7 +291,43 @@ describe("selectionView", () => {
     expect(selectionView(state, { x: 0, y: 1 }).info).toBe("arbusto, humedad 10, instalación: sprinkler");
   });
 
+  it("describes natural terrain, buildings and trash", () => {
+    const expansion = {
+      ...state,
+      stages: [6, 7, 1, 1],
+      buildings: [false, false, true, false],
+      trash: [0, 0, 0, 3],
+    };
+    expect(selectionView(expansion, { x: 0, y: 0 }).info).toBe("agua, humedad 0");
+    expect(selectionView(expansion, { x: 1, y: 0 }).info).toMatch(/^roca, humedad 75/);
+    expect(selectionView(expansion, { x: 0, y: 1 }).info).toContain("estructura urbana");
+    expect(selectionView(expansion, { x: 1, y: 1 }).info).toBe("tierra seca, humedad 0, basura nivel 3");
+  });
+
   it("says there is no map data when the state has no map", () => {
     expect(selectionView(null, { x: 3, y: 3 }).info).toBe("Sin datos del mapa todavía.");
+  });
+});
+
+describe("isTileInDripArea", () => {
+  const drips = [{ x: 5, y: 5 }];
+
+  it("returns true for tiles within the 5x5 square area", () => {
+    expect(isTileInDripArea(5, 5, drips)).toBe(true);
+    expect(isTileInDripArea(3, 3, drips)).toBe(true);
+    expect(isTileInDripArea(7, 7, drips)).toBe(true);
+    expect(isTileInDripArea(4, 6, drips)).toBe(true);
+  });
+
+  it("returns false for tiles outside the 5x5 square area", () => {
+    expect(isTileInDripArea(2, 5, drips)).toBe(false);
+    expect(isTileInDripArea(8, 5, drips)).toBe(false);
+    expect(isTileInDripArea(5, 2, drips)).toBe(false);
+    expect(isTileInDripArea(5, 8, drips)).toBe(false);
+    expect(isTileInDripArea(10, 10, drips)).toBe(false);
+  });
+
+  it("returns false when there are no drip installations", () => {
+    expect(isTileInDripArea(5, 5, [])).toBe(false);
   });
 });

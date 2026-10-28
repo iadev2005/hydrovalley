@@ -6,6 +6,7 @@
 use prost::Message;
 
 use crate::domain::catalog as dc;
+use crate::domain::limits::{MAX_BUILDINGS, MAX_RIVER_WIDTH, MAX_ROCK_COUNT};
 use crate::domain::{
     self, AppliedAction, Catalog, Command, CommandKind, CommandOutcome, CommandResult, Fire,
     Installation, InstallationKind, OfflineSummary, Player, RejectReason, Tile, TileStage,
@@ -68,6 +69,14 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
         }
         Ok(())
     }
+    fn at_most(value: u32, limit: u32, name: &str) -> Result<(), DecodeError> {
+        if value > limit {
+            return Err(DecodeError::InvalidCatalog(format!(
+                "{name} no puede pasar de {limit}"
+            )));
+        }
+        Ok(())
+    }
     if catalog.catalog_version.is_empty() {
         return Err(DecodeError::InvalidCatalog(
             "catalog_version está vacía".to_string(),
@@ -81,6 +90,9 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     let sprinkler = section(catalog.sprinkler, "sprinkler")?;
     let drip = section(catalog.drip, "drip")?;
     let plant = section(catalog.treatment_plant, "treatment_plant")?;
+    let trash_bin = section(catalog.trash_bin, "trash_bin")?;
+    let terrain = section(catalog.terrain, "terrain")?;
+    let urban = section(catalog.urban, "urban")?;
     let bigger_drop = section(catalog.bigger_drop, "bigger_drop")?;
     let bigger_tank = section(catalog.bigger_tank, "bigger_tank")?;
 
@@ -95,10 +107,25 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
     positive(fire.burn_out_ticks, "fire.burn_out_ticks")?;
     positive(sprinkler.area_side, "sprinkler.area_side")?;
     positive(sprinkler.interval_seconds, "sprinkler.interval_seconds")?;
+    positive(sprinkler.durability, "sprinkler.durability")?;
     positive(drip.area_side, "drip.area_side")?;
     positive(drip.evaporation_divisor, "drip.evaporation_divisor")?;
+    positive(drip.durability, "drip.durability")?;
+    positive(drip.wear_interval_seconds, "drip.wear_interval_seconds")?;
     positive(plant.interval_seconds, "treatment_plant.interval_seconds")?;
+    positive(plant.durability, "treatment_plant.durability")?;
+    positive(trash_bin.area_side, "trash_bin.area_side")?;
+    positive(trash_bin.interval_seconds, "trash_bin.interval_seconds")?;
+    positive(trash_bin.durability, "trash_bin.durability")?;
     positive(bigger_drop.area_side, "bigger_drop.area_side")?;
+    positive(urban.trash_interval_seconds, "urban.trash_interval_seconds")?;
+    positive(
+        urban.trash_spread_interval_seconds,
+        "urban.trash_spread_interval_seconds",
+    )?;
+    at_most(terrain.river_width, MAX_RIVER_WIDTH, "terrain.river_width")?;
+    at_most(terrain.rock_count, MAX_ROCK_COUNT, "terrain.rock_count")?;
+    at_most(urban.max_buildings, MAX_BUILDINGS, "urban.max_buildings")?;
 
     Ok(Catalog {
         version: catalog.catalog_version,
@@ -136,16 +163,38 @@ pub fn catalog_from_proto(catalog: persistence_pb::Catalog) -> Result<Catalog, D
             area_side: sprinkler.area_side,
             humidity: sprinkler.humidity,
             interval_seconds: sprinkler.interval_seconds,
+            durability: sprinkler.durability,
         },
         drip: dc::DripRules {
             price: drip.price,
             area_side: drip.area_side,
             evaporation_divisor: drip.evaporation_divisor,
+            durability: drip.durability,
+            wear_interval_seconds: drip.wear_interval_seconds,
         },
         treatment_plant: dc::TreatmentPlantRules {
             price: plant.price,
             refill_amount: plant.refill_amount,
             interval_seconds: plant.interval_seconds,
+            durability: plant.durability,
+        },
+        trash_bin: dc::TrashBinRules {
+            price: trash_bin.price,
+            area_side: trash_bin.area_side,
+            interval_seconds: trash_bin.interval_seconds,
+            durability: trash_bin.durability,
+        },
+        terrain: dc::TerrainRules {
+            river_width: terrain.river_width,
+            rock_count: terrain.rock_count,
+        },
+        urban: dc::UrbanRules {
+            building_tree_threshold: urban.building_tree_threshold,
+            building_humidity_threshold: urban.building_humidity_threshold,
+            max_buildings: urban.max_buildings,
+            trash_interval_seconds: urban.trash_interval_seconds,
+            trash_spread_interval_seconds: urban.trash_spread_interval_seconds,
+            clean_reward_leaves: urban.clean_reward_leaves,
         },
         installation_price_increase_percent: catalog.installation_price_increase_percent,
         bigger_drop: dc::BiggerDropRules {
@@ -181,6 +230,10 @@ pub fn command_from_proto(command: pb::Command) -> Command {
             enabled: demo.enabled,
         }),
         Kind::ResetValley(_) => Some(CommandKind::ResetValley),
+        Kind::CleanTrash(clean) => Some(CommandKind::CleanTrash {
+            x: clean.x,
+            y: clean.y,
+        }),
     });
     Command {
         action_id: command.action_id,
@@ -250,6 +303,7 @@ fn player_state(world: &World, player: &Player) -> pb::PlayerState {
             InstallationKind::Sprinkler,
             InstallationKind::Drip,
             InstallationKind::TreatmentPlant,
+            InstallationKind::TrashBin,
         ]
         .into_iter()
         .map(|kind| pb::InstallationPrice {
@@ -336,7 +390,10 @@ fn tile_to_proto(tile: &Tile) -> pb::Tile {
             .map(|installation| pb::Installation {
                 kind: installation_to_proto(installation.kind).into(),
                 owner_id: installation.owner_id.clone(),
+                remaining_durability: installation.remaining_durability,
             }),
+        has_building: tile.has_building,
+        trash_level: tile.trash_level,
     }
 }
 
@@ -345,6 +402,7 @@ fn tile_from_proto(tile: pb::Tile) -> Result<Tile, DecodeError> {
         Some(installation) => Some(Installation {
             kind: installation_from_proto(installation.kind, "Installation.kind")?,
             owner_id: installation.owner_id,
+            remaining_durability: installation.remaining_durability,
         }),
         None => None,
     };
@@ -357,6 +415,8 @@ fn tile_from_proto(tile: pb::Tile) -> Result<Tile, DecodeError> {
             burning_ticks: fire.burning_ticks,
         }),
         installation,
+        has_building: tile.has_building,
+        trash_level: tile.trash_level,
     })
 }
 
@@ -489,6 +549,8 @@ fn stage_to_proto(stage: TileStage) -> pb::TileStage {
         TileStage::Shrub => pb::TileStage::Shrub,
         TileStage::Flowers => pb::TileStage::Flowers,
         TileStage::Tree => pb::TileStage::Tree,
+        TileStage::Water => pb::TileStage::Water,
+        TileStage::Rock => pb::TileStage::Rock,
     }
 }
 
@@ -499,6 +561,8 @@ fn stage_from_proto(value: i32) -> Result<TileStage, DecodeError> {
         Ok(pb::TileStage::Shrub) => Ok(TileStage::Shrub),
         Ok(pb::TileStage::Flowers) => Ok(TileStage::Flowers),
         Ok(pb::TileStage::Tree) => Ok(TileStage::Tree),
+        Ok(pb::TileStage::Water) => Ok(TileStage::Water),
+        Ok(pb::TileStage::Rock) => Ok(TileStage::Rock),
         Ok(pb::TileStage::Unspecified) | Err(_) => Err(DecodeError::UnknownEnum {
             field: "Tile.stage",
             value,
@@ -511,6 +575,7 @@ fn installation_to_proto(kind: InstallationKind) -> pb::InstallationKind {
         InstallationKind::Sprinkler => pb::InstallationKind::Sprinkler,
         InstallationKind::Drip => pb::InstallationKind::Drip,
         InstallationKind::TreatmentPlant => pb::InstallationKind::TreatmentPlant,
+        InstallationKind::TrashBin => pb::InstallationKind::TrashBin,
     }
 }
 
@@ -522,6 +587,7 @@ fn installation_from_proto(
         Ok(pb::InstallationKind::Sprinkler) => Ok(InstallationKind::Sprinkler),
         Ok(pb::InstallationKind::Drip) => Ok(InstallationKind::Drip),
         Ok(pb::InstallationKind::TreatmentPlant) => Ok(InstallationKind::TreatmentPlant),
+        Ok(pb::InstallationKind::TrashBin) => Ok(InstallationKind::TrashBin),
         Ok(pb::InstallationKind::Unspecified) | Err(_) => {
             Err(DecodeError::UnknownEnum { field, value })
         }
@@ -741,7 +807,10 @@ mod tests {
             installation: Some(Installation {
                 kind: InstallationKind::Drip,
                 owner_id: ANA.to_string(),
+                remaining_durability: 17,
             }),
+            has_building: false,
+            trash_level: 2,
         };
         let player = &mut parts.players[0];
         player.leaves = 9;
@@ -811,13 +880,14 @@ mod tests {
             .iter()
             .map(|p| (p.kind(), p.leaves))
             .collect();
-        // Sprinkler 10 -> 12 -> 14; drip 25 -> 29; plant sin compras.
+        // Sprinkler 10 -> 12 -> 14; drip 25 -> 29; plant y cesto sin compras.
         assert_eq!(
             prices,
             vec![
                 (Kind::Sprinkler, 14),
                 (Kind::Drip, 29),
-                (Kind::TreatmentPlant, 40)
+                (Kind::TreatmentPlant, 40),
+                (Kind::TrashBin, 15)
             ]
         );
     }
@@ -1015,16 +1085,38 @@ mod tests {
                 area_side: c.sprinkler.area_side,
                 humidity: c.sprinkler.humidity,
                 interval_seconds: c.sprinkler.interval_seconds,
+                durability: c.sprinkler.durability,
             }),
             drip: Some(p::DripRules {
                 price: c.drip.price,
                 area_side: c.drip.area_side,
                 evaporation_divisor: c.drip.evaporation_divisor,
+                durability: c.drip.durability,
+                wear_interval_seconds: c.drip.wear_interval_seconds,
             }),
             treatment_plant: Some(p::TreatmentPlantRules {
                 price: c.treatment_plant.price,
                 refill_amount: c.treatment_plant.refill_amount,
                 interval_seconds: c.treatment_plant.interval_seconds,
+                durability: c.treatment_plant.durability,
+            }),
+            trash_bin: Some(p::TrashBinRules {
+                price: c.trash_bin.price,
+                area_side: c.trash_bin.area_side,
+                interval_seconds: c.trash_bin.interval_seconds,
+                durability: c.trash_bin.durability,
+            }),
+            terrain: Some(p::TerrainRules {
+                river_width: c.terrain.river_width,
+                rock_count: c.terrain.rock_count,
+            }),
+            urban: Some(p::UrbanRules {
+                building_tree_threshold: c.urban.building_tree_threshold,
+                building_humidity_threshold: c.urban.building_humidity_threshold,
+                max_buildings: c.urban.max_buildings,
+                trash_interval_seconds: c.urban.trash_interval_seconds,
+                trash_spread_interval_seconds: c.urban.trash_spread_interval_seconds,
+                clean_reward_leaves: c.urban.clean_reward_leaves,
             }),
             installation_price_increase_percent: c.installation_price_increase_percent,
             bigger_drop: Some(p::BiggerDropRules {

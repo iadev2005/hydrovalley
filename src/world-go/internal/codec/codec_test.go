@@ -38,9 +38,15 @@ func d01() domain.Catalog {
 		Fire: domain.FireRules{
 			DropsToExtinguish: 3, ExtinguishBonusLeaves: 5, BurnOutTicks: 300, IgnitionChancePPM: 0,
 		},
-		Sprinkler:                        domain.SprinklerRules{Price: 10, AreaSide: 3, Humidity: 25, IntervalSeconds: 2},
-		Drip:                             domain.DripRules{Price: 25, AreaSide: 5, EvaporationDivisor: 2},
-		TreatmentPlant:                   domain.TreatmentPlantRules{Price: 40, RefillAmount: 1, IntervalSeconds: 2},
+		Sprinkler:      domain.SprinklerRules{Price: 10, AreaSide: 3, Humidity: 25, IntervalSeconds: 2, Durability: 30},
+		Drip:           domain.DripRules{Price: 25, AreaSide: 5, EvaporationDivisor: 2, Durability: 30, WearIntervalSeconds: 2},
+		TreatmentPlant: domain.TreatmentPlantRules{Price: 40, RefillAmount: 1, IntervalSeconds: 2, Durability: 30},
+		TrashBin:       domain.TrashBinRules{Price: 15, AreaSide: 3, IntervalSeconds: 2, Durability: 30},
+		Terrain:        domain.TerrainRules{RiverWidth: 2, RockCount: 12},
+		Urban: domain.UrbanRules{
+			BuildingTreeThreshold: 2, BuildingHumidityThreshold: 500, MaxBuildings: 2,
+			TrashIntervalSeconds: 5, TrashSpreadIntervalSeconds: 10, CleanRewardLeaves: 2,
+		},
 		InstallationPriceIncreasePercent: 15,
 		BiggerDrop:                       domain.BiggerDropRules{Price: 30, AreaSide: 3},
 		BiggerTank:                       domain.BiggerTankRules{Price: 20, ExtraCapacity: 10},
@@ -241,11 +247,12 @@ func TestWorldStateListsTheNextPriceOfEveryInstallationKind(t *testing.T) {
 	for _, p := range state.GetPlayers()[0].GetNextPrices() {
 		got = append(got, price{p.GetKind(), p.GetLeaves()})
 	}
-	// Aspersor 10 -> 12 -> 14; goteo 25 -> 29; planta sin compras.
+	// Aspersor 10 -> 12 -> 14; goteo 25 -> 29; planta y cesto sin compras.
 	want := []price{
 		{worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER, 14},
 		{worldv1.InstallationKind_INSTALLATION_KIND_DRIP, 29},
 		{worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT, 40},
+		{worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN, 15},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("next prices = %v, want %v", got, want)
@@ -562,9 +569,15 @@ func d01Message() *persistencev1.Catalog {
 		Fire: &persistencev1.FireRules{
 			DropsToExtinguish: 3, ExtinguishBonusLeaves: 5, BurnOutTicks: 300, IgnitionChancePpm: 0,
 		},
-		Sprinkler:                        &persistencev1.SprinklerRules{Price: 10, AreaSide: 3, Humidity: 25, IntervalSeconds: 2},
-		Drip:                             &persistencev1.DripRules{Price: 25, AreaSide: 5, EvaporationDivisor: 2},
-		TreatmentPlant:                   &persistencev1.TreatmentPlantRules{Price: 40, RefillAmount: 1, IntervalSeconds: 2},
+		Sprinkler:      &persistencev1.SprinklerRules{Price: 10, AreaSide: 3, Humidity: 25, IntervalSeconds: 2, Durability: 30},
+		Drip:           &persistencev1.DripRules{Price: 25, AreaSide: 5, EvaporationDivisor: 2, Durability: 30, WearIntervalSeconds: 2},
+		TreatmentPlant: &persistencev1.TreatmentPlantRules{Price: 40, RefillAmount: 1, IntervalSeconds: 2, Durability: 30},
+		TrashBin:       &persistencev1.TrashBinRules{Price: 15, AreaSide: 3, IntervalSeconds: 2, Durability: 30},
+		Terrain:        &persistencev1.TerrainRules{RiverWidth: 2, RockCount: 12},
+		Urban: &persistencev1.UrbanRules{
+			BuildingTreeThreshold: 2, BuildingHumidityThreshold: 500, MaxBuildings: 2,
+			TrashIntervalSeconds: 5, TrashSpreadIntervalSeconds: 10, CleanRewardLeaves: 2,
+		},
 		InstallationPriceIncreasePercent: 15,
 		BiggerDrop:                       &persistencev1.BiggerDropRules{Price: 30, AreaSide: 3},
 		BiggerTank:                       &persistencev1.BiggerTankRules{Price: 20, ExtraCapacity: 10},

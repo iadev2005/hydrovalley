@@ -4,9 +4,18 @@
 
 import type { StateFrame } from "./play.ts";
 
-const STAGE_NAMES = ["tierra seca", "pasto", "arbusto", "flores", "árbol"] as const;
+const STAGE_NAMES = [
+  "tierra seca",
+  "pasto",
+  "arbusto",
+  "flores",
+  "árbol",
+  "agua",
+  "roca",
+  "suelo dañado",
+] as const;
 
-/** Nombre de la etapa (1 tierra seca … 5 árbol); lo desconocido cuenta como tierra seca. */
+/** Nombre de la etapa (1 tierra seca … 5 árbol, 6 agua, 7 roca, 8 suelo dañado); lo desconocido cuenta como tierra seca. */
 export function stageName(stage: number): string {
   const name = STAGE_NAMES[stage - 1];
   return name ?? STAGE_NAMES[0];
@@ -43,6 +52,7 @@ export interface TileFire {
 export interface TileInstallation {
   kind: string;
   owner_id: string;
+  remaining_durability?: number;
 }
 
 export interface Tile {
@@ -52,12 +62,17 @@ export interface Tile {
   humidity: bigint;
   fire: TileFire | null;
   installation: TileInstallation | null;
+  has_building?: boolean;
+  trash_level?: number;
 }
 
 export type StateForTiles = Pick<
   StateFrame,
   "width" | "height" | "stages" | "humidity" | "fires" | "installations"
->;
+> & {
+  buildings?: boolean[];
+  trash?: number[];
+};
 
 /**
  * Una entrada por casilla, por filas (índice = y * width + x), con su etapa,
@@ -73,6 +88,8 @@ export function buildTiles(state: StateForTiles | null): Tile[] {
     humidity: state.humidity[i] ?? 0n,
     fire: null,
     installation: null,
+    has_building: state.buildings ? state.buildings[i] === true : false,
+    trash_level: state.trash ? state.trash[i] ?? 0 : 0,
   }));
   const at = (x: number, y: number): Tile | undefined =>
     x < width && y < height ? tiles[y * width + x] : undefined;
@@ -82,7 +99,13 @@ export function buildTiles(state: StateForTiles | null): Tile[] {
   }
   for (const i of state.installations) {
     const tile = at(i.x, i.y);
-    if (tile) tile.installation = { kind: i.installation, owner_id: i.owner_id };
+    if (tile) {
+      tile.installation = {
+        kind: i.installation,
+        owner_id: i.owner_id,
+        remaining_durability: i.remaining_durability,
+      };
+    }
   }
   return tiles;
 }
@@ -108,6 +131,7 @@ export interface PlayerPanelPrices {
   sprinkler: string;
   drip: string;
   treatment_plant: string;
+  trash_bin: string;
 }
 
 export interface PlayerPanelOwned {
@@ -131,6 +155,7 @@ export interface PlayerDataForPanel {
   next_sprinkler_price?: bigint;
   next_drip_price?: bigint;
   next_treatment_plant_price?: bigint;
+  next_trash_bin_price?: bigint;
 }
 
 /**
@@ -151,6 +176,7 @@ export function playerPanel(player: PlayerDataForPanel | null): PlayerPanelView 
       sprinkler: price(player?.next_sprinkler_price),
       drip: price(player?.next_drip_price),
       treatment_plant: price(player?.next_treatment_plant_price),
+      trash_bin: price(player?.next_trash_bin_price),
     },
     owned: { bigger_drop: owned("bigger_drop"), bigger_tank: owned("bigger_tank") },
   };
@@ -160,9 +186,9 @@ const REJECT_TEXT: Record<string, string> = {
   insufficient_water: "no tienes agua suficiente",
   insufficient_leaves: "no tienes hojas suficientes",
   out_of_bounds: "la casilla está fuera del valle",
-  tile_occupied: "la casilla ya está ocupada por una instalación",
+  tile_occupied: "la casilla está ocupada (instalación, agua, roca, edificio o basura)",
   upgrade_already_owned: "ya tienes esa mejora",
-  invalid_command: "el comando no es válido",
+  invalid_command: "el comando no es válido (¿la casilla no tiene basura?)",
 };
 
 /**
@@ -175,7 +201,7 @@ const STATUS_TABLE: Record<string, { ok: boolean; text: string }> = {
   duplicate: { ok: true, text: "aplicada" },
   rejected: { ok: false, text: "rechazada" },
   expired: { ok: false, text: "caducó en la cola (más de 30 s sin aplicarse)" },
-  rate_limited: { ok: false, text: "demasiadas gotas por segundo; espera un momento" },
+  rate_limited: { ok: false, text: "demasiadas acciones por segundo; espera un momento" },
   paused: { ok: false, text: "el valle está en pausa; inténtalo más tarde" },
   forbidden: { ok: false, text: "solo un administrador puede hacerlo" },
 };
@@ -210,13 +236,27 @@ export function selectionView(
 ): { label: string; info: string } {
   if (!selected) return { label: "ninguna", info: "Haz clic en una casilla." };
   const label = `(${selected.x}, ${selected.y})`;
-  const tiles = buildTiles(state);
-  const width = state?.width ?? 0;
-  const tile = tiles[selected.y * width + selected.x];
-  if (!tile) return { label, info: "Sin datos del mapa todavía." };
-  let info = `${stageName(tile.stage)}, humedad ${tile.humidity}`;
-  if (tile.fire) info += `, en llamas (${tile.fire.drops_received} gotas recibidas)`;
-  if (tile.installation) info += `, instalación: ${tile.installation.kind}`;
+  if (!state || state.stages.length === 0) {
+    return { label, info: "Sin datos del mapa todavía." };
+  }
+  const { width, height } = state;
+  if (selected.x < 0 || selected.y < 0 || selected.x >= width || selected.y >= height) {
+    return { label, info: "Sin datos del mapa todavía." };
+  }
+  const idx = selected.y * width + selected.x;
+  const stage = state.stages[idx];
+  if (stage === undefined) {
+    return { label, info: "Sin datos del mapa todavía." };
+  }
+  const humidity = state.humidity[idx] ?? 0n;
+  let info = `${stageName(stage)}, humedad ${humidity}`;
+  if (state.buildings?.[idx]) info += ", estructura urbana";
+  const trash = state.trash?.[idx] ?? 0;
+  if (trash > 0) info += `, basura nivel ${trash}`;
+  const fire = state.fires.find((f) => f.x === selected.x && f.y === selected.y);
+  if (fire) info += `, en llamas (${fire.drops_received} gotas recibidas)`;
+  const inst = state.installations.find((i) => i.x === selected.x && i.y === selected.y);
+  if (inst) info += `, instalación: ${inst.installation}`;
   return { label, info };
 }
 
@@ -316,4 +356,17 @@ export function createPendingActions({
       return plan;
     },
   };
+}
+
+/**
+ * Determina si una casilla cae dentro del área 5x5 de al menos un riego por goteo.
+ */
+export function isTileInDripArea(
+  tileX: number,
+  tileY: number,
+  dripPositions: Array<{ x: number; y: number }>,
+): boolean {
+  return dripPositions.some(
+    (d) => Math.abs(d.x - tileX) <= 2 && Math.abs(d.y - tileY) <= 2,
+  );
 }

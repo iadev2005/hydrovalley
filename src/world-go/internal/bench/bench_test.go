@@ -250,7 +250,7 @@ func TestTheCatalogIsTheRealOneWithTheChangesOfTheWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if base.Tank.Capacity != 20 || base.Fire.IgnitionChancePPM != 50 {
+	if base.Tank.Capacity != 10 || base.Fire.IgnitionChancePPM != 1250 {
 		t.Fatalf("not the real catalog: %+v", base)
 	}
 	w.CatalogSet = []CatalogChange{{Path: "rules.tank.capacity_liters", Value: 1_000_000_000_000}}
@@ -258,7 +258,7 @@ func TestTheCatalogIsTheRealOneWithTheChangesOfTheWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed.Tank.Capacity != 1_000_000_000_000 || changed.Fire.IgnitionChancePPM != 50 {
+	if changed.Tank.Capacity != 1_000_000_000_000 || changed.Fire.IgnitionChancePPM != 1250 {
 		t.Errorf("unexpected catalog %+v", changed)
 	}
 	w.CatalogSet = []CatalogChange{{Path: "rules.tank.no_such_figure", Value: 1}}

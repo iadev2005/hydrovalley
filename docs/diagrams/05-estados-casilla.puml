@@ -15,10 +15,11 @@ state Casilla {
     Pasto --> Arbusto : humedad llega a 100 [sin fuego]\n/ humedad −100
     Arbusto --> Flores : humedad llega a 100 [sin fuego]\n/ humedad −100
     Flores --> Arbol : humedad llega a 100 [sin fuego]\n/ humedad −100
-    Arbol --> Flores : humedad 0\ndurante 100 ticks [sin fuego]
-    Flores --> Arbusto : humedad 0\ndurante 100 ticks [sin fuego]
-    Arbusto --> Pasto : humedad 0\ndurante 100 ticks [sin fuego]
-    Pasto --> Seca : humedad 0\ndurante 100 ticks [sin fuego]
+    Arbol --> Flores : humedad 0\ndurante 140 ticks [sin fuego]
+    Flores --> Arbusto : humedad 0\ndurante 140 ticks [sin fuego]
+    Arbusto --> Pasto : humedad 0\ndurante 140 ticks [sin fuego]
+    Pasto --> Seca : humedad 0\ndurante 140 ticks [sin fuego]
+    Seca --> Pasto : pulso de la planta de tratamiento\n(+1 etapa a sus vecinas) [sin fuego, sin basura]
     Pasto -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
     Arbusto -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
     Flores -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
@@ -37,6 +38,38 @@ state Casilla {
     Ardiendo --> SinFuego : aspersor en su zona
     Ardiendo -[#B22222]-> SinFuego : <color:#B22222>se consume (300 ticks)</color>\n<color:#B22222>/ crecimiento := Tierra seca</color>
   }
+  --
+  state "Basura y edificio (nivel 2)" as Urbano {
+    state "Limpia" as Limpia
+    state "Nivel 1" as T1
+    state "Nivel 2" as T2
+    state "Nivel 3" as T3
+    state "Edificio" as Edificio
+    Edificio : fijo; inmune al fuego y a la basura
+    T2 : desde aquí propaga +1 a sus 4 vecinas\n(salvo las protegidas por un cesto)
+    T3 : propaga igual; con 60 casillas sucias\nen el valle la propagación se detiene
+
+    [*] --> Limpia
+    Limpia --> Edificio : se cumple el umbral urbano\n[tierra seca libre en el borde]
+    Limpia --> T1 : un edificio o una vecina de nivel 2 o 3 ensucia\n/ crecimiento := Tierra seca, sin humedad,\nsin fuego ni instalación
+    T1 --> T2 : ensucia otra vez o crece sola
+    T2 --> T3 : ensucia otra vez o crece sola
+    T3 --> T2 : clean_trash o cesto de reciclaje
+    T2 --> T1 : clean_trash o cesto de reciclaje
+    T1 --> Limpia : clean_trash o cesto de reciclaje\n/ +hojas al jugador (clean_trash)
+  }
+  --
+  state "Terreno natural (nivel 2)" as Natural {
+    state "Suelo normal" as Normal
+    state "Agua" as Agua
+    state "Roca" as Roca
+    Agua : no crece, no se evapora, sin gotas\nni instalaciones; su orilla\nevapora a la mitad y no arde
+    Roca : no crece, sin gotas ni instalaciones
+
+    [*] --> Normal
+    Normal --> Agua : al crear el valle (azar con semilla;\nel reinicio lo conserva)
+    Normal --> Roca : al crear el valle (azar con semilla;\nel reinicio lo conserva)
+  }
 }
 
 note right of Casilla
@@ -51,6 +84,10 @@ note right of Casilla
   crecimiento el paso a <b>Tierra seca</b>, desde
   cualquier etapa.
   Cifras iniciales del catálogo (catalog/).
+  Las regiones «Basura y edificio» y «Terreno natural»
+  son la expansión de jugabilidad (nivel 2). Mientras hay
+  basura o edificio, o si la casilla es agua o roca, la
+  región de crecimiento no avanza y no hay fuego.
 end note
 
 @enduml

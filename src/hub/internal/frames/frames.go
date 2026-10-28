@@ -18,10 +18,11 @@ import (
 
 // Valores de `type`.
 const (
-	TypeDrop   = "drop"
-	TypeResult = "result"
-	TypeError  = "error"
-	TypeState  = "state"
+	TypeDrop       = "drop"
+	TypeResult     = "result"
+	TypeError      = "error"
+	TypeState      = "state"
+	TypeCleanTrash = "clean_trash"
 )
 
 // Valores de ResultMessage.status.
@@ -73,10 +74,17 @@ const (
 // Command es un mensaje del navegador ya validado: exactamente uno de los
 // campos está presente.
 type Command struct {
-	Drop  *Drop
-	Admin *Admin
-	Place *Place
-	Buy   *Buy
+	Drop       *Drop
+	Admin      *Admin
+	Place      *Place
+	Buy        *Buy
+	CleanTrash *CleanTrash
+}
+
+// CleanTrash es la limpieza de una casilla de basura validada (action_id es un UUID).
+type CleanTrash struct {
+	ActionID string
+	X, Y     uint32
 }
 
 // Place es la compra y colocación de una instalación ya validada: action_id
@@ -102,6 +110,7 @@ var (
 		"sprinkler":       worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER,
 		"drip":            worldv1.InstallationKind_INSTALLATION_KIND_DRIP,
 		"treatment_plant": worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT,
+		"trash_bin":       worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN,
 	}
 	upgradeKinds = map[string]worldv1.UpgradeKind{
 		"bigger_drop": worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_DROP,
@@ -178,6 +187,16 @@ func DecodeClient(data []byte) (Command, *playv1.ErrorMessage) {
 			return invalid()
 		}
 		return Command{Admin: &Admin{ActionID: msg.GetActionId(), Kind: AdminResetValley}}, nil
+	case TypeCleanTrash:
+		var raw struct {
+			ActionID string `json:"action_id"`
+			X        uint32 `json:"x"`
+			Y        uint32 `json:"y"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil || !IsUUID(raw.ActionID) {
+			return invalid()
+		}
+		return Command{CleanTrash: &CleanTrash{ActionID: raw.ActionID, X: raw.X, Y: raw.Y}}, nil
 	default:
 		return Command{}, Error(CodeUnknownType, peekActionID(data))
 	}

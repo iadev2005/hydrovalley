@@ -3,6 +3,7 @@ package cheater
 import (
 	"context"
 	"encoding/json"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -195,5 +196,27 @@ func TestRunFailsWhenTheSessionNeverConnects(t *testing.T) {
 	cfg.ConnectTimeout = 150 * time.Millisecond
 	if _, err := Run(context.Background(), cfg, s); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+// La acción repetida (RF-09) necesita una gota aplicada: el bot elige una
+// casilla que la acepte para que el terreno no la rechace con `tile_occupied`.
+func TestTilePickerOnlyOffersTilesThatAcceptDrops(t *testing.T) {
+	st := client.State{Width: 3, Height: 2,
+		Stages:    []uint32{6, 7, 1, 1, 6, 7},
+		Buildings: []bool{false, false, true, false, false, false},
+	}
+	pick := tilePicker(rand.New(rand.NewPCG(1, 1)), st)
+	for range 50 {
+		if x, y := pick(); x != 0 || y != 1 {
+			t.Fatalf("got (%d,%d), want (0,1)", x, y)
+		}
+	}
+	// Sin mapa elige cualquier casilla del valle.
+	any := tilePicker(rand.New(rand.NewPCG(1, 1)), client.State{Width: 4, Height: 4})
+	for range 50 {
+		if x, y := any(); x >= 4 || y >= 4 {
+			t.Fatalf("(%d,%d) is outside the valley", x, y)
+		}
 	}
 }

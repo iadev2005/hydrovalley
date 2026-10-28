@@ -118,6 +118,70 @@ func TestPurchasesAreNotCountedAsAcceptedDrops(t *testing.T) {
 	}
 }
 
+func clean(n int) frames.CleanTrash {
+	return frames.CleanTrash{ActionID: uuidN(n), X: uint32(n % 32), Y: 3}
+}
+
+func TestCleanTrashTravelsToStepWithTheSessionPlayerAndIsIdempotent(t *testing.T) {
+	h := newHarness(t)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
+
+	if got := h.hub.SubmitCleanTrash(s, frames.CleanTrash{ActionID: uuidN(1), X: 5, Y: 6}); got != Admitted {
+		t.Fatalf("outcome = %v, want admitted", got)
+	}
+	if got := h.hub.SubmitCleanTrash(s, frames.CleanTrash{ActionID: uuidN(1), X: 5, Y: 6}); got != IgnoredPending {
+		t.Fatalf("resend while pending = %v, want ignored", got)
+	}
+	h.tick()
+
+	cmds := h.world.lastCommands()
+	if len(cmds) != 1 {
+		t.Fatalf("commands = %v", cmds)
+	}
+	c := cmds[0].GetCleanTrash()
+	if cmds[0].GetActionId() != uuidN(1) || cmds[0].GetPlayerId() != ana || c == nil || c.GetX() != 5 || c.GetY() != 6 {
+		t.Fatalf("command = %v", cmds[0])
+	}
+	if got := statusesOf(results(drain(s))); !slices.Equal(got, []string{"applied:" + uuidN(1)}) {
+		t.Fatalf("results = %v", got)
+	}
+	// Ya confirmada: el reenvío recibe duplicate.
+	if got := h.hub.SubmitCleanTrash(s, frames.CleanTrash{ActionID: uuidN(1), X: 5, Y: 6}); got != RejectedDuplicate {
+		t.Fatalf("resend after confirmation = %v, want duplicate", got)
+	}
+}
+
+// La limpieza comparte con la gota el límite de 15 por segundo, pero no
+// cuenta como gota aceptada.
+func TestCleanTrashSharesTheDropRateLimitButIsNotAnAcceptedDrop(t *testing.T) {
+	h := newHarness(t)
+	s := h.hub.Connect(ana, auth.RolePlayer, true)
+	for i := range 10 {
+		if got := h.hub.SubmitCleanTrash(s, clean(i)); got != Admitted {
+			t.Fatalf("clean %d outcome = %v", i, got)
+		}
+	}
+	for i := range 5 {
+		if got := h.hub.SubmitDrop(s, drop(100+i)); got != Admitted {
+			t.Fatalf("drop %d outcome = %v", i, got)
+		}
+	}
+	if got := h.hub.SubmitCleanTrash(s, clean(200)); got != RejectedRateLimited {
+		t.Fatalf("16th limited action = %v, want rate limited", got)
+	}
+	if got := h.hub.SubmitDrop(s, drop(201)); got != RejectedRateLimited {
+		t.Fatalf("drop after the window is full = %v, want rate limited", got)
+	}
+	// Las compras no se frenan.
+	if got := h.hub.SubmitPlace(s, place(300, sprinkler)); got != Admitted {
+		t.Fatalf("purchase = %v", got)
+	}
+	h.tick()
+	if n := h.hub.AcceptedDrops(); n != 5 {
+		t.Fatalf("accepted drops = %d, want 5 (cleaning is not a drop)", n)
+	}
+}
+
 func TestPurchasesShareIdempotencyAndQueueLimits(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.QueueCap = 1 })
 	s := h.hub.Connect(ana, auth.RolePlayer, true)

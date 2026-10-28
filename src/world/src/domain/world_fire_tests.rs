@@ -461,6 +461,7 @@ fn sprinkler_world(owner: &str) -> World {
             installation: Some(crate::domain::Installation {
                 kind: InstallationKind::Sprinkler,
                 owner_id: owner.to_string(),
+                remaining_durability: 30,
             }),
             ..Tile::default()
         };
@@ -516,7 +517,9 @@ fn an_unattended_fire_burns_out_after_the_catalog_ticks_into_dry_soil() {
             installation: Some(crate::domain::Installation {
                 kind: InstallationKind::Drip,
                 owner_id: ANA.to_string(),
+                remaining_durability: 30,
             }),
+            ..Tile::default()
         };
     });
     idle(&mut w, 299);

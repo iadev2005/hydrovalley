@@ -21,6 +21,7 @@ import (
 const (
 	closeUnauthorized = websocket.StatusCode(4401)
 	writeTimeout      = 5 * time.Second
+	dialTimeout       = 6 * time.Second
 	// DefaultMaxResendAge es la edad máxima de una acción pendiente para
 	// reenviarla al reconectarse: el hub responde `expired` a los 30 s.
 	DefaultMaxResendAge = 30 * time.Second
@@ -301,7 +302,9 @@ func (s *Session) Run(ctx context.Context) error {
 	attempt := 0
 	for {
 		targetURL := s.urls[s.activeURL%len(s.urls)]
-		conn, resp, err := websocket.Dial(ctx, targetURL, s.dialOptions())
+		dialCtx, cancelDial := context.WithTimeout(ctx, dialTimeout)
+		conn, resp, err := websocket.Dial(dialCtx, targetURL, s.dialOptions())
+		cancelDial()
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil

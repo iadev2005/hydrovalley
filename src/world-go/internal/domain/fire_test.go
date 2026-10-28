@@ -44,7 +44,7 @@ func TestBurningOutDropsTheTileToDrySoilKeepingHumidityAndInstallation(t *testin
 	rules := d01().Fire
 	tile := grassTile(40)
 	tile.DryTicks = 5
-	tile.Installation = &Installation{Kind: Drip, OwnerID: "ana"}
+	tile.Installation = &Installation{Kind: Drip, OwnerID: "ana", RemainingDurability: 30}
 	Ignite(&tile)
 	for range 299 {
 		if Burn(&tile, rules) {

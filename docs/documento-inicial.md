@@ -171,7 +171,8 @@ Propuesta mínima, suficiente para cumplir todo lo exigido:
 | Competencia | Ranking de quién más ha hecho crecer el valle, medido en hojas ganadas |
 | Modo demo | Sin evaporación ni incendios; la gota es gratis, de una sola casilla y suma 1 de humedad, para que el total se pueda verificar a ojo |
 | Resumen al volver (nivel 2) | Lo que hicieron los **aspersores** de un jugador desde su última acción aplicada: casillas que crecieron, hojas ganadas con ellas, humedad entregada (agua reutilizada) y fuegos que apagaron. Lo calcula Rust, va en la instantánea del jugador solo si no está vacío y el hub lo manda en el primer estado de cada conexión; el cliente lo muestra como «Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio». Lo borra su siguiente acción aplicada, no la conexión: si vuelve y no actúa, lo vuelve a ver. El goteo y la planta de tratamiento no cuentan: no hacen crecer casillas ni apagan fuegos, y su efecto ya está en los contadores de las 3R del reporte |
-| **Si da tiempo** | Que el fuego salte a las casillas vecinas. Las obras comunitarias. El resumen al volver. El árbol de mejoras completo. Nuevos biomas. Todo está en el nivel 2 del plan de trabajo |
+| Expansión de jugabilidad (nivel 2) | Para que pasen más cosas en el valle (`docs/plan-expansion-mecanicas.md`). **Terreno natural:** río, lago y rocas que no admiten gotas ni instalaciones; la orilla del agua evita incendios y retiene humedad. **Durabilidad:** toda instalación se desgasta con su trabajo y desaparece al llegar a cero. **Efectos mejorados:** el goteo, además de frenar la evaporación, evita marchitamiento e ignición en su zona y duplica la humedad de las gotas; la planta de tratamiento recarga 3 L y emite un pulso que sube una etapa a sus vecinas. **Presión urbana:** aparecen edificios en el borde del valle que ensucian la casilla vecina; la basura (niveles 1 a 3) destruye plantas e instalaciones crece sola y, desde el nivel 2, se propaga (con un tope de 60 casillas sucias). Se limpia a mano con el comando `clean_trash` (quien deja una casilla limpia gana hojas) o con el **cesto de reciclaje** (instalación de limpieza que limpia y protege su zona). Todo el azar sale del generador con semilla |
+| **Si da tiempo** | Que el fuego salte a las casillas vecinas. Las obras comunitarias. El resumen al volver. El árbol de mejoras completo. Más biomas (el agua y la roca ya entraron con la expansión de jugabilidad). Todo está en el nivel 2 del plan de trabajo |
 
 Estas reglas generan concurrencia real, estado compartido y necesidad de consistencia: las tres cosas que se evalúan. **Una vez acordadas, se congelan.** Cada cambio posterior arrastra requisitos, contratos y código de cuatro personas.
 
@@ -200,16 +201,43 @@ Cifras de arranque, para empezar a probar. Todas son valores iniciales: viven en
 
 | Qué | Precio inicial | Efecto |
 | --- | --- | --- |
-| Gota | 1 L del depósito | +25 de humedad en su casilla |
-| Depósito | — | 20 L; se recarga 1 L cada 2 s |
-| Crecer | — | Cada etapa pide 100 de humedad, que se gastan al subir, y da 1, 2, 4 u 8 hojas (pasto, arbusto, flores, árbol). En árbol, la humedad no pasa de 100 |
-| Evaporación | — | −2 de humedad por segundo en cada casilla. Con humedad 0 durante 100 ticks (10 s), la casilla se marchita y baja una etapa |
+| Gota | 1 L del depósito | +100 de humedad en su casilla, una etapa de crecimiento (valor elegido por el equipo; el valor original de D-01 era +25) |
+| Depósito | — | 10 L (valor elegido por el equipo; el original era 20 L); se recarga 1 L cada 2 s |
+| Crecer | — | Cada etapa pide 100 de humedad, que se gastan al subir, y da 1, 2, 3 o 5 hojas (pasto, arbusto, flores, árbol; valores elegidos por el equipo, los originales eran 1, 2, 4 y 8). En árbol, la humedad no pasa de 100 |
+| Evaporación | — | −2 de humedad por segundo en cada casilla. Con humedad 0 durante 140 ticks (14 s; valor elegido por el equipo, el original eran 100 ticks), la casilla se marchita y baja una etapa |
 | Aspersor de agua gris (Reutilizar) | 10 hojas | +25 de humedad a 3 × 3 casillas cada 2 s |
-| Riego por goteo (Reducir) | 25 hojas | Evaporación a la mitad en 5 × 5 casillas |
-| Planta de tratamiento (Reciclar) | 40 hojas | +1 L extra de recarga cada 2 s |
+| Riego por goteo (Reducir) | 25 hojas | Evaporación a la mitad en 5 × 5 casillas. En esa zona la planta no se marchita, no se enciende y las gotas suman el doble de humedad (excepto en modo demo) |
+| Planta de tratamiento (Reciclar) | 40 hojas | +3 L extra de recarga cada 2 s (valor elegido por el equipo; el original era +1 L) y, cada 2 s, un pulso que sube una etapa a sus 8 casillas vecinas con planta y paga las hojas a su dueño |
+| Cesto de reciclaje (limpieza, nivel 2) | 15 hojas | Cada 2 s quita un nivel de basura a las casillas de su zona de 3 × 3 y la protege de que la basura se propague hasta ella |
+| Durabilidad (nivel 2) | — | Aspersor, goteo, planta y cesto empiezan con 30 puntos y pierden uno por cada ciclo de trabajo (2 s); al llegar a cero la instalación se destruye. Solo cuenta mientras trabaja (RF-25) |
+| Terreno natural (nivel 2) | — | Al crear el valle (el reinicio lo conserva tal cual): un río de 2 casillas de ancho que serpentea alrededor de la columna 24, con un lago más ancho entre las filas 12 y 16, una laguna de 3 × 3 casillas al sur (columnas 17 a 19, filas 26 a 28) y 12 rocas sueltas en tierra seca desde la columna 17 (la mitad izquierda del valle queda libre). La orilla del agua evapora a la mitad y no se enciende |
+| Presión urbana (nivel 2) | — | Con 2 árboles en el valle o 500 de humedad aportada aparece un edificio en el borde, hasta 2. Cada 6 s cada edificio suma un nivel de basura a su primera casilla vecina libre con menos de 3 niveles (y borra su planta, humedad, fuego e instalación). Cada 8 s toda casilla con basura sube un nivel y, si ya tenía nivel 2 o más, suma un nivel a sus 4 vecinas; con 60 casillas sucias la propagación se detiene hasta que se limpie. Limpiar el último nivel da 1 hoja |
 | Gota más grande (mejora) | 30 hojas | La gota humedece 3 × 3 casillas |
 | Depósito mayor (mejora) | 20 hojas | +10 L de capacidad del depósito |
-| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 50 por millón por tick (valor inicial elegido por el equipo; unos 1 cada 20 s con 100 casillas así). Se propaga a casillas vecinas ortogonales elegibles (secas y con planta) con una probabilidad de 2.000 por millón por tick (0,2 % por tick, unos 2 % por segundo; valor inicial elegido por el equipo, de nivel 2). Cada casilla elegible con al menos una vecina ardiendo hace un solo sorteo por tick, sin importar cuántas vecinas ardan; no hay propagación en modo demo. Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 5 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
+| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 1.250 por millón por tick (valor elegido por el equipo; el inicial era 50 por millón; unos 1,25 por segundo con 100 casillas así). Se propaga a casillas vecinas ortogonales elegibles (secas y con planta) con una probabilidad de 10.000 por millón por tick (1 % por tick, unos 10 % por segundo; valor elegido por el equipo, de nivel 2; el inicial era 2.000 por millón). Cada casilla elegible con al menos una vecina ardiendo hace un solo sorteo por tick, sin importar cuántas vecinas ardan; no hay propagación en modo demo. Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 3 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
+
+#### Valores elegidos por el equipo para la jugabilidad
+
+Estas cifras no estaban en la primera versión de D-01: las eligieron Cristian y FonsoP al hacer la expansión de jugabilidad, para que el juego avance más deprisa (el plan es `docs/plan-expansion-mecanicas.md`). Se mantienen mientras se evalúan jugando; todas viven en `catalog/catalog.json`:
+
+| Cifra | Valor original de D-01 | Valor elegido |
+| --- | --- | --- |
+| `drop.humidity_points` | 25 | 100 (una gota hace subir una etapa) |
+| `treatment_plant.refill_liters` | 1 | 3 |
+| `*.durability` (aspersor, goteo, planta, cesto) | no existía | 30 |
+| `drip.wear_interval_seconds` | no existía | 2 |
+| `trash_bin.price_leaves`, `area_side_tiles`, `interval_seconds` | no existía | 15, 3, 2 |
+| `terrain.river_width_tiles`, `terrain.rock_count` | no existía | 2, 12 |
+| `urban.building_tree_threshold`, `building_humidity_points_threshold`, `max_buildings` | no existía | 2, 500, 2 |
+| `urban.trash_interval_seconds`, `trash_spread_interval_seconds`, `clean_reward_leaves` | no existía | 6, 8, 1 |
+| `tank.capacity_liters` | 20 | 10 |
+| `growth.leaves_flowers`, `growth.leaves_tree` | 4, 8 | 3, 5 |
+| `evaporation.wither_after_ticks` | 100 | 140 |
+| `fire.extinguish_bonus_leaves` | 5 | 3 |
+| `fire.ignition_chance_ppm` | 50 | 1.250 |
+| `fire.propagation_chance_ppm` | 2.000 | 10.000 |
+
+Las seis últimas filas (depósito, hojas, marchitamiento, bono por apagar, ignición y propagación) las ajustó Cristian Baczek para acelerar el juego (`12042fb`, `ad737ed`). El tope de 60 casillas sucias de la propagación de la basura, el pulso de la planta (2 s, 3 × 3 casillas), la orilla de agua (evaporación a la mitad) y el doble de humedad del goteo son reglas del código, no cifras del catálogo. `[DATO: confirmar con el equipo si estos valores se congelan tras la evaluación]`.
 
 #### Los estados de una casilla
 
@@ -225,10 +253,10 @@ stateDiagram-v2
         Pasto --> Arbusto: humedad llega a 100 (se gastan 100) [sin fuego]
         Arbusto --> Flores: humedad llega a 100 (se gastan 100) [sin fuego]
         Flores --> Arbol: humedad llega a 100 (se gastan 100) [sin fuego]
-        Arbol --> Flores: humedad 0 durante 100 ticks [sin fuego]
-        Flores --> Arbusto: humedad 0 durante 100 ticks [sin fuego]
-        Arbusto --> Pasto: humedad 0 durante 100 ticks [sin fuego]
-        Pasto --> Seca: humedad 0 durante 100 ticks [sin fuego]
+        Arbol --> Flores: humedad 0 durante 140 ticks [sin fuego]
+        Flores --> Arbusto: humedad 0 durante 140 ticks [sin fuego]
+        Arbusto --> Pasto: humedad 0 durante 140 ticks [sin fuego]
+        Pasto --> Seca: humedad 0 durante 140 ticks [sin fuego]
         --
         state "Sin fuego" as SinFuego
         [*] --> SinFuego
@@ -239,11 +267,13 @@ stateDiagram-v2
     }
 ```
 
+La expansión de jugabilidad (nivel 2) añade dos etapas que no avanzan (agua y roca) y dos datos por casilla (edificio y nivel de basura de 0 a 3); la casilla con basura o edificio no crece ni arde. Están en el diagrama 05 (`docs/diagrams/05-estados-casilla.puml`).
+
 Es la idea de las regiones ortogonales de los statecharts de Harel: las dos partes cambian por su cuenta, pero se tocan en dos puntos. Mientras la casilla arde, la región de crecimiento queda congelada: no sube ni baja de etapa, y el contador de ticks con humedad 0 (`dry_ticks`) no avanza. La evaporación sigue bajando la humedad; solo la etapa queda fija. Las gotas que caen sobre ella siguen sumando a la humedad aportada y cuentan para apagarla. Y el fuego siempre se resuelve: con la tercera gota, con un aspersor o consumiéndose a los 300 ticks; en este último caso la región de crecimiento vuelve a tierra seca, esté en la etapa que esté. En árbol la humedad no pasa de 100.
 
 #### Una partida de ejemplo
 
-**Ana, el primer minuto.** Entra y ve el valle casi entero seco. Hay manchas verdes donde otros ya regaron, y una columna de humo al noreste. Su depósito tiene 20 litros. Suelta una gota sobre una casilla junto al río y la tierra se oscurece; a la cuarta gota brota pasto y gana 1 hoja. Con el depósito lleno le alcanza para cinco casillas de pasto. Espera a que se recargue y sigue. Al minuto tiene 12 hojas y compra su primer aspersor, que coloca en medio de su pasto. Desde ahí esas nueve casillas se riegan solas: al rato son arbustos, y cada una que crece le da hojas.
+**Ana, el primer minuto.** Entra y ve el valle casi entero seco. Hay manchas verdes donde otros ya regaron, y una columna de humo al noreste. Su depósito tiene 10 litros. Suelta una gota sobre una casilla junto al río y la tierra se oscurece; con la primera gota brota pasto y gana 1 hoja (con las cifras iniciales de D-01 hacían falta cuatro; ver «Valores elegidos por el equipo para la jugabilidad»). Con el depósito lleno le alcanza para diez casillas de pasto. Espera a que se recargue y sigue. Al minuto tiene 12 hojas y compra su primer aspersor, que coloca en medio de su pasto. Desde ahí esas nueve casillas se riegan solas: al rato son arbustos, y cada una que crece le da hojas.
 
 **Minuto 6: fuego.** Aparece un aviso: «¡Fuego al noreste!». Un arbusto seco a pocas casillas de su zona está ardiendo. Beto y Caro, que acaban de entrar, también lo ven. Los tres sueltan gotas sobre esa casilla en el mismo segundo. Rust las aplica en orden de llegada, y la tercera, la que apaga el fuego, es de Caro: se lleva el bono. Las gotas de Ana y Beto no se pierden, porque humedecieron la casilla. Si nadie hubiera llegado, el arbusto habría ardido hasta quedar en tierra seca.
 
@@ -426,6 +456,9 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 | RF-28 | El sistema debe hacer evolucionar el valle en cada tick, con evaporación, crecimiento y marchitamiento, aunque nadie juegue | Se riega una casilla y se deja: pierde humedad al ritmo del catálogo y, seca demasiado tiempo, se marchita |
 | RF-29 | **El sistema debe encender y apagar los incendios según reglas fijas, con un azar que decide solo el simulador a partir de una semilla** | Con la misma semilla y los mismos comandos, dos ejecuciones dan exactamente el mismo valle |
 | RF-30 | **El sistema debe aplicar las gotas de varios jugadores sobre una misma casilla en el mismo tick sin perder ninguna** | Veinte bots sueltan gotas sobre la misma casilla en modo demo: la humedad aportada sube exactamente lo de las gotas aceptadas |
+| RF-32 | El sistema debe desgastar las instalaciones con su trabajo y destruirlas al agotarse su durabilidad; el jugador debe poder ver la que les queda (nivel 2, expansión de jugabilidad) | Se coloca un aspersor, se deja trabajar 60 s y desaparece; al seleccionarlo se ve cuántos usos le quedan |
+| RF-33 | El sistema debe generar un terreno natural (agua y roca) con el azar del simulador, que no admita gotas ni instalaciones y quede en la instantánea (nivel 2, expansión de jugabilidad) | Con la misma semilla dos valles nuevos tienen el mismo río y las mismas rocas; una gota sobre ellos se rechaza |
+| RF-34 | El sistema debe hacer aparecer edificios que ensucian el valle con basura de tres niveles, y el jugador debe poder limpiarla (a mano con `clean_trash` o con el cesto de reciclaje) y ganar hojas por ello (nivel 2, expansión de jugabilidad) | Aparece un edificio en el borde, la casilla vecina acumula basura, se limpia a mano y se gana la recompensa del catálogo |
 
 ### Ranking y reportes
 
@@ -523,6 +556,7 @@ Cada requerimiento sale de una necesidad concreta, se resuelve en un componente 
 | Orden sin reloj compartido | RF-14, RNF-05 | Chat y tick como reloj lógico | CP-09 |
 | Azar reproducible | RF-29 | Simulador, con semilla en la instantánea | CP-10 |
 | Un mundo que vive solo | RF-25, RF-28 | Simulador (el autómata del valle) | Prueba de RF-28 |
+| Que pasen más cosas en el valle (nivel 2) | RF-32, RF-33, RF-34 | Simulador (Rust y world-go, mismos bytes) | Guion `10-expansion-jugabilidad` de la prueba de conformidad |
 | Una economía que cuadra | RF-07, RF-27 | Simulador | Comprobación de RF-27 tras CP-11 |
 | Operar la demo sin saltarse el escritor único | RF-31 | Hub (rol de administrador) y simulador (`Step`) | Prueba de RF-31 |
 | Acceso seguro | RF-01, RF-02, RNF-12, RNF-13 | API (TypeScript) y persistencia (Python) | Pruebas de RF-01 y RF-02 |
@@ -1288,7 +1322,7 @@ Regla que gobierna todo: **cada semana termina con algo que se puede levantar y 
 5. Comparativa medida Go vs. Rust
 6. El resumen al volver («mientras no estabas…»)
 7. Panel profesional con Prometheus y Grafana
-8. Más contenido: el árbol de mejoras completo, nuevos biomas como un humedal, logros, un ciclo visual de día y noche y, si sobra tiempo, prestigio. Es sobre todo catálogo y arte, así que cualquiera puede sumar
+8. Más contenido: el árbol de mejoras completo, nuevos biomas como un humedal (el agua y la roca ya entraron con la expansión de jugabilidad), logros, un ciclo visual de día y noche y, si sobra tiempo, prestigio. Es sobre todo catálogo y arte, así que cualquiera puede sumar
 
 **Fuera del proyecto:** enviar a cada jugador solo su parte del mundo, streams de gRPC, Kubernetes y Wails.
 

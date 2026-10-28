@@ -59,6 +59,10 @@ El dominio no depende de los tipos generados desde `proto/`; la traducción vive
 
 Los bytes de la fila de instantánea y del `WorldState` son idénticos a los de Rust: lo comprueba la prueba de conformidad.
 
+## Expansión de jugabilidad (nivel 2)
+
+Port de las reglas de `src/world/README.md` («Expansión de jugabilidad»): terreno natural sorteado con el generador del mundo (no hay otra semilla), durabilidad de las instalaciones, goteo y planta mejorados, edificios, basura de tres niveles, `CleanTrash` y cesto de reciclaje. El orden de los sorteos, los campos del códec (`has_building` y `trash_level` en la casilla, `remaining_durability` en la instalación, los precios del cesto en `next_prices`) y los bytes de la instantánea son los de Rust; el guion `10-expansion-jugabilidad` de la conformidad lo comprueba, y una instantánea anterior (instalaciones sin durabilidad) se restaura con la durabilidad base. Las cifras nuevas del catálogo (`terrain`, `urban`, `trash_bin`, `drip.wear_interval_seconds`) se validan igual que en Rust (`codec.CatalogFromProto`).
+
 ## Propagación del fuego (B3)
 
 `World.propagateFires` es el port de `propagate_fires` de Rust y corre en el mismo punto del tick: después del marchitamiento y antes de la ignición, nunca en modo demo. Recorre las casillas por filas y, por cada casilla elegible (`IsEligible`: con planta, humedad 0 y sin fuego) con al menos una vecina ortogonal que ardiera al empezar el paso, hace **un** sorteo con `fire.propagation_chance_ppm`; solo esas casillas gastan número del generador. Usa las dimensiones del mundo (`width`, `height`), no las del juego, para que la comparativa con otros tamaños funcione. Los guiones de conformidad (en especial `08-propagacion`) comprueban que Go y Rust dan los mismos bytes.

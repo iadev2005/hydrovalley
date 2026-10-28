@@ -194,9 +194,16 @@ type queued struct {
 	inFailedStep bool
 }
 
-// isDrop dice si el comando es una gota: solo las gotas consumen el límite
-// de 15/s y cuentan como gotas aceptadas (las compras y los comandos de
-// administración no).
+// isRateLimited dice si el comando consume el límite de gotas por segundo: la
+// gota y la limpieza de basura, las dos acciones repetibles sobre una casilla
+// que un clic sostenido puede disparar. Las compras ya las frena el gasto de
+// hojas y las de administración no se limitan.
+func (q queued) isRateLimited() bool {
+	return q.cmd.GetDrop() != nil || q.cmd.GetCleanTrash() != nil
+}
+
+// isDrop dice si el comando es una gota: solo las gotas cuentan como gotas
+// aceptadas (las compras, la limpieza y los comandos de administración no).
 func (q queued) isDrop() bool { return q.cmd.GetDrop() != nil }
 
 type confirmEntry struct {
@@ -422,6 +429,15 @@ func (h *Hub) SubmitBuy(s *Session, b frames.Buy) Outcome {
 	})
 }
 
+// SubmitCleanTrash filtra la limpieza de una casilla de basura (Fase 4).
+func (h *Hub) SubmitCleanTrash(s *Session, c frames.CleanTrash) Outcome {
+	return h.submit(s, c.ActionID, func() (*worldv1.Command, Outcome) {
+		return &worldv1.Command{Kind: &worldv1.Command_CleanTrash{
+			CleanTrash: &worldv1.CleanTrashCommand{X: c.X, Y: c.Y},
+		}}, Admitted
+	})
+}
+
 // SubmitAdmin filtra un comando de administración (RF-31). Sin role = admin
 // responde "forbidden" al instante y no deja rastro (ni pending, ni cola).
 // Con ese rol pasa por la misma admisión que la gota (pending, confirmed y
@@ -475,7 +491,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	switch {
 	case hasKey(p.confirmed, actionID):
 		outcome = RejectedDuplicate
-	case q.isDrop() && !p.limiter.Permits(now):
+	case q.isRateLimited() && !p.limiter.Permits(now):
 		outcome = RejectedRateLimited
 	case len(h.queue) >= h.cfg.QueueCap:
 		outcome = RejectedPaused
@@ -485,7 +501,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 		s.replyLocked(actionID, outcome)
 		return outcome
 	}
-	if q.isDrop() {
+	if q.isRateLimited() {
 		p.limiter.Record(now)
 	}
 	p.pending[actionID] = struct{}{}

@@ -119,8 +119,8 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
 
   // ------------------------------------------------------------------ CP-06
   const hubCases = [
-    { name: "stopped (process down)", kind: "stop", inject: stopService, restore: startService, x: 10, y: 3 },
-    { name: "paused (machine off, connection hangs)", kind: "pause", inject: pauseService, restore: unpauseService, x: 11, y: 3 },
+    { name: "stopped (process down)", kind: "stop", inject: stopService, restore: startService, x: 10, y: 18 },
+    { name: "paused (machine off, connection hangs)", kind: "pause", inject: pauseService, restore: unpauseService, x: 11, y: 18 },
   ];
 
   for (const c of hubCases) {
@@ -292,7 +292,7 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
         for (let i = 0; i < DROP_COUNT; i++) {
           const actionId = randomUUID();
           const sentAt = performance.now();
-          player.send({ type: "drop", action_id: actionId, x: i % 32, y: 20 + Math.floor(i / 32) });
+          player.send({ type: "drop", action_id: actionId, x: i % 16, y: 20 + Math.floor(i / 16) });
           const result = await player.first(`the result of drop ${i} (${actionId})`, isResult(actionId), 10_000);
           latencies.push(performance.now() - sentAt);
           statuses.push(result.status);
@@ -334,7 +334,7 @@ describe("CP-06, CP-07 and CP-12: hub and persistence faults", { skip: SKIP }, (
         const loginAfter = await login();
         assert.equal(loginAfter.status, 200, `login after the recovery: ${loginAfter.status} ${loginAfter.text}`);
         const afterDrop = randomUUID();
-        player.send({ type: "drop", action_id: afterDrop, x: 31, y: 31 });
+        player.send({ type: "drop", action_id: afterDrop, x: 15, y: 31 });
         const afterResult = await player.first(`the result of ${afterDrop}`, isResult(afterDrop), 10_000);
         assert.equal(afterResult.status, "applied");
         const failuresAfter = (await systemStatus()).hub.step_ms.failures_total;

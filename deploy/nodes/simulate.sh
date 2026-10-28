@@ -100,10 +100,13 @@ if [[ "${SIM_SKIP_BUILD:-0}" != "1" ]]; then
   BUILDX_BAKE_ENTITLEMENTS_FS=0 POSTGRES_USER=bake POSTGRES_PASSWORD=bake POSTGRES_DB=bake \
     TOKEN_PRIVATE_KEY=bake TOKEN_PUBLIC_KEY=bake \
     docker buildx bake -f deploy/compose.yml --set '*.context=.' --progress=quiet --load \
-    persistence world hub world-go api nginx
+    persistence world hub chat api nginx
+  # world-go no es un objetivo de compose.yml (solo de compose.world-go.yml, que
+  # reemplazaría a world): se construye aparte para el nodo standby.
+  docker build -q -t "${HV_REGISTRY}/hydrovalley-world-go:${HV_TAG}" -f src/world-go/Dockerfile .
   build_s=$((SECONDS - t))
 fi
-for svc in persistence world world-go hub api proxy; do
+for svc in persistence world world-go hub chat api proxy; do
   if ! docker image inspect "${HV_REGISTRY}/hydrovalley-${svc}:${HV_TAG}" >/dev/null 2>&1; then
     echo "simulate.sh: falta la imagen ${HV_REGISTRY}/hydrovalley-${svc}:${HV_TAG}" >&2
     exit 1
@@ -169,21 +172,28 @@ done
 # 3. Los seis nodos, en cualquier orden y sin esperar entre ellos (RNF-09).
 echo "== Levantando los seis nodos (proyectos hv-sim-*, publicados en el anfitrión)"
 up_start=$SECONDS
-for node in standby proxy hub world persistence db; do
+# El standby se levanta al final (ver más abajo): si arranca a la vez que el
+# primario, el primario aún no responde a /healthz, el hub-standby lo da por
+# caído y toma el mando durante el arranque en frío; entonces el humo y el
+# relevo se probarían ya contra el standby y no demostrarían nada.
+for node in proxy hub world persistence db; do
   node_compose "${node}" up -d --quiet-pull
 done
 
-# El certificado del proxy lo genera nginx al arrancar: se toma de ahí y se usa
-# como CA, así que la verificación TLS no se omite.
+# El certificado del proxy lo genera nginx al arrancar: se toma de ahí (y el de
+# standby) y se usa como CA bundle, así que la verificación TLS no se omite.
 export HV_BASE_URL="https://localhost:${port_proxy}"
+export HV_STANDBY_BASE_URL="https://localhost:${port_standby_proxy}"
 export NODE_EXTRA_CA_CERTS="${tmp}/tls.crt"
-until node_compose proxy cp nginx:/etc/nginx/tls/tls.crt "${tmp}/tls.crt" >/dev/null 2>&1 && [[ -s "${tmp}/tls.crt" ]]; do
+until node_compose proxy cp nginx:/etc/nginx/tls/tls.crt "${tmp}/proxy.crt" >/dev/null 2>&1 \
+  && [[ -s "${tmp}/proxy.crt" ]]; do
   if (( SECONDS - up_start > 60 )); then
     echo "simulate.sh: el proxy no generó su certificado en 60 s" >&2
     exit 1
   fi
   sleep 1
 done
+cp "${tmp}/proxy.crt" "${tmp}/tls.crt"
 
 all_up() {
   [[ "$(curl -fsS --cacert "${tmp}/tls.crt" --max-time 3 "${HV_BASE_URL}/api/system" 2>/dev/null | grep -o '"status":"up"' | wc -l | tr -d ' ')" == "5" ]]
@@ -200,6 +210,34 @@ echo "== /api/system: los cinco servicios en up (${up_s} s desde el primer up)"
 curl -fsS --cacert "${tmp}/tls.crt" "${HV_BASE_URL}/api/system"
 echo
 
+# El hub primario debe estar activo (no en espera ni retirado) antes de que
+# exista el standby: así el standby parte realmente en espera.
+until curl -fsS --max-time 3 "http://localhost:${port_hub}/readyz" >/dev/null 2>&1; do
+  if (( SECONDS - up_start > wait_limit )); then
+    echo "simulate.sh: el hub primario no llegó a /readyz en ${wait_limit} s" >&2
+    exit 1
+  fi
+  sleep 1
+done
+echo "== Hub primario activo; se levanta el nodo standby"
+node_compose standby up -d --quiet-pull
+until node_compose standby cp nginx:/etc/nginx/tls/tls.crt "${tmp}/standby.crt" >/dev/null 2>&1 \
+  && [[ -s "${tmp}/standby.crt" ]]; do
+  if (( SECONDS - up_start > wait_limit )); then
+    echo "simulate.sh: el proxy standby no generó su certificado" >&2
+    exit 1
+  fi
+  sleep 1
+done
+cat "${tmp}/proxy.crt" "${tmp}/standby.crt" > "${tmp}/tls.crt"
+# Que siga en espera: hub-standby sin mando (/readyz 503) tras unos segundos.
+sleep 8
+if curl -fsS --max-time 3 "http://localhost:${port_standby_hub}/readyz" >/dev/null 2>&1; then
+  echo "simulate.sh: hub-standby tomó el mando con el primario sano" >&2
+  exit 1
+fi
+echo "== Standby en espera (hub-standby /readyz != 200)"
+
 # 4. Humo y fallo.
 export ADMIN_USERNAME SIM_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD}"
 echo "== Humo"
@@ -215,6 +253,15 @@ if [[ "${SIM_SKIP_FAULT:-0}" != "1" ]]; then
   SIM_STOP_PERSISTENCE="${persistence_cmd} stop" SIM_START_PERSISTENCE="${persistence_cmd} start" \
     node "${nodes_dir}/simulate-check.mjs" fault
   fault_s=$((SECONDS - t))
+
+  echo "== Relevo B8: se prueban world, hub y proxy contra standby"
+  world_cmd="docker compose -p hv-sim-world -f '${nodes_dir}/world.yml' -f '${tmp}/world.override.yml' --env-file '${addresses}' --env-file '${secrets}'"
+  hub_cmd="docker compose -p hv-sim-hub -f '${nodes_dir}/hub.yml' -f '${tmp}/hub.override.yml' --env-file '${addresses}' --env-file '${secrets}'"
+  SIM_PAUSE_WORLD="${world_cmd} pause" \
+    SIM_UNPAUSE_WORLD="${world_cmd} unpause" \
+    SIM_PAUSE_HUB="${hub_cmd} pause hub" \
+    SIM_UNPAUSE_HUB="${hub_cmd} unpause hub" \
+    node "${nodes_dir}/simulate-check.mjs" failover
 fi
 
 echo "MEDICION PLAN A SIMULADO: build_s=${build_s} up_s=${up_s} smoke_s=${smoke_s} fault_s=${fault_s} total_s=$((SECONDS - total_start)) tag=${HV_TAG}"

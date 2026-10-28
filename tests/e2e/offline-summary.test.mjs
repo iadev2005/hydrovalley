@@ -26,9 +26,10 @@ import {
   waitForHealthyStack,
 } from "./support.mjs";
 
-// Esquina del valle poco usada por las demás pruebas.
-const TREE = { x: 28, y: 28 };
-const SPRINKLER = { x: 29, y: 28 };
+// Esquina del valle poco usada por las demás pruebas, en la mitad izquierda:
+// el terreno natural de la expansión de jugabilidad cae desde la columna 17.
+const TREE = { x: 12, y: 28 };
+const SPRINKLER = { x: 13, y: 28 };
 const AWAY_MS = 14_000;
 
 async function act(session, message) {
@@ -55,9 +56,9 @@ describe("offline summary (B6, RF-25)", () => {
   it("brings what the sprinkler did while away and clears it with the next action", { timeout: 120_000 }, async () => {
     const [account] = await provisionPlayers(await loginAdmin(), 1, "e2e-summary");
 
-    // 1. Hojas para un aspersor: una casilla hasta árbol (15 hojas).
+    // 1. Hojas para un aspersor: una casilla hasta árbol (11 hojas).
     const first = await openReadySession(account.token, { map: false });
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 6; i++) {
       await act(first, { type: "drop", ...TREE });
     }
     await first.waitFor("the leaves of the tree", (f) => f.type === "state" && BigInt(f.player?.leaves ?? 0) >= 10n, 10_000);
@@ -92,7 +93,7 @@ describe("offline summary (B6, RF-25)", () => {
 
     // 4. Una acción aplicada lo borra: el resumen de la siguiente conexión
     // cuenta solo lo que pasó desde esa acción.
-    await act(returned, { type: "drop", x: 0, y: 0 });
+    await act(returned, { type: "drop", x: 14, y: 14 });
     returned.close();
     const again = await openReadySession(account.token, { map: false });
     const next = (await firstPlayerState(again)).player.offline_summary;

@@ -273,16 +273,38 @@ pub fn catalog_message(doc: &Json, version: &str) -> persistence_pb::Catalog {
             area_side: n32("installations.sprinkler.area_side_tiles"),
             humidity: n("installations.sprinkler.humidity_points"),
             interval_seconds: n32("installations.sprinkler.interval_seconds"),
+            durability: n32("installations.sprinkler.durability"),
         }),
         drip: Some(p::DripRules {
             price: n("installations.drip.price_leaves"),
             area_side: n32("installations.drip.area_side_tiles"),
             evaporation_divisor: n32("installations.drip.evaporation_divisor"),
+            durability: n32("installations.drip.durability"),
+            wear_interval_seconds: n32("installations.drip.wear_interval_seconds"),
         }),
         treatment_plant: Some(p::TreatmentPlantRules {
             price: n("installations.treatment_plant.price_leaves"),
             refill_amount: n("installations.treatment_plant.refill_liters"),
             interval_seconds: n32("installations.treatment_plant.interval_seconds"),
+            durability: n32("installations.treatment_plant.durability"),
+        }),
+        trash_bin: Some(p::TrashBinRules {
+            price: n("installations.trash_bin.price_leaves"),
+            area_side: n32("installations.trash_bin.area_side_tiles"),
+            interval_seconds: n32("installations.trash_bin.interval_seconds"),
+            durability: n32("installations.trash_bin.durability"),
+        }),
+        terrain: Some(p::TerrainRules {
+            river_width: n32("rules.terrain.river_width_tiles"),
+            rock_count: n32("rules.terrain.rock_count"),
+        }),
+        urban: Some(p::UrbanRules {
+            building_tree_threshold: n32("rules.urban.building_tree_threshold"),
+            building_humidity_threshold: n("rules.urban.building_humidity_points_threshold"),
+            max_buildings: n32("rules.urban.max_buildings"),
+            trash_interval_seconds: n32("rules.urban.trash_interval_seconds"),
+            trash_spread_interval_seconds: n32("rules.urban.trash_spread_interval_seconds"),
+            clean_reward_leaves: n("rules.urban.clean_reward_leaves"),
         }),
         installation_price_increase_percent: n32("rules.installation_price_increase_percent"),
         bigger_drop: Some(p::BiggerDropRules {

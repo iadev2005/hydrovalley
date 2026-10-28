@@ -160,10 +160,12 @@ server {
         # Igual que en /api: se sobrescribe, no se añade (único proxy).
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_connect_timeout 2s;
-        # El hub envía un estado cada segundo; una hora sin nada es una
-        # conexión muerta.
-        proxy_read_timeout 1h;
-        proxy_send_timeout 1h;
+        # El hub envía un estado cada segundo; si pasan 5 s sin datos (p. ej.
+        # docker pause del hub primario durante el handshake o en mitad de una
+        # partida), nginx corta y conmuta a @play_backup (en el handshake) o
+        # cierra el WebSocket para que el cliente se reconecte.
+        proxy_read_timeout 5s;
+        proxy_send_timeout 5s;
         proxy_buffering off;
         proxy_intercept_errors on;
         error_page 502 503 504 = @play_backup;
@@ -184,8 +186,8 @@ server {
         proxy_set_header Origin $hv_ws_origin;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_connect_timeout 2s;
-        proxy_read_timeout 1h;
-        proxy_send_timeout 1h;
+        proxy_read_timeout 5s;
+        proxy_send_timeout 5s;
         proxy_buffering off;
         error_log /dev/stderr crit;
     }

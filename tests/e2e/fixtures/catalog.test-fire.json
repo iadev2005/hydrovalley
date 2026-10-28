@@ -30,24 +30,46 @@
       "propagation_chance_ppm": 2000
     },
     "installation_price_increase_percent": 15,
-    "offline_installation_seconds": 7200
+    "offline_installation_seconds": 7200,
+    "terrain": {
+      "river_width_tiles": 0,
+      "rock_count": 0
+    },
+    "urban": {
+      "building_tree_threshold": 2,
+      "building_humidity_points_threshold": 500,
+      "max_buildings": 0,
+      "trash_interval_seconds": 5,
+      "trash_spread_interval_seconds": 10,
+      "clean_reward_leaves": 2
+    }
   },
   "installations": {
     "sprinkler": {
       "price_leaves": 10,
       "area_side_tiles": 3,
       "humidity_points": 25,
-      "interval_seconds": 2
+      "interval_seconds": 2,
+      "durability": 30
     },
     "drip": {
       "price_leaves": 25,
       "area_side_tiles": 5,
-      "evaporation_divisor": 2
+      "evaporation_divisor": 2,
+      "durability": 30,
+      "wear_interval_seconds": 2
     },
     "treatment_plant": {
       "price_leaves": 40,
       "refill_liters": 1,
-      "interval_seconds": 2
+      "interval_seconds": 2,
+      "durability": 30
+    },
+    "trash_bin": {
+      "price_leaves": 15,
+      "area_side_tiles": 3,
+      "interval_seconds": 2,
+      "durability": 30
     }
   },
   "upgrades": {

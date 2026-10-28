@@ -12,7 +12,7 @@ func (w *World) placeInstallation(playerID string, kind InstallationKind, x, y u
 	if !inside {
 		return RejectedOutcome(OutOfBounds)
 	}
-	if w.tiles[index].Installation != nil {
+	if w.tiles[index].Installation != nil || w.tiles[index].Stage.IsNatural() || w.tiles[index].HasBuilding || w.tiles[index].TrashLevel > 0 {
 		return RejectedOutcome(TileOccupied)
 	}
 	var purchased uint32
@@ -31,7 +31,11 @@ func (w *World) placeInstallation(playerID string, kind InstallationKind, x, y u
 	player := &w.playerSlot(playerID).record
 	player.spendLeaves(price)
 	player.recordPurchase(kind)
-	w.tiles[index].Installation = &Installation{Kind: kind, OwnerID: playerID}
+	w.tiles[index].Installation = &Installation{
+		Kind:                kind,
+		OwnerID:             playerID,
+		RemainingDurability: w.catalog.InstallationBaseDurability(kind),
+	}
 	return AppliedOutcome
 }
 
@@ -106,6 +110,8 @@ func (w *World) activeInstallations(kind InstallationKind, tick uint64) []placed
 // cada TreatmentPlant.IntervalSeconds suma TreatmentPlant.RefillAmount litros
 // extra al depósito de su dueño, sin pasar de la capacidad. Solo lo que cabe
 // cuenta como recargado (RF-27) y como WaterRecycled.
+// Además emite un pulso periódico 3x3 que sube +1 etapa vegetal a las
+// casillas vecinas y acredita las hojas al propietario.
 func (w *World) runTreatmentPlants(tick uint64) {
 	rules := w.catalog.TreatmentPlant
 	interval := satMul(uint64(rules.IntervalSeconds), TicksPerSecond)
@@ -113,11 +119,48 @@ func (w *World) runTreatmentPlants(tick uint64) {
 		return
 	}
 	for _, plant := range w.activeInstallations(TreatmentPlant, tick) {
+		x, y := w.tileXY(plant.index)
+		area := areaIndices(x, y, 3, w.width, w.height)
+		var leavesEarned uint64
+		var tilesGrown uint64
+		for _, neighborIdx := range area {
+			if neighborIdx == plant.index {
+				continue
+			}
+			tile := &w.tiles[neighborIdx]
+			if tile.Fire != nil || tile.IsBlocked() {
+				continue
+			}
+			if next, ok := tile.Stage.Next(); ok {
+				tile.Stage = next
+				tile.DryTicks = 0
+				if tile.Stage == Tree {
+					tile.Humidity = minU64(tile.Humidity, w.catalog.Growth.TreeMaxHumidity)
+				}
+				earned := w.catalog.Growth.LeavesFor(next)
+				leavesEarned = satAdd(leavesEarned, earned)
+				tilesGrown = satAdd(tilesGrown, 1)
+			}
+		}
+
 		player := &w.playerSlot(plant.owner).record
 		added := minU64(rules.RefillAmount, satSub(player.TankCapacity, player.Water))
 		player.Water = satAdd(player.Water, added)
 		player.WaterRefilled = satAdd(player.WaterRefilled, added)
 		player.WaterRecycled = satAdd(player.WaterRecycled, added)
+
+		player.Leaves = satAdd(player.Leaves, leavesEarned)
+		player.LeavesEarned = satAdd(player.LeavesEarned, leavesEarned)
+		player.TilesGrown = satAdd(player.TilesGrown, tilesGrown)
+
+		if inst := w.tiles[plant.index].Installation; inst != nil {
+			if inst.RemainingDurability > 0 {
+				inst.RemainingDurability--
+			}
+			if inst.RemainingDurability == 0 {
+				w.tiles[plant.index].Installation = nil
+			}
+		}
 	}
 }
 
@@ -149,6 +192,9 @@ func (w *World) runSprinklers(tick uint64) {
 		var effect OfflineSummary
 		for _, index := range area {
 			tile := &w.tiles[index]
+			if tile.IsBlocked() {
+				continue
+			}
 			stageBefore := tile.Stage
 			effect.LeavesEarned = satAdd(effect.LeavesEarned, AddHumidity(tile, rules.Humidity, w.catalog.Growth))
 			if Extinguish(tile) {
@@ -168,6 +214,65 @@ func (w *World) runSprinklers(tick uint64) {
 		player.FiresExtinguished = satAdd(player.FiresExtinguished, effect.FiresExtinguished)
 		player.TilesGrown = satAdd(player.TilesGrown, effect.TilesGrown)
 		player.OfflineSummary.add(effect)
+
+		if inst := w.tiles[sprinkler.index].Installation; inst != nil {
+			if inst.RemainingDurability > 0 {
+				inst.RemainingDurability--
+			}
+			if inst.RemainingDurability == 0 {
+				w.tiles[sprinkler.index].Installation = nil
+			}
+		}
+	}
+}
+
+// runDrips descuenta un punto de durabilidad al goteo activo cada
+// Drip.WearIntervalSeconds. Al llegar a cero se destruye y desaparece.
+func (w *World) runDrips(tick uint64) {
+	interval := satMul(uint64(w.catalog.Drip.WearIntervalSeconds), TicksPerSecond)
+	if !isMultiple(tick, interval) {
+		return
+	}
+	for _, drip := range w.activeInstallations(Drip, tick) {
+		if inst := w.tiles[drip.index].Installation; inst != nil {
+			if inst.RemainingDurability > 0 {
+				inst.RemainingDurability--
+			}
+			if inst.RemainingDurability == 0 {
+				w.tiles[drip.index].Installation = nil
+			}
+		}
+	}
+}
+
+// runTrashBins es el Cesto de Basura / Reciclaje (Fase 4): cada 2 segundos (20 ticks) reduce 1 nivel
+// de basura en su radio 3 x 3 y descuenta 1 punto de su durabilidad.
+func (w *World) runTrashBins(tick uint64) {
+	rules := w.catalog.TrashBin
+	interval := satMul(uint64(rules.IntervalSeconds), TicksPerSecond)
+	if !isMultiple(tick, interval) {
+		return
+	}
+	side := rules.AreaSide
+	for _, bin := range w.activeInstallations(TrashBin, tick) {
+		x, y := w.tileXY(bin.index)
+		for _, tileIdx := range areaIndices(x, y, side, w.width, w.height) {
+			tile := &w.tiles[tileIdx]
+			if tile.TrashLevel > 0 {
+				tile.TrashLevel--
+				if tile.TrashLevel == 0 {
+					tile.Stage = DrySoil
+				}
+			}
+		}
+		if inst := w.tiles[bin.index].Installation; inst != nil {
+			if inst.RemainingDurability > 0 {
+				inst.RemainingDurability--
+			}
+			if inst.RemainingDurability == 0 {
+				w.tiles[bin.index].Installation = nil
+			}
+		}
 	}
 }
 
@@ -181,9 +286,10 @@ func (w *World) runSprinklers(tick uint64) {
 // min(humedad, evaporación) - min(humedad, evaporación reducida). Una casilla
 // ardiendo se evapora (y ahorra) como cualquier otra: el fuego congela la
 // etapa, no la humedad.
-func (w *World) evaporateValley(tick uint64) {
+func (w *World) evaporateValley(tick uint64, shoreline []bool) {
 	amount := w.catalog.Evaporation.HumidityPerSecond
 	reduced := amount / max(uint64(w.catalog.Drip.EvaporationDivisor), 1)
+	shorelineAmount := amount / 2
 	drips := w.activeInstallations(Drip, tick)
 	side := w.catalog.Drip.AreaSide
 	// Para cada casilla, qué goteo la cubre (el primero en orden); -1 si
@@ -203,14 +309,25 @@ func (w *World) evaporateValley(tick uint64) {
 	saved := make([]uint64, len(drips))
 	for i := range w.tiles {
 		tile := &w.tiles[i]
-		n := cover[i]
-		if n < 0 {
-			Evaporate(tile, amount)
+		if tile.Stage.IsNatural() {
 			continue
 		}
+		baseEvap := amount
+		if shoreline[i] {
+			baseEvap = shorelineAmount
+		}
+		n := cover[i]
+		if n < 0 {
+			Evaporate(tile, baseEvap)
+			continue
+		}
+		effectiveReduced := reduced
+		if shoreline[i] {
+			effectiveReduced = minU64(reduced, shorelineAmount)
+		}
 		h := tile.Humidity
-		saved[n] = satAdd(saved[n], minU64(h, amount)-minU64(h, reduced))
-		Evaporate(tile, reduced)
+		saved[n] = satAdd(saved[n], minU64(h, baseEvap)-minU64(h, effectiveReduced))
+		Evaporate(tile, effectiveReduced)
 	}
 	for n, drip := range drips {
 		player := &w.playerSlot(drip.owner).record

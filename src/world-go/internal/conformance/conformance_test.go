@@ -55,6 +55,7 @@ type commandSpec struct {
 		Enabled bool `json:"enabled"`
 	} `json:"set_demo_mode"`
 	ResetValley *struct{} `json:"reset_valley"`
+	CleanTrash  *xy       `json:"clean_trash"`
 }
 
 type xy struct {
@@ -246,16 +247,38 @@ func catalogMessage(t *testing.T, doc map[string]any, version string) *persisten
 			AreaSide:        n32("installations.sprinkler.area_side_tiles"),
 			Humidity:        n("installations.sprinkler.humidity_points"),
 			IntervalSeconds: n32("installations.sprinkler.interval_seconds"),
+			Durability:      n32("installations.sprinkler.durability"),
 		},
 		Drip: &persistencev1.DripRules{
-			Price:              n("installations.drip.price_leaves"),
-			AreaSide:           n32("installations.drip.area_side_tiles"),
-			EvaporationDivisor: n32("installations.drip.evaporation_divisor"),
+			Price:               n("installations.drip.price_leaves"),
+			AreaSide:            n32("installations.drip.area_side_tiles"),
+			EvaporationDivisor:  n32("installations.drip.evaporation_divisor"),
+			Durability:          n32("installations.drip.durability"),
+			WearIntervalSeconds: n32("installations.drip.wear_interval_seconds"),
 		},
 		TreatmentPlant: &persistencev1.TreatmentPlantRules{
 			Price:           n("installations.treatment_plant.price_leaves"),
 			RefillAmount:    n("installations.treatment_plant.refill_liters"),
 			IntervalSeconds: n32("installations.treatment_plant.interval_seconds"),
+			Durability:      n32("installations.treatment_plant.durability"),
+		},
+		TrashBin: &persistencev1.TrashBinRules{
+			Price:           n("installations.trash_bin.price_leaves"),
+			AreaSide:        n32("installations.trash_bin.area_side_tiles"),
+			IntervalSeconds: n32("installations.trash_bin.interval_seconds"),
+			Durability:      n32("installations.trash_bin.durability"),
+		},
+		Terrain: &persistencev1.TerrainRules{
+			RiverWidth: n32("rules.terrain.river_width_tiles"),
+			RockCount:  n32("rules.terrain.rock_count"),
+		},
+		Urban: &persistencev1.UrbanRules{
+			BuildingTreeThreshold:      n32("rules.urban.building_tree_threshold"),
+			BuildingHumidityThreshold:  n("rules.urban.building_humidity_points_threshold"),
+			MaxBuildings:               n32("rules.urban.max_buildings"),
+			TrashIntervalSeconds:       n32("rules.urban.trash_interval_seconds"),
+			TrashSpreadIntervalSeconds: n32("rules.urban.trash_spread_interval_seconds"),
+			CleanRewardLeaves:          n("rules.urban.clean_reward_leaves"),
 		},
 		InstallationPriceIncreasePercent: n32("rules.installation_price_increase_percent"),
 		BiggerDrop: &persistencev1.BiggerDropRules{
@@ -301,6 +324,7 @@ var (
 		"sprinkler":       int32(worldv1.InstallationKind_INSTALLATION_KIND_SPRINKLER),
 		"drip":            int32(worldv1.InstallationKind_INSTALLATION_KIND_DRIP),
 		"treatment_plant": int32(worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT),
+		"trash_bin":       int32(worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN),
 	}
 	upgradeNames = map[string]int32{
 		"bigger_drop": int32(worldv1.UpgradeKind_UPGRADE_KIND_BIGGER_DROP),
@@ -344,6 +368,8 @@ func commandMessage(t *testing.T, spec commandSpec, players map[string]string) *
 		message.Kind = &worldv1.Command_SetDemoMode{SetDemoMode: &worldv1.SetDemoModeCommand{Enabled: spec.SetDemoMode.Enabled}}
 	case spec.ResetValley != nil:
 		message.Kind = &worldv1.Command_ResetValley{ResetValley: &worldv1.ResetValleyCommand{}}
+	case spec.CleanTrash != nil:
+		message.Kind = &worldv1.Command_CleanTrash{CleanTrash: &worldv1.CleanTrashCommand{X: spec.CleanTrash.X, Y: spec.CleanTrash.Y}}
 	}
 	return message
 }

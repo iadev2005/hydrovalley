@@ -1,6 +1,8 @@
 package codec
 
 import (
+	"fmt"
+
 	persistencev1 "github.com/iadev2005/hydrovalley/gen/go/hydrovalley/persistence/v1"
 
 	"github.com/iadev2005/hydrovalley/src/world-go/internal/domain"
@@ -24,6 +26,9 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 	sprinkler := message.GetSprinkler()
 	drip := message.GetDrip()
 	plant := message.GetTreatmentPlant()
+	trashBin := message.GetTrashBin()
+	terrain := message.GetTerrain()
+	urban := message.GetUrban()
 	biggerDrop := message.GetBiggerDrop()
 	biggerTank := message.GetBiggerTank()
 
@@ -35,8 +40,9 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 		{"drop", drop != nil}, {"tank", tank != nil}, {"growth", growth != nil},
 		{"evaporation", evaporation != nil}, {"fire", fire != nil},
 		{"sprinkler", sprinkler != nil}, {"drip", drip != nil},
-		{"treatment_plant", plant != nil}, {"bigger_drop", biggerDrop != nil},
-		{"bigger_tank", biggerTank != nil},
+		{"treatment_plant", plant != nil}, {"trash_bin", trashBin != nil},
+		{"terrain", terrain != nil}, {"urban", urban != nil},
+		{"bigger_drop", biggerDrop != nil}, {"bigger_tank", biggerTank != nil},
 	} {
 		if !section.present {
 			return domain.Catalog{}, invalidCatalog("falta " + section.name)
@@ -54,13 +60,35 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 		{"fire.burn_out_ticks", uint64(fire.GetBurnOutTicks())},
 		{"sprinkler.area_side", uint64(sprinkler.GetAreaSide())},
 		{"sprinkler.interval_seconds", uint64(sprinkler.GetIntervalSeconds())},
+		{"sprinkler.durability", uint64(sprinkler.GetDurability())},
 		{"drip.area_side", uint64(drip.GetAreaSide())},
 		{"drip.evaporation_divisor", uint64(drip.GetEvaporationDivisor())},
+		{"drip.durability", uint64(drip.GetDurability())},
+		{"drip.wear_interval_seconds", uint64(drip.GetWearIntervalSeconds())},
 		{"treatment_plant.interval_seconds", uint64(plant.GetIntervalSeconds())},
+		{"treatment_plant.durability", uint64(plant.GetDurability())},
+		{"trash_bin.area_side", uint64(trashBin.GetAreaSide())},
+		{"trash_bin.interval_seconds", uint64(trashBin.GetIntervalSeconds())},
+		{"trash_bin.durability", uint64(trashBin.GetDurability())},
 		{"bigger_drop.area_side", uint64(biggerDrop.GetAreaSide())},
+		{"urban.trash_interval_seconds", uint64(urban.GetTrashIntervalSeconds())},
+		{"urban.trash_spread_interval_seconds", uint64(urban.GetTrashSpreadIntervalSeconds())},
 	} {
 		if figure.value == 0 {
 			return domain.Catalog{}, invalidCatalog(figure.name + " debe ser mayor que 0")
+		}
+	}
+	for _, figure := range []struct {
+		name  string
+		value uint64
+		limit uint64
+	}{
+		{"terrain.river_width", uint64(terrain.GetRiverWidth()), domain.MaxRiverWidth},
+		{"terrain.rock_count", uint64(terrain.GetRockCount()), domain.MaxRockCount},
+		{"urban.max_buildings", uint64(urban.GetMaxBuildings()), domain.MaxBuildings},
+	} {
+		if figure.value > figure.limit {
+			return domain.Catalog{}, invalidCatalog(fmt.Sprintf("%s no puede pasar de %d", figure.name, figure.limit))
 		}
 	}
 
@@ -100,16 +128,38 @@ func CatalogFromProto(message *persistencev1.Catalog) (domain.Catalog, error) {
 			AreaSide:        sprinkler.GetAreaSide(),
 			Humidity:        sprinkler.GetHumidity(),
 			IntervalSeconds: sprinkler.GetIntervalSeconds(),
+			Durability:      sprinkler.GetDurability(),
 		},
 		Drip: domain.DripRules{
-			Price:              drip.GetPrice(),
-			AreaSide:           drip.GetAreaSide(),
-			EvaporationDivisor: drip.GetEvaporationDivisor(),
+			Price:               drip.GetPrice(),
+			AreaSide:            drip.GetAreaSide(),
+			EvaporationDivisor:  drip.GetEvaporationDivisor(),
+			Durability:          drip.GetDurability(),
+			WearIntervalSeconds: drip.GetWearIntervalSeconds(),
 		},
 		TreatmentPlant: domain.TreatmentPlantRules{
 			Price:           plant.GetPrice(),
 			RefillAmount:    plant.GetRefillAmount(),
 			IntervalSeconds: plant.GetIntervalSeconds(),
+			Durability:      plant.GetDurability(),
+		},
+		TrashBin: domain.TrashBinRules{
+			Price:           trashBin.GetPrice(),
+			AreaSide:        trashBin.GetAreaSide(),
+			IntervalSeconds: trashBin.GetIntervalSeconds(),
+			Durability:      trashBin.GetDurability(),
+		},
+		Terrain: domain.TerrainRules{
+			RiverWidth: terrain.GetRiverWidth(),
+			RockCount:  terrain.GetRockCount(),
+		},
+		Urban: domain.UrbanRules{
+			BuildingTreeThreshold:      urban.GetBuildingTreeThreshold(),
+			BuildingHumidityThreshold:  urban.GetBuildingHumidityThreshold(),
+			MaxBuildings:               urban.GetMaxBuildings(),
+			TrashIntervalSeconds:       urban.GetTrashIntervalSeconds(),
+			TrashSpreadIntervalSeconds: urban.GetTrashSpreadIntervalSeconds(),
+			CleanRewardLeaves:          urban.GetCleanRewardLeaves(),
 		},
 		InstallationPriceIncreasePercent: message.GetInstallationPriceIncreasePercent(),
 		BiggerDrop: domain.BiggerDropRules{

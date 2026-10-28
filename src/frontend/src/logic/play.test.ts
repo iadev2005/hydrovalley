@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildBuyUpgradeFrame,
+  buildCleanTrashFrame,
   buildDropFrame,
   buildPlaceInstallationFrame,
   buildResetValleyFrame,
@@ -114,6 +115,12 @@ describe("frame builders for the other commands", () => {
     expect(
       JSON.parse(buildPlaceInstallationFrame({ installation: "drip", x: 2, y: 3, actionId })),
     ).toEqual({ type: "place_installation", action_id: actionId, installation: "drip", x: 2, y: 3 });
+    expect(
+      JSON.parse(buildPlaceInstallationFrame({ installation: "trash_bin", x: 4, y: 5, actionId })),
+    ).toEqual({ type: "place_installation", action_id: actionId, installation: "trash_bin", x: 4, y: 5 });
+    expect(
+      JSON.parse(buildCleanTrashFrame({ x: 4, y: 5, actionId })),
+    ).toEqual({ type: "clean_trash", action_id: actionId, x: 4, y: 5 });
     expect(JSON.parse(buildBuyUpgradeFrame({ upgrade: "bigger_tank", actionId }))).toEqual({
       type: "buy_upgrade",
       action_id: actionId,
@@ -133,6 +140,7 @@ describe("frame builders for the other commands", () => {
   it("rejects unknown kinds and bad coordinates", () => {
     expect(() => buildPlaceInstallationFrame({ installation: "dam", x: 0, y: 0, actionId })).toThrow(RangeError);
     expect(() => buildPlaceInstallationFrame({ installation: "drip", x: -1, y: 0, actionId })).toThrow(RangeError);
+    expect(() => buildCleanTrashFrame({ x: -1, y: 0, actionId })).toThrow(RangeError);
     expect(() => buildBuyUpgradeFrame({ upgrade: "bigger_roof", actionId })).toThrow(RangeError);
     expect(() => buildSetDemoModeFrame({ enabled: "yes" as unknown as boolean, actionId })).toThrow(TypeError);
   });
@@ -150,7 +158,9 @@ describe("parseFrame of the full state", () => {
         stages: [1, 2],
         humidity: ["0", "75"],
         fires: [{ x: 1, y: 0, drops_received: 2 }],
-        installations: [{ x: 0, y: 0, installation: "drip", owner_id: "p1" }],
+        installations: [{ x: 0, y: 0, installation: "drip", owner_id: "p1", remaining_durability: 30 }],
+        buildings: [false, true],
+        trash: [0, 2],
         player: {
           water: "5",
           tank_capacity: "20",
@@ -159,6 +169,7 @@ describe("parseFrame of the full state", () => {
           next_sprinkler_price: "10",
           next_drip_price: "25",
           next_treatment_plant_price: "40",
+          next_trash_bin_price: "15",
         },
       }),
     ) as StateFrame;
@@ -168,10 +179,15 @@ describe("parseFrame of the full state", () => {
     expect(state.stages).toEqual([1, 2]);
     expect(state.humidity).toEqual([0n, 75n]);
     expect(state.fires).toEqual([{ x: 1, y: 0, drops_received: 2 }]);
-    expect(state.installations).toEqual([{ x: 0, y: 0, installation: "drip", owner_id: "p1" }]);
+    expect(state.installations).toEqual([
+      { x: 0, y: 0, installation: "drip", owner_id: "p1", remaining_durability: 30 },
+    ]);
+    expect(state.buildings).toEqual([false, true]);
+    expect(state.trash).toEqual([0, 2]);
     expect(state.player?.upgrades).toEqual(["bigger_drop"]);
     expect(state.player?.next_sprinkler_price).toBe(10n);
     expect(state.player?.next_treatment_plant_price).toBe(40n);
+    expect(state.player?.next_trash_bin_price).toBe(15n);
   });
 
   it("defaults the map fields to empty when they are absent (map=false)", () => {
@@ -242,6 +258,7 @@ describe("parseFrame", () => {
       next_sprinkler_price: 0n,
       next_drip_price: 0n,
       next_treatment_plant_price: 0n,
+      next_trash_bin_price: 0n,
       offline_summary: null,
     });
     expect(parseFrame('{"type":"error","code":"invalid_message"}')).toEqual({
@@ -285,6 +302,8 @@ describe("describeFrame", () => {
         humidity: [],
         fires: [],
         installations: [],
+        buildings: [],
+        trash: [],
         player: {
           water: 19n,
           tank_capacity: 20n,
@@ -293,6 +312,7 @@ describe("describeFrame", () => {
           next_sprinkler_price: 0n,
           next_drip_price: 0n,
           next_treatment_plant_price: 0n,
+          next_trash_bin_price: 0n,
           offline_summary: null,
         },
       }),
@@ -309,6 +329,8 @@ describe("describeFrame", () => {
         humidity: [],
         fires: [],
         installations: [],
+        buildings: [],
+        trash: [],
         player: null,
       }),
     ).toBe("state tick 3 (en pausa)");

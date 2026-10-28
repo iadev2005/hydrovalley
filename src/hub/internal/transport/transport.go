@@ -247,6 +247,8 @@ func (p *playHandler) readLoop(ctx context.Context, conn *websocket.Conn, s *hub
 			outcome = p.hub.SubmitPlace(s, *cmd.Place)
 		case cmd.Buy != nil:
 			outcome = p.hub.SubmitBuy(s, *cmd.Buy)
+		case cmd.CleanTrash != nil:
+			outcome = p.hub.SubmitCleanTrash(s, *cmd.CleanTrash)
 		default:
 			outcome = p.hub.SubmitDrop(s, *cmd.Drop)
 		}

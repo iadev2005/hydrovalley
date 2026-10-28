@@ -187,7 +187,12 @@ describe("walking skeleton (CP-01-lite)", () => {
     // o sea, el simulador cargó su instantánea desde la persistencia.
     session = await openReadySession(account.token, { map: false });
 
-    // Tres gotas seguidas: cada una cuesta 1 L de los 20 iniciales (D-01).
+    // Tres gotas seguidas: cada una cuesta 1 L del depósito inicial, cuya
+    // capacidad se lee de catalog/catalog.json.
+    const capacity = BigInt(
+      JSON.parse(readFileSync(new URL("../../catalog/catalog.json", import.meta.url), "utf8")).rules.tank
+        .capacity_liters,
+    );
     const actionIds = [randomUUID(), randomUUID(), randomUUID()];
     for (const actionId of actionIds) {
       session.send({ type: "drop", action_id: actionId, x: 3, y: 4 });
@@ -205,14 +210,17 @@ describe("walking skeleton (CP-01-lite)", () => {
     // Solo cuenta un estado que llegue después de los resultados. El depósito
     // se recarga 1 L cada 2 s (catálogo) y el estado se difunde cada segundo,
     // así que entre las gotas y ese estado cabe como mucho una recarga:
-    // quedan 17 L, o 18 si cayó un tick de recarga.
+    // quedan capacidad - 3 L, o capacidad - 2 si cayó un tick de recarga.
     const state = await session.waitFor(
       "a state with the player",
       (f) => f.type === "state" && f.player !== undefined,
       5000,
     );
-    assert.ok(["17", "18"].includes(state.player.water), `water ${state.player.water}`);
-    assert.equal(state.player.tank_capacity, "20");
+    assert.ok(
+      [String(capacity - 3n), String(capacity - 2n)].includes(state.player.water),
+      `water ${state.player.water}`,
+    );
+    assert.equal(state.player.tank_capacity, String(capacity));
     assert.ok(account.player_id, "the API returns the player_id of the token");
   });
 
@@ -378,7 +386,9 @@ describe("growth end to end (RF-04, RF-05)", () => {
     const account = await registerPlayer();
     grownAccount = account;
     player = await openReadySession(account.token, { map: true });
-    const x = 25;
+    // La mitad izquierda del valle nunca tiene río ni rocas (el terreno natural
+    // de la expansión de jugabilidad cae en las columnas 17 en adelante).
+    const x = 5;
     const y = 6;
 
     const before = await player.first(
@@ -516,14 +526,21 @@ describe("administration (RF-31)", () => {
       (f) =>
         f.type === "state" &&
         f.stages?.length === 32 * 32 &&
-        f.stages.every((stage) => stage === 1) &&
+        // Sin crecimiento: solo tierra seca (1) y el terreno natural que el
+        // reinicio vuelve a sortear (6 agua, 7 roca).
+        f.stages.every((stage) => stage === 1 || stage === 6 || stage === 7) &&
         (f.humidity ?? []).every((h) => h === "0") &&
+        (f.trash ?? []).every((level) => level === 0) &&
+        !(f.buildings ?? []).some(Boolean) &&
         // protojson omite las listas vacías.
         (f.fires ?? []).length === 0 &&
         (f.installations ?? []).length === 0,
       10_000,
     );
     assert.equal(reset.width, 32);
+    // La expansión de jugabilidad: el reinicio genera río y rocas con el azar del simulador.
+    assert.ok(reset.stages.includes(6), "el reinicio debe dejar agua en el valle");
+    assert.ok(reset.stages.includes(7), "el reinicio debe dejar rocas en el valle");
   });
 
   it("wipes a grown tile on reset_valley", async () => {

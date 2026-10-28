@@ -39,6 +39,8 @@ func CommandFromProto(message *worldv1.Command) domain.Command {
 		command.Kind = domain.SetDemoModeCommand{Enabled: kind.SetDemoMode.GetEnabled()}
 	case *worldv1.Command_ResetValley:
 		command.Kind = domain.ResetValleyCommand{}
+	case *worldv1.Command_CleanTrash:
+		command.Kind = domain.CleanTrashCommand{X: kind.CleanTrash.GetX(), Y: kind.CleanTrash.GetY()}
 	}
 	return command
 }

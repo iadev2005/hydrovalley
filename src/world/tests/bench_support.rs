@@ -48,6 +48,7 @@ fn describe(command: &Command) -> String {
                 InstallationKind::Sprinkler => 0,
                 InstallationKind::Drip => 1,
                 InstallationKind::TreatmentPlant => 2,
+                InstallationKind::TrashBin => 3,
             };
             format!("P {code} {x} {y}")
         }

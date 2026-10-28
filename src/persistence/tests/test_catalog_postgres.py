@@ -46,7 +46,7 @@ def test_the_catalog_is_seeded_after_the_migrations_and_before_the_connection_is
     repository._open_connection()
     assert events == ["migrate"]
     inserts = [sql for sql in connection.statements if "INSERT INTO catalog_entries" in sql]
-    assert len(inserts) == 12
+    assert len(inserts) == 15
     assert any("DELETE FROM catalog_entries" in sql for sql in connection.statements)
     assert not connection.closed
 
@@ -134,7 +134,10 @@ def test_connecting_seeds_one_row_per_element_and_load_returns_the_same_catalog(
         ("offline_installation_seconds", "rule"),
         ("sprinkler", "installation"),
         ("tank", "rule"),
+        ("terrain", "rule"),
+        ("trash_bin", "installation"),
         ("treatment_plant", "installation"),
+        ("urban", "rule"),
     ]
     stored = catalog_from_entries(seeded.load_entries())
     assert stored == load_catalog_file(REPO_CATALOG)
@@ -174,7 +177,7 @@ def test_a_changed_figure_is_updated_and_a_removed_one_is_deleted(seeded):
         assert query("SELECT value->>'price_leaves' FROM catalog_entries WHERE key = 'sprinkler'") == [
             ("12",)
         ]
-        assert query("SELECT count(*) FROM catalog_entries") == [(12,)]
+        assert query("SELECT count(*) FROM catalog_entries") == [(15,)]
         assert catalog_from_entries(again.load_entries()).version == catalog.version
     finally:
         again.stop()
@@ -183,5 +186,5 @@ def test_a_changed_figure_is_updated_and_a_removed_one_is_deleted(seeded):
 @integration
 def test_the_ignition_chance_survives_the_round_trip(seeded):
     fire = {e.key: e.value for e in seeded.load_entries()}["fire"]
-    assert fire["ignition_chance_ppm"] == 50
-    assert fire["propagation_chance_ppm"] == 2000
+    assert fire["ignition_chance_ppm"] == 1250
+    assert fire["propagation_chance_ppm"] == 10000

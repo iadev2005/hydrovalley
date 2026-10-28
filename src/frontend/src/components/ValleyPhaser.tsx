@@ -43,6 +43,15 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const sceneRef = useRef<ValleyScene | null>(null);
+  const gameStateRef = useRef<StateFrame | null>(gameState);
+  const selectedRef = useRef<{ x: number; y: number } | null>(selected);
+  const onSelectTileRef = useRef(onSelectTile);
+  const onErrorRef = useRef(onError);
+
+  gameStateRef.current = gameState;
+  selectedRef.current = selected;
+  onSelectTileRef.current = onSelectTile;
+  onErrorRef.current = onError;
 
   const getScene = useCallback((): ValleyScene | null => {
     if (sceneRef.current) return sceneRef.current;
@@ -75,61 +84,103 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
     [getScene],
   );
 
-  // 1. Inicialización y limpieza del juego Phaser
+  // 1. Inicialización y limpieza del juego Phaser (con recuperación ante pérdida de contexto WebGL)
   useEffect(() => {
     const parent = containerRef.current;
     if (!parent) return;
 
     if (!isCanvasSupported()) {
-      onError?.(new Error("Canvas2D no soportado en este entorno"));
+      onErrorRef.current?.(new Error("Canvas2D no soportado en este entorno"));
       return;
     }
 
-    let game: Phaser.Game | null = null;
-    try {
-      const config: Phaser.Types.Core.GameConfig = {
-        type: Phaser.AUTO,
-        parent,
-        width: 1024,
-        height: 640,
-        scale: {
-          mode: Phaser.Scale.FIT,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
-        },
-        backgroundColor: "#8fb9c7",
-        pixelArt: true,
-        roundPixels: true,
-        scene: [ValleyScene],
-        audio: { noAudio: true },
-      };
+    let isDisposed = false;
+    let activeGame: Phaser.Game | null = null;
+    let cleanupCanvasListeners: (() => void) | null = null;
 
-      game = new Phaser.Game(config);
-      gameRef.current = game;
-
-      // Esperar a que la escena esté lista para registrar callbacks
-      game.events.once("ready", () => {
-        const scene = game?.scene.getScene(ValleyScene.KEY) as ValleyScene | null;
-        if (scene) {
-          sceneRef.current = scene;
-          scene.onSelectTile(onSelectTile);
-          if (gameState) scene.updateState(gameState);
-          if (selected) scene.setSelectedTile(selected);
-        }
-      });
-    } catch (err) {
-      // Entornos de prueba como happy-dom/node pueden carecer de WebGL/Canvas2D
-      console.warn("No se pudo instanciar Phaser en el entorno actual:", err);
-      onError?.(err);
-    }
-
-    return () => {
+    const destroyCurrentGame = () => {
+      cleanupCanvasListeners?.();
+      cleanupCanvasListeners = null;
       sceneRef.current = null;
-      if (game) {
-        game.destroy(true);
+      if (activeGame) {
+        try {
+          activeGame.destroy(true);
+        } catch {
+          // Ignorar errores al destruir un contexto ya perdido
+        }
+        activeGame = null;
         gameRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    const mountPhaser = (rendererType: number) => {
+      if (isDisposed) return;
+      destroyCurrentGame();
+
+      try {
+        const config: Phaser.Types.Core.GameConfig = {
+          type: rendererType,
+          parent,
+          width: 1024,
+          height: 640,
+          scale: {
+            mode: Phaser.Scale.FIT,
+            autoCenter: Phaser.Scale.CENTER_BOTH,
+          },
+          backgroundColor: "#8fb9c7",
+          pixelArt: true,
+          roundPixels: true,
+          scene: [ValleyScene],
+          audio: { noAudio: true },
+        };
+
+        const instance = new Phaser.Game(config);
+        activeGame = instance;
+        gameRef.current = instance;
+
+        const canvas = instance.canvas;
+        if (canvas && typeof canvas.addEventListener === "function") {
+          const handleContextLost = (event: Event) => {
+            event.preventDefault();
+            if (isDisposed) return;
+            if (rendererType !== Phaser.CANVAS) {
+              mountPhaser(Phaser.CANVAS);
+            } else {
+              destroyCurrentGame();
+              onErrorRef.current?.(new Error("Contexto gráfico perdido"));
+            }
+          };
+          canvas.addEventListener("webglcontextlost", handleContextLost);
+          canvas.addEventListener("contextlost", handleContextLost);
+          cleanupCanvasListeners = () => {
+            canvas.removeEventListener("webglcontextlost", handleContextLost);
+            canvas.removeEventListener("contextlost", handleContextLost);
+          };
+        }
+
+        // Esperar a que la escena esté lista para registrar callbacks y sincronizar estado
+        instance.events.once("ready", () => {
+          if (isDisposed || activeGame !== instance) return;
+          const scene = instance.scene.getScene(ValleyScene.KEY) as ValleyScene | null;
+          if (scene) {
+            sceneRef.current = scene;
+            scene.onSelectTile(onSelectTileRef.current);
+            if (gameStateRef.current) scene.updateState(gameStateRef.current);
+            if (selectedRef.current) scene.setSelectedTile(selectedRef.current);
+          }
+        });
+      } catch (err) {
+        // Entornos de prueba como happy-dom/node pueden carecer de WebGL/Canvas2D
+        onErrorRef.current?.(err);
+      }
+    };
+
+    mountPhaser(Phaser.AUTO);
+
+    return () => {
+      isDisposed = true;
+      destroyCurrentGame();
+    };
   }, []);
 
   // 2. Sincronización de onSelectTile

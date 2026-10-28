@@ -58,7 +58,8 @@ func tileWeight(stage uint32, humidity client.U64) int {
 }
 
 // PickTile elige una casilla con probabilidad proporcional a su peso. Con
-// avoidInstalled excluye las que ya tienen una instalación. ok es falso si
+// avoidInstalled excluye las que ya tienen una instalación; nunca ofrece las
+// que rechazan la gota (agua, roca, edificio o basura). ok es falso si
 // el estado no trae mapa o no queda ninguna casilla elegible.
 func PickTile(r *rand.Rand, st client.State, avoidInstalled bool) (x, y uint32, ok bool) {
 	w := int(st.Width)
@@ -76,7 +77,7 @@ func PickTile(r *rand.Rand, st client.State, avoidInstalled bool) (x, y uint32, 
 	weights := make([]int, n)
 	total := 0
 	for i := range n {
-		if taken[i] {
+		if taken[i] || !st.AcceptsDrop(i) {
 			continue
 		}
 		weights[i] = tileWeight(st.Stages[i], st.Humidity[i])

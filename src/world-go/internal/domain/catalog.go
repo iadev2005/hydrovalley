@@ -24,6 +24,9 @@ type Catalog struct {
 	Sprinkler      SprinklerRules
 	Drip           DripRules
 	TreatmentPlant TreatmentPlantRules
+	TrashBin       TrashBinRules
+	Terrain        TerrainRules
+	Urban          UrbanRules
 	// InstallationPriceIncreasePercent es el aumento de precio por cada
 	// compra del mismo tipo de instalación.
 	InstallationPriceIncreasePercent uint32
@@ -104,6 +107,7 @@ type SprinklerRules struct {
 	AreaSide        uint32
 	Humidity        uint64
 	IntervalSeconds uint32
+	Durability      uint32
 }
 
 // DripRules son las cifras del riego por goteo (Reducir).
@@ -111,6 +115,10 @@ type DripRules struct {
 	Price              uint64
 	AreaSide           uint32
 	EvaporationDivisor uint32
+	Durability         uint32
+	// WearIntervalSeconds son los segundos de trabajo activo que cuestan un
+	// punto de durabilidad.
+	WearIntervalSeconds uint32
 }
 
 // TreatmentPlantRules son las cifras de la planta de tratamiento (Reciclar).
@@ -118,6 +126,44 @@ type TreatmentPlantRules struct {
 	Price           uint64
 	RefillAmount    uint64
 	IntervalSeconds uint32
+	Durability      uint32
+}
+
+// TrashBinRules son las cifras del cesto de reciclaje (Fase 4).
+type TrashBinRules struct {
+	Price           uint64
+	AreaSide        uint32
+	IntervalSeconds uint32
+	Durability      uint32
+}
+
+// TerrainRules es el terreno natural que se genera al crear o reiniciar el
+// valle (Fase 3). Con los dos valores en cero el valle empieza vacío.
+type TerrainRules struct {
+	// RiverWidth es el ancho del río en casillas; 0 = sin río ni lago.
+	RiverWidth uint32
+	// RockCount son las rocas sueltas que se intentan colocar; 0 = sin rocas.
+	RockCount uint32
+}
+
+// UrbanRules es la presión urbana (Fase 4): edificios que ensucian el valle.
+type UrbanRules struct {
+	// BuildingTreeThreshold son los árboles en el valle a partir de los que
+	// aparece el primer edificio...
+	BuildingTreeThreshold uint32
+	// BuildingHumidityThreshold es la humedad total aportada a partir de la
+	// que aparece.
+	BuildingHumidityThreshold uint64
+	// MaxBuildings es el tope de edificios en el valle.
+	MaxBuildings uint32
+	// TrashIntervalSeconds son los segundos entre dos emisiones de basura de
+	// un edificio.
+	TrashIntervalSeconds uint32
+	// TrashSpreadIntervalSeconds son los segundos entre dos propagaciones de
+	// la basura de nivel 3.
+	TrashSpreadIntervalSeconds uint32
+	// CleanRewardLeaves son las hojas de quien deja limpia una casilla.
+	CleanRewardLeaves uint64
 }
 
 // BiggerDropRules son las cifras de la mejora de gota más grande.
@@ -140,8 +186,24 @@ func (c *Catalog) InstallationBasePrice(kind InstallationKind) uint64 {
 		return c.Sprinkler.Price
 	case Drip:
 		return c.Drip.Price
+	case TrashBin:
+		return c.TrashBin.Price
 	default:
 		return c.TreatmentPlant.Price
+	}
+}
+
+// InstallationBaseDurability es la durabilidad base de una instalación al colocarse.
+func (c *Catalog) InstallationBaseDurability(kind InstallationKind) uint32 {
+	switch kind {
+	case Sprinkler:
+		return c.Sprinkler.Durability
+	case Drip:
+		return c.Drip.Durability
+	case TrashBin:
+		return c.TrashBin.Durability
+	default:
+		return c.TreatmentPlant.Durability
 	}
 }
 

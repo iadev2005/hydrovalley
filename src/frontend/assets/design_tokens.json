@@ -1,0 +1,467 @@
+{
+  "grid": {
+    "tile_width": 32,
+    "tile_height": 16,
+    "isometric_ratio": "2:1",
+    "overlay_size": [
+      32,
+      32
+    ],
+    "base_diamond_equations": {
+      "top_half": "y in [0, 7]: x in [14 - 2*y, 17 + 2*y]",
+      "bottom_half": "y in [8, 15]: x in [2*(y-8), 31 - 2*(y-8)]",
+      "lit_border": "y in [8, 15]: x = 2*(y-8)",
+      "shadow_border": "y in [8, 15]: x = 31 - 2*(y-8)"
+    },
+    "overlay_diamond_y_range": [
+      16,
+      31
+    ],
+    "overlay_anchor": [
+      0.5,
+      0.75
+    ]
+  },
+  "categories": {
+    "water": [
+      {
+        "hex": "#ffffff",
+        "name": "Specular Glint",
+        "sources": [
+          "droplet.png",
+          "splash.png"
+        ]
+      },
+      {
+        "hex": "#e1f5fe",
+        "name": "Water Foam Light",
+        "sources": [
+          "splash.png"
+        ]
+      },
+      {
+        "hex": "#b3e5fc",
+        "name": "Water Foam Mid",
+        "sources": [
+          "splash.png"
+        ]
+      },
+      {
+        "hex": "#81d4fa",
+        "name": "Water Ripple Light",
+        "sources": [
+          "splash.png"
+        ]
+      },
+      {
+        "hex": "#9ceff7",
+        "name": "Water Pipe Highlight",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#97e9f5",
+        "name": "Spray Cyan Light",
+        "sources": [
+          "sprinkler.png",
+          "drip.png"
+        ]
+      },
+      {
+        "hex": "#29b6f6",
+        "name": "Droplet Blue Mid",
+        "sources": [
+          "droplet.png"
+        ]
+      },
+      {
+        "hex": "#03a9f4",
+        "name": "Droplet Blue Dark",
+        "sources": [
+          "droplet.png",
+          "splash.png"
+        ]
+      },
+      {
+        "hex": "#37a4dd",
+        "name": "Spray Cyan Dark",
+        "sources": [
+          "sprinkler.png"
+        ]
+      },
+      {
+        "hex": "#9fc1dc",
+        "name": "Tank Reflection Light",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#547aa9",
+        "name": "Tank Blue Soft",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#4e6084",
+        "name": "Tank Blue Medium",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#4089be",
+        "name": "Tank Water Mid",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#3b5892",
+        "name": "Tank Water Deep",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      }
+    ],
+    "stone_and_metal": [
+      {
+        "hex": "#c6c8d5",
+        "name": "Metal Highlight Pale",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#a3a9b5",
+        "name": "Metal Rim Light",
+        "sources": [
+          "sprinkler.png"
+        ]
+      },
+      {
+        "hex": "#a39896",
+        "name": "Concrete Plinth Base",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#9794a5",
+        "name": "Stone Plinth Shadow",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#888f99",
+        "name": "Steel Light",
+        "sources": [
+          "sprinkler.png"
+        ]
+      },
+      {
+        "hex": "#81848d",
+        "name": "Pipe Highlight",
+        "sources": [
+          "drip.png"
+        ]
+      },
+      {
+        "hex": "#6c6e7b",
+        "name": "Concrete Dark / Machine Grey",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#645e6a",
+        "name": "Concrete Shadow",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#61646d",
+        "name": "Steel Dark",
+        "sources": [
+          "sprinkler.png"
+        ]
+      },
+      {
+        "hex": "#535561",
+        "name": "Pipe Body",
+        "sources": [
+          "drip.png"
+        ]
+      },
+      {
+        "hex": "#4e4e58",
+        "name": "Steel Shadow",
+        "sources": [
+          "sprinkler.png"
+        ]
+      },
+      {
+        "hex": "#463c44",
+        "name": "Coupling Dark",
+        "sources": [
+          "drip.png"
+        ]
+      },
+      {
+        "hex": "#262739",
+        "name": "Machinery Shadow",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#252736",
+        "name": "Dark Chassis Base",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#0c0b11",
+        "name": "Canonical Dark Outline",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#06070c",
+        "name": "Canonical Pipe Outline",
+        "sources": [
+          "drip.png"
+        ]
+      },
+      {
+        "hex": "#0a0a12",
+        "name": "Sprinkler Black Outline",
+        "sources": [
+          "sprinkler.png"
+        ]
+      }
+    ],
+    "vegetation_and_organic": [
+      {
+        "hex": "#8cfdcb",
+        "name": "Grass Primary Field",
+        "sources": [
+          "tile_2_grass.png",
+          "tile_4_flowers.png"
+        ]
+      },
+      {
+        "hex": "#50fdd0",
+        "name": "Stem Highlight",
+        "sources": [
+          "tile_4_flowers.png"
+        ]
+      },
+      {
+        "hex": "#b8d295",
+        "name": "Grass Border Lit / Moss Light",
+        "sources": [
+          "tile_2_grass.png"
+        ]
+      },
+      {
+        "hex": "#a5b487",
+        "name": "Grass Border Shadow / Moss Dark",
+        "sources": [
+          "tile_2_grass.png"
+        ]
+      },
+      {
+        "hex": "#3dcf8f",
+        "name": "Bush & Tree Leaves Light",
+        "sources": [
+          "tile_3_bush.png",
+          "tile_5_tree.png"
+        ]
+      },
+      {
+        "hex": "#00a992",
+        "name": "Bush & Tree Midtone",
+        "sources": [
+          "tile_3_bush.png",
+          "tile_5_tree.png"
+        ]
+      },
+      {
+        "hex": "#00826c",
+        "name": "Bush & Tree Shadow Mid",
+        "sources": [
+          "tile_3_bush.png",
+          "tile_5_tree.png"
+        ]
+      },
+      {
+        "hex": "#006470",
+        "name": "Bush & Tree Deep Shadow",
+        "sources": [
+          "tile_3_bush.png",
+          "tile_5_tree.png"
+        ]
+      },
+      {
+        "hex": "#59b246",
+        "name": "Eco Valve Green / Moss Bright",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#327a64",
+        "name": "Eco Valve Dark Green",
+        "sources": [
+          "treatment_plant.png"
+        ]
+      },
+      {
+        "hex": "#3d8c3c",
+        "name": "Eco Valve Mid Green",
+        "sources": [
+          "treatment_plant.png",
+          "trash_bin.png"
+        ]
+      }
+    ],
+    "earth_wood_and_cardboard": [
+      {
+        "hex": "#ffd59a",
+        "name": "Dry Soil Base / Cardboard Light",
+        "sources": [
+          "tile_1_dry.png"
+        ]
+      },
+      {
+        "hex": "#f5bb72",
+        "name": "Dry Soil Lit Border / Box Tan",
+        "sources": [
+          "tile_1_dry.png"
+        ]
+      },
+      {
+        "hex": "#ed9e52",
+        "name": "Dry Soil Shadow / Cardboard Edge",
+        "sources": [
+          "tile_1_dry.png"
+        ]
+      },
+      {
+        "hex": "#c76241",
+        "name": "Tree Trunk Bark Warm",
+        "sources": [
+          "tile_5_tree.png"
+        ]
+      },
+      {
+        "hex": "#9c3d17",
+        "name": "Tree Trunk Shadow",
+        "sources": [
+          "tile_5_tree.png"
+        ]
+      },
+      {
+        "hex": "#690e14",
+        "name": "Wood Deep Core Shadow",
+        "sources": [
+          "tile_5_tree.png"
+        ]
+      },
+      {
+        "hex": "#8e5a4c",
+        "name": "Burnt Log Dark Earth",
+        "sources": [
+          "fire.png"
+        ]
+      }
+    ],
+    "flame_alert_and_sparkle": [
+      {
+        "hex": "#ffd600",
+        "name": "Selector Yellow / Gold Sparkle",
+        "sources": [
+          "tile_selector.png"
+        ]
+      },
+      {
+        "hex": "#ffe479",
+        "name": "Fire Yellow Bright",
+        "sources": [
+          "fire.png"
+        ]
+      },
+      {
+        "hex": "#fec72e",
+        "name": "Fire Yellow Warm",
+        "sources": [
+          "fire.png"
+        ]
+      },
+      {
+        "hex": "#fd8727",
+        "name": "Fire Orange Lit",
+        "sources": [
+          "fire.png"
+        ]
+      },
+      {
+        "hex": "#c46733",
+        "name": "Fire Orange Mid",
+        "sources": [
+          "fire.png"
+        ]
+      },
+      {
+        "hex": "#fd483f",
+        "name": "Fire Red Flame",
+        "sources": [
+          "fire.png"
+        ]
+      },
+      {
+        "hex": "#c92d3b",
+        "name": "Fire Red Dark",
+        "sources": [
+          "fire.png"
+        ]
+      },
+      {
+        "hex": "#de5a78",
+        "name": "Flower Petal Magenta",
+        "sources": [
+          "tile_4_flowers.png"
+        ]
+      },
+      {
+        "hex": "#ffa794",
+        "name": "Flower Petal Light",
+        "sources": [
+          "tile_4_flowers.png"
+        ]
+      },
+      {
+        "hex": "#99919e",
+        "name": "Smoke Vapor Violet-Grey",
+        "sources": [
+          "fire.png"
+        ]
+      },
+      {
+        "hex": "#f44336",
+        "name": "Warning Flame Red / Can Red",
+        "sources": [
+          "fire.png",
+          "trash_1_small.png"
+        ]
+      }
+    ]
+  }
+}
