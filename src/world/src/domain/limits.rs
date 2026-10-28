@@ -19,3 +19,9 @@ pub const TICKS_PER_SECOND: u64 = 10;
 pub const MAX_RIVER_WIDTH: u32 = 8;
 pub const MAX_ROCK_COUNT: u32 = 1024;
 pub const MAX_BUILDINGS: u32 = 1024;
+
+/// Tope global de casillas con basura que admite la propagación (Fase 4):
+/// con 60 casillas sucias, `propagate_trash` no hace nada hasta que los
+/// jugadores limpien. No limita las emisiones de los edificios. Es una cifra
+/// de diseño del equipo, no de ajuste: vive en el código, como el tamaño del valle.
+pub const MAX_POLLUTED_TILES: usize = 60;

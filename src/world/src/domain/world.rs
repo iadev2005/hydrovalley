@@ -10,7 +10,9 @@ use super::command::{
 };
 use super::fire;
 use super::growth;
-use super::limits::{RECENT_ACTIONS_WINDOW_TICKS, TICKS_PER_SECOND, VALLEY_HEIGHT, VALLEY_WIDTH};
+use super::limits::{
+    MAX_POLLUTED_TILES, RECENT_ACTIONS_WINDOW_TICKS, TICKS_PER_SECOND, VALLEY_HEIGHT, VALLEY_WIDTH,
+};
 use super::player::{AppliedAction, OfflineSummary, Player};
 use super::rng::SplitMix64;
 use super::tile::{Installation, InstallationKind, Tile, TileStage, UpgradeKind};
@@ -826,8 +828,9 @@ impl World {
 
     /// Cada `urban.trash_interval_seconds`, cada edificio suma +1 a
     /// `trash_level` en la primera casilla vecina (3 x 3, por filas) que no
-    /// sea terreno natural ni edificio, y elimina su planta, su humedad, su
-    /// fuego y su instalación (Fase 4). No usa el azar.
+    /// sea terreno natural ni edificio y tenga menos de 3 niveles; si todas
+    /// las libres están al máximo, usa la primera libre. Elimina su planta,
+    /// su humedad, su fuego y su instalación (Fase 4). No usa el azar.
     fn emit_trash(&mut self, tick: u64) {
         let interval =
             u64::from(self.catalog.urban.trash_interval_seconds).saturating_mul(TICKS_PER_SECOND);
@@ -845,9 +848,14 @@ impl World {
         for b_idx in building_indices {
             let (bx, by) = self.tile_xy(b_idx);
             let area = area_indices(bx, by, 3, self.width, self.height);
-            let candidate = area.into_iter().find(|&idx| {
+            let is_free = |idx: usize| {
                 idx != b_idx && !self.tiles[idx].stage.is_natural() && !self.tiles[idx].has_building
-            });
+            };
+            let candidate = area
+                .iter()
+                .copied()
+                .find(|&idx| is_free(idx) && self.tiles[idx].trash_level < 3)
+                .or_else(|| area.iter().copied().find(|&idx| is_free(idx)));
             if let Some(target_idx) = candidate {
                 let tile = &mut self.tiles[target_idx];
                 tile.trash_level = (tile.trash_level + 1).min(3);
@@ -859,14 +867,23 @@ impl World {
         }
     }
 
-    /// Cada `urban.trash_spread_interval_seconds`, una casilla con
-    /// `trash_level == 3` suma +1 a la basura de sus cuatro vecinas ortogonales
-    /// que no estén protegidas por un cesto activo (su área de
-    /// `trash_bin.area_side`) ni sean terreno natural o edificio (Fase 4).
+    /// Cada `urban.trash_spread_interval_seconds`, toda casilla con basura
+    /// (`trash_level >= 1`) sube un nivel (hasta 3) y, si ya tenía nivel 2 o
+    /// más, suma +1 a la basura de sus cuatro vecinas ortogonales (Fase 4).
+    /// Las casillas protegidas por un cesto activo (su área de
+    /// `trash_bin.area_side`) no crecen ni propagan, y las vecinas protegidas,
+    /// naturales o con edificio no reciben. Tope global: con
+    /// `MAX_POLLUTED_TILES` casillas sucias no se hace nada, y una vecina
+    /// limpia solo se ensucia mientras haya cupo. Las fuentes se fijan antes
+    /// de empezar: una casilla ensuciada en este ciclo no propaga en él.
     fn propagate_trash(&mut self, tick: u64) {
         let interval = u64::from(self.catalog.urban.trash_spread_interval_seconds)
             .saturating_mul(TICKS_PER_SECOND);
         if !tick.is_multiple_of(interval) {
+            return;
+        }
+        let mut polluted_count = self.tiles.iter().filter(|t| t.trash_level > 0).count();
+        if polluted_count >= MAX_POLLUTED_TILES {
             return;
         }
         let trash_bins = self.active_installations(InstallationKind::TrashBin, tick);
@@ -879,29 +896,46 @@ impl World {
             }
         }
 
-        let level_3_indices: Vec<usize> = self
+        let source_indices: Vec<usize> = self
             .tiles
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.trash_level == 3)
+            .filter(|(_, t)| t.trash_level >= 1)
             .map(|(i, _)| i)
             .collect();
 
-        for l3_idx in level_3_indices {
-            let (x, y) = self.tile_xy(l3_idx);
+        for s_idx in source_indices {
+            if protected[s_idx] {
+                continue;
+            }
+            let current_level = self.tiles[s_idx].trash_level;
+            if current_level < 3 {
+                self.tiles[s_idx].trash_level = current_level + 1;
+            }
+            if current_level < 2 {
+                continue;
+            }
+            let (x, y) = self.tile_xy(s_idx);
             for n_idx in orthogonal_neighbor_indices(x, y, self.width, self.height) {
                 let tile = &mut self.tiles[n_idx];
-                if !protected[n_idx]
-                    && !tile.stage.is_natural()
-                    && !tile.has_building
-                    && tile.trash_level < 3
+                if protected[n_idx]
+                    || tile.stage.is_natural()
+                    || tile.has_building
+                    || tile.trash_level >= 3
                 {
-                    tile.trash_level += 1;
-                    tile.stage = TileStage::DrySoil;
-                    tile.humidity = 0;
-                    tile.installation = None;
-                    tile.fire = None;
+                    continue;
                 }
+                if tile.trash_level == 0 {
+                    if polluted_count >= MAX_POLLUTED_TILES {
+                        continue;
+                    }
+                    polluted_count += 1;
+                }
+                tile.trash_level += 1;
+                tile.stage = TileStage::DrySoil;
+                tile.humidity = 0;
+                tile.installation = None;
+                tile.fire = None;
             }
         }
     }
@@ -1084,8 +1118,9 @@ impl World {
     /// fila (dos números), hasta `rock_count` rocas o 100 intentos. El río
     /// ocupa `river_width` columnas contiguas que serpentean entre las
     /// columnas 18 y `width - 2 - river_width`, con un lago más ancho entre
-    /// las filas 13 y 16. Las rocas caen en tierra seca de las columnas 17 en
-    /// adelante.
+    /// las filas 12 y 16 y una laguna fija de 3 x 3 casillas (columnas 17 a 19,
+    /// filas 26 a 28; no usa el azar). Las rocas caen en tierra seca de las
+    /// columnas 17 en adelante.
     fn generate_natural_terrain(&mut self) {
         let rules = self.catalog.terrain.clone();
         if self.width < 20 || self.height < 20 {
@@ -1104,12 +1139,18 @@ impl World {
                 }
             }
             // Lago a media altura: ensancha el río una casilla por cada lado.
-            for y in 13..=16i64 {
+            for y in 12..=16i64 {
                 if y < height {
                     let rx = column(y);
                     for x in (rx - 1).max(0)..=(rx + river).min(width - 2) {
                         self.tiles[(y * width + x) as usize].stage = TileStage::Water;
                     }
+                }
+            }
+            // Laguna sur independiente del río (3 x 3 casillas).
+            for y in 26..=28i64 {
+                for x in 17..=19i64 {
+                    self.tiles[(y * width + x) as usize].stage = TileStage::Water;
                 }
             }
         }
@@ -1129,13 +1170,19 @@ impl World {
 
     /// Reinicio del valle (RF-31): el mundo vuelve a su estado inicial y los
     /// jugadores a los valores de arranque del catálogo, con los contadores
-    /// de RF-27 y de las 3R a cero. Regenera de forma determinista el terreno natural.
+    /// de RF-27 y de las 3R a cero. El terreno natural (río, lago y rocas) se
+    /// conserva tal cual: el reinicio no consume el azar ni cambia el mapa.
     fn reset_valley(&mut self) {
         if let Some(catalog) = self.reset_catalog.take() {
             self.catalog = catalog;
         }
-        self.tiles.fill(Tile::default());
-        self.generate_natural_terrain();
+        for tile in &mut self.tiles {
+            let natural = tile.stage.is_natural().then_some(tile.stage);
+            *tile = Tile::default();
+            if let Some(stage) = natural {
+                tile.stage = stage;
+            }
+        }
         self.epoch = self.epoch.saturating_add(1);
         let tank = self.catalog.tank.capacity;
         for slot in self.players.values_mut() {
@@ -3541,7 +3588,7 @@ mod tests {
     }
 
     #[test]
-    fn reset_valley_regenerates_natural_terrain_deterministically() {
+    fn reset_valley_keeps_the_natural_terrain_and_does_not_draw_random_numbers() {
         let mut w = World::with_seed(terrain_catalog(), 42);
         let water_count_before = w
             .tiles()
@@ -3556,6 +3603,7 @@ mod tests {
 
         assert!(water_count_before > 0);
         assert!(rock_count_before > 0);
+        let before = w.clone();
 
         w.step(&[reset_cmd(&action(1))]);
 
@@ -3570,13 +3618,12 @@ mod tests {
             .filter(|t| t.stage == TileStage::Rock)
             .count();
 
-        // El reinicio vuelve a generar terreno con el generador (que sigue su
-        // curso, regla 6): hay río y las mismas rocas, y es reproducible.
+        // El reinicio conserva el terreno natural casilla a casilla y no toca
+        // el generador: el mapa no cambia y el estado del azar tampoco.
         assert_eq!(water_count_before, water_count_after);
         assert_eq!(rock_count_before, rock_count_after);
-        let mut twin = World::with_seed(terrain_catalog(), 42);
-        twin.step(&[reset_cmd(&action(1))]);
-        assert_eq!(twin.tiles(), w.tiles());
+        assert_eq!(w.tiles(), before.tiles());
+        assert_eq!(w.parts().rng_state, before.parts().rng_state);
     }
 
     // ---- Pruebas de Fase 4 (Presión Urbana, Basura y Cesto de Reciclaje) ----
@@ -3748,6 +3795,73 @@ mod tests {
         assert_eq!(w.tile(7, 10).unwrap().trash_level, 1);
         assert!(w.tile(8, 9).unwrap().trash_level >= 1);
         assert_eq!(w.tile(9, 10).unwrap().trash_level, 0);
+    }
+
+    #[test]
+    fn trash_grows_from_level_one_but_only_spreads_from_level_two() {
+        let mut w = rich(&[(ANA, 0)]);
+        w.tiles[index(8, 10)].trash_level = 1;
+        w.tiles[index(20, 10)].trash_level = 2;
+        advance_to(&mut w, 100);
+        // Nivel 1: sube a 2 y no contagia a nadie en este ciclo.
+        assert_eq!(w.tile(8, 10).unwrap().trash_level, 2);
+        for (x, y) in [(7, 10), (9, 10), (8, 9), (8, 11)] {
+            assert_eq!(w.tile(x, y).unwrap().trash_level, 0, "({x}, {y})");
+        }
+        // Nivel 2: sube a 3 y suma +1 a sus cuatro vecinas.
+        assert_eq!(w.tile(20, 10).unwrap().trash_level, 3);
+        for (x, y) in [(19, 10), (21, 10), (20, 9), (20, 11)] {
+            assert_eq!(w.tile(x, y).unwrap().trash_level, 1, "({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn trash_does_not_spread_when_sixty_tiles_are_polluted() {
+        let mut w = rich(&[(ANA, 0)]);
+        // 58 casillas de nivel 1 en las filas 20 y 21 y una fuente de nivel 2:
+        // 59 sucias, queda un solo cupo.
+        for i in 0..58u32 {
+            w.tiles[index(i % 32, 20 + i / 32)].trash_level = 1;
+        }
+        w.tiles[index(10, 5)].trash_level = 2;
+        let polluted = |w: &World| w.tiles().iter().filter(|t| t.trash_level > 0).count();
+        assert_eq!(polluted(&w), MAX_POLLUTED_TILES - 1);
+        advance_to(&mut w, 100);
+        // Solo una de las cuatro vecinas limpias entra en el cupo restante.
+        let fresh: u32 = [(9, 5), (11, 5), (10, 4), (10, 6)]
+            .iter()
+            .map(|&(x, y)| w.tile(x, y).unwrap().trash_level)
+            .sum();
+        assert_eq!(fresh, 1);
+        assert_eq!(polluted(&w), MAX_POLLUTED_TILES);
+
+        // Con el tope alcanzado no crece ni se propaga nada hasta limpiar.
+        let before = w.tiles().to_vec();
+        advance_to(&mut w, 200);
+        assert_eq!(w.tiles(), &before[..]);
+    }
+
+    #[test]
+    fn a_building_prefers_a_neighbour_below_the_maximum_trash_level() {
+        let mut catalog = Catalog::d01();
+        catalog.urban.trash_interval_seconds = 1;
+        let mut w = rich_world(catalog, &[(ANA, 0)]);
+        w.tiles[index(0, 0)].has_building = true;
+        w.tiles[index(1, 0)].trash_level = 3;
+        advance_to(&mut w, 10);
+        // (1, 0) está al máximo: la basura va a la siguiente vecina libre.
+        assert_eq!(w.tile(1, 0).unwrap().trash_level, 3);
+        assert_eq!(w.tile(0, 1).unwrap().trash_level, 1);
+    }
+
+    #[test]
+    fn the_natural_terrain_has_the_south_lagoon() {
+        let w = World::with_seed(terrain_catalog(), 42);
+        for y in 26..=28 {
+            for x in 17..=19 {
+                assert_eq!(w.tile(x, y).unwrap().stage, TileStage::Water, "({x}, {y})");
+            }
+        }
     }
 
     #[test]

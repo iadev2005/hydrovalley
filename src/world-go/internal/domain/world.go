@@ -478,8 +478,9 @@ func (w *World) shorelineMask() []bool {
 // RiverWidth > 0); 2) por cada intento de roca, la columna y la fila (dos
 // números), hasta RockCount rocas o 100 intentos. El río ocupa RiverWidth
 // columnas contiguas que serpentean entre las columnas 18 y width - 2 -
-// RiverWidth, con un lago más ancho entre las filas 13 y 16. Las rocas caen en
-// tierra seca de las columnas 17 en adelante.
+// RiverWidth, con un lago más ancho entre las filas 12 y 16 y una laguna fija
+// de 3 x 3 casillas (columnas 17 a 19, filas 26 a 28; no usa el azar). Las
+// rocas caen en tierra seca de las columnas 17 en adelante.
 func (w *World) generateNaturalTerrain() {
 	rules := w.catalog.Terrain
 	if w.width < 20 || w.height < 20 {
@@ -498,9 +499,15 @@ func (w *World) generateNaturalTerrain() {
 			}
 		}
 		// Lago a media altura: ensancha el río una casilla por cada lado.
-		for y := int64(13); y <= 16 && y < height; y++ {
+		for y := int64(12); y <= 16 && y < height; y++ {
 			rx := column(y)
 			for x := max(rx-1, 0); x <= min(rx+river, width-2); x++ {
+				w.tiles[y*width+x].Stage = Water
+			}
+		}
+		// Laguna sur independiente del río (3 x 3 casillas).
+		for y := int64(26); y <= 28; y++ {
+			for x := int64(17); x <= 19; x++ {
 				w.tiles[y*width+x].Stage = Water
 			}
 		}
@@ -544,14 +551,21 @@ func (w *World) burnFires() {
 
 // resetValley es el reinicio del valle (world.rs:665; RF-31): el mundo
 // vuelve a su estado inicial y los jugadores a los valores de arranque del
-// catálogo, con los contadores de RF-27 y de las 3R a cero.
+// catálogo, con los contadores de RF-27 y de las 3R a cero. El terreno natural
+// (río, lago y rocas) se conserva tal cual: el reinicio no consume el azar ni
+// cambia el mapa.
 func (w *World) resetValley() {
 	if w.resetCatalog != nil {
 		w.catalog = *w.resetCatalog
 		w.resetCatalog = nil
 	}
-	clear(w.tiles)
-	w.generateNaturalTerrain()
+	for i := range w.tiles {
+		stage := DrySoil
+		if w.tiles[i].Stage.IsNatural() {
+			stage = w.tiles[i].Stage
+		}
+		w.tiles[i] = Tile{Stage: stage}
+	}
 	w.epoch = satAdd32(w.epoch, 1)
 	tank := w.catalog.Tank.Capacity
 	for _, slot := range w.players {
@@ -767,8 +781,9 @@ func (w *World) spawnUrbanBuildings() {
 
 // emitTrash: cada Urban.TrashIntervalSeconds, cada edificio suma +1 a
 // TrashLevel en la primera casilla vecina (3 x 3, por filas) que no sea
-// terreno natural ni edificio, y elimina su planta, su humedad, su fuego y su
-// instalación (Fase 4). No usa el azar.
+// terreno natural ni edificio y tenga menos de 3 niveles; si todas las libres
+// están al máximo, usa la primera libre. Elimina su planta, su humedad, su
+// fuego y su instalación (Fase 4). No usa el azar.
 func (w *World) emitTrash(tick uint64) {
 	interval := satMul(uint64(w.catalog.Urban.TrashIntervalSeconds), TicksPerSecond)
 	if !isMultiple(tick, interval) {
@@ -782,11 +797,23 @@ func (w *World) emitTrash(tick uint64) {
 	}
 	for _, bIdx := range buildingIndices {
 		bx, by := w.tileXY(bIdx)
+		area := areaIndices(bx, by, 3, w.width, w.height)
+		isFree := func(idx int) bool {
+			return idx != bIdx && !w.tiles[idx].Stage.IsNatural() && !w.tiles[idx].HasBuilding
+		}
 		targetIdx := -1
-		for _, idx := range areaIndices(bx, by, 3, w.width, w.height) {
-			if idx != bIdx && !w.tiles[idx].Stage.IsNatural() && !w.tiles[idx].HasBuilding {
+		for _, idx := range area {
+			if isFree(idx) && w.tiles[idx].TrashLevel < 3 {
 				targetIdx = idx
 				break
+			}
+		}
+		if targetIdx == -1 {
+			for _, idx := range area {
+				if isFree(idx) {
+					targetIdx = idx
+					break
+				}
 			}
 		}
 		if targetIdx != -1 {
@@ -800,13 +827,26 @@ func (w *World) emitTrash(tick uint64) {
 	}
 }
 
-// propagateTrash: cada Urban.TrashSpreadIntervalSeconds, una casilla con
-// TrashLevel == 3 suma +1 a la basura de sus cuatro vecinas ortogonales que
-// no estén protegidas por un cesto activo (su área de TrashBin.AreaSide) ni
-// sean terreno natural o edificio (Fase 4).
+// propagateTrash: cada Urban.TrashSpreadIntervalSeconds, toda casilla con
+// basura (TrashLevel >= 1) sube un nivel (hasta 3) y, si ya tenía nivel 2 o
+// más, suma +1 a la basura de sus cuatro vecinas ortogonales (Fase 4). Las
+// casillas protegidas por un cesto activo (su área de TrashBin.AreaSide) no
+// crecen ni propagan, y las vecinas protegidas, naturales o con edificio no
+// reciben. Tope global: con MaxPollutedTiles casillas sucias no se hace nada, y
+// una vecina limpia solo se ensucia mientras haya cupo. Las fuentes se fijan
+// antes de empezar: una casilla ensuciada en este ciclo no propaga en él.
 func (w *World) propagateTrash(tick uint64) {
 	interval := satMul(uint64(w.catalog.Urban.TrashSpreadIntervalSeconds), TicksPerSecond)
 	if !isMultiple(tick, interval) {
+		return
+	}
+	pollutedCount := 0
+	for i := range w.tiles {
+		if w.tiles[i].TrashLevel > 0 {
+			pollutedCount++
+		}
+	}
+	if pollutedCount >= MaxPollutedTiles {
 		return
 	}
 	protected := make([]bool, len(w.tiles))
@@ -817,24 +857,41 @@ func (w *World) propagateTrash(tick uint64) {
 		}
 	}
 
-	var level3Indices []int
+	var sourceIndices []int
 	for i := range w.tiles {
-		if w.tiles[i].TrashLevel == 3 {
-			level3Indices = append(level3Indices, i)
+		if w.tiles[i].TrashLevel >= 1 {
+			sourceIndices = append(sourceIndices, i)
 		}
 	}
 
-	for _, l3Idx := range level3Indices {
-		x, y := w.tileXY(l3Idx)
+	for _, sIdx := range sourceIndices {
+		if protected[sIdx] {
+			continue
+		}
+		currentLevel := w.tiles[sIdx].TrashLevel
+		if currentLevel < 3 {
+			w.tiles[sIdx].TrashLevel = currentLevel + 1
+		}
+		if currentLevel < 2 {
+			continue
+		}
+		x, y := w.tileXY(sIdx)
 		for _, nIdx := range orthogonalNeighborIndices(x, y, w.width, w.height) {
 			tile := &w.tiles[nIdx]
-			if !protected[nIdx] && !tile.Stage.IsNatural() && !tile.HasBuilding && tile.TrashLevel < 3 {
-				tile.TrashLevel++
-				tile.Stage = DrySoil
-				tile.Humidity = 0
-				tile.Installation = nil
-				tile.Fire = nil
+			if protected[nIdx] || tile.Stage.IsNatural() || tile.HasBuilding || tile.TrashLevel >= 3 {
+				continue
 			}
+			if tile.TrashLevel == 0 {
+				if pollutedCount >= MaxPollutedTiles {
+					continue
+				}
+				pollutedCount++
+			}
+			tile.TrashLevel++
+			tile.Stage = DrySoil
+			tile.Humidity = 0
+			tile.Installation = nil
+			tile.Fire = nil
 		}
 	}
 }

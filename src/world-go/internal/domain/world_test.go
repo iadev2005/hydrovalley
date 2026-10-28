@@ -809,24 +809,38 @@ func TestShorelineSuppressesFireIgnition(t *testing.T) {
 	}
 }
 
-func TestResetValleyRegeneratesNaturalTerrain(t *testing.T) {
+func TestResetValleyKeepsTheNaturalTerrainAndDoesNotDrawRandomNumbers(t *testing.T) {
 	w := NewWorld(terrainCatalog(), 42)
 	waterBefore, rockBefore := countStage(w, Water), countStage(w, Rock)
 	if waterBefore == 0 || rockBefore == 0 {
 		t.Fatalf("expected terrain, water %d, rocks %d", waterBefore, rockBefore)
 	}
+	tilesBefore := slices.Clone(w.Tiles())
+	rngBefore := w.RngState()
 
 	w.Step([]Command{resetCmd(action(1))})
 
-	// El reinicio genera terreno otra vez con el generador (que sigue su
-	// curso, regla 6): hay río y las mismas rocas, y es reproducible.
+	// El reinicio conserva el terreno natural casilla a casilla y no toca el
+	// generador: el mapa no cambia y el estado del azar tampoco.
 	if waterAfter, rockAfter := countStage(w, Water), countStage(w, Rock); waterBefore != waterAfter || rockBefore != rockAfter {
 		t.Errorf("terrain after reset: water %d (was %d), rocks %d (was %d)", waterAfter, waterBefore, rockAfter, rockBefore)
 	}
-	twin := NewWorld(terrainCatalog(), 42)
-	twin.Step([]Command{resetCmd(action(1))})
-	if !reflect.DeepEqual(twin.Tiles(), w.Tiles()) {
-		t.Error("the same seed and commands must give the same valley")
+	if !reflect.DeepEqual(tilesBefore, w.Tiles()) {
+		t.Error("the reset must keep the natural terrain tile by tile")
+	}
+	if !bytes.Equal(rngBefore, w.RngState()) {
+		t.Error("the reset must not draw random numbers")
+	}
+}
+
+func TestTheNaturalTerrainHasTheSouthLagoon(t *testing.T) {
+	w := NewWorld(terrainCatalog(), 42)
+	for y := 26; y <= 28; y++ {
+		for x := 17; x <= 19; x++ {
+			if got := w.Tiles()[y*32+x].Stage; got != Water {
+				t.Errorf("(%d, %d) = %v, want water", x, y, got)
+			}
+		}
 	}
 }
 
@@ -1055,6 +1069,82 @@ func TestLevelThreeTrashSpreadsButNotIntoTheAreaOfAnActiveBin(t *testing.T) {
 	}
 	if got := w.tiles[10*32+9].TrashLevel; got != 0 {
 		t.Errorf("(9, 10) is protected by the bin, trash = %d", got)
+	}
+}
+
+func TestTrashGrowsFromLevelOneButOnlySpreadsFromLevelTwo(t *testing.T) {
+	w := rich(holder{ana, 0})
+	w.tiles[10*32+8].TrashLevel = 1
+	w.tiles[10*32+20].TrashLevel = 2
+	advanceTo(t, w, 100)
+	// Nivel 1: sube a 2 y no contagia a nadie en este ciclo.
+	if got := w.tiles[10*32+8].TrashLevel; got != 2 {
+		t.Errorf("(8, 10) = %d, want 2", got)
+	}
+	for _, p := range [][2]int{{7, 10}, {9, 10}, {8, 9}, {8, 11}} {
+		if got := w.tiles[p[1]*32+p[0]].TrashLevel; got != 0 {
+			t.Errorf("(%d, %d) = %d, want 0", p[0], p[1], got)
+		}
+	}
+	// Nivel 2: sube a 3 y suma +1 a sus cuatro vecinas.
+	if got := w.tiles[10*32+20].TrashLevel; got != 3 {
+		t.Errorf("(20, 10) = %d, want 3", got)
+	}
+	for _, p := range [][2]int{{19, 10}, {21, 10}, {20, 9}, {20, 11}} {
+		if got := w.tiles[p[1]*32+p[0]].TrashLevel; got != 1 {
+			t.Errorf("(%d, %d) = %d, want 1", p[0], p[1], got)
+		}
+	}
+}
+
+func polluted(w *World) int {
+	count := 0
+	for _, tile := range w.Tiles() {
+		if tile.TrashLevel > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func TestTrashDoesNotSpreadWhenSixtyTilesArePolluted(t *testing.T) {
+	w := rich(holder{ana, 0})
+	// 58 casillas de nivel 1 en las filas 20 y 21 y una fuente de nivel 2:
+	// 59 sucias, queda un solo cupo.
+	for i := range 58 {
+		w.tiles[(20+i/32)*32+i%32].TrashLevel = 1
+	}
+	w.tiles[5*32+10].TrashLevel = 2
+	if got := polluted(w); got != MaxPollutedTiles-1 {
+		t.Fatalf("polluted = %d, want %d", got, MaxPollutedTiles-1)
+	}
+	advanceTo(t, w, 100)
+	// Solo una de las cuatro vecinas limpias entra en el cupo restante.
+	fresh := uint32(0)
+	for _, p := range [][2]int{{9, 5}, {11, 5}, {10, 4}, {10, 6}} {
+		fresh += w.tiles[p[1]*32+p[0]].TrashLevel
+	}
+	if fresh != 1 || polluted(w) != MaxPollutedTiles {
+		t.Fatalf("fresh = %d, polluted = %d; want 1 and %d", fresh, polluted(w), MaxPollutedTiles)
+	}
+	// Con el tope alcanzado no crece ni se propaga nada hasta limpiar.
+	before := slices.Clone(w.Tiles())
+	advanceTo(t, w, 200)
+	if !reflect.DeepEqual(before, w.Tiles()) {
+		t.Error("nothing may change at the cap")
+	}
+}
+
+func TestABuildingPrefersANeighbourBelowTheMaximumTrashLevel(t *testing.T) {
+	catalog := d01()
+	catalog.Urban.TrashIntervalSeconds = 1
+	w := richWorld(catalog, holder{ana, 0})
+	w.tiles[0].HasBuilding = true
+	w.tiles[1].TrashLevel = 3
+	advanceTo(t, w, 10)
+	// (1, 0) está al máximo: la basura va a la siguiente vecina libre.
+	if w.tiles[1].TrashLevel != 3 || w.tiles[32].TrashLevel != 1 {
+		t.Errorf("(1, 0) = %d, (0, 1) = %d; want 3 and 1", w.tiles[1].TrashLevel, w.tiles[32].TrashLevel)
 	}
 }
 

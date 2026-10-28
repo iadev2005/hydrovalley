@@ -24,4 +24,11 @@ const (
 	MaxRiverWidth uint64 = 8
 	MaxRockCount  uint64 = 1024
 	MaxBuildings  uint64 = 1024
+
+	// MaxPollutedTiles es el tope global de casillas con basura que admite la
+	// propagación (Fase 4): con 60 casillas sucias propagateTrash no hace
+	// nada hasta que los jugadores limpien. No limita las emisiones de los
+	// edificios. Es una cifra de diseño del equipo, no de ajuste (world.rs
+	// MAX_POLLUTED_TILES).
+	MaxPollutedTiles = 60
 )
