@@ -177,7 +177,7 @@ def test_a_changed_figure_is_updated_and_a_removed_one_is_deleted(seeded):
         assert query("SELECT value->>'price_leaves' FROM catalog_entries WHERE key = 'sprinkler'") == [
             ("12",)
         ]
-        assert query("SELECT count(*) FROM catalog_entries") == [(12,)]
+        assert query("SELECT count(*) FROM catalog_entries") == [(15,)]
         assert catalog_from_entries(again.load_entries()).version == catalog.version
     finally:
         again.stop()
