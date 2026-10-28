@@ -103,7 +103,7 @@ Un solo bot, una sola conexión y tres fases. Sale con 0 si pasan las tres y con
 
 Decisiones:
 
-- **Orden.** El documento describe primero la inundación; aquí va al final porque, fuera del modo demo, cada gota cuesta 1 L y el depósito (20 L) se vacía: sin agua, la fase de acción repetida no vería su `applied`. No se activa el modo demo.
+- **Orden.** El documento describe primero la inundación; aquí va al final porque, fuera del modo demo, cada gota cuesta 1 L y el depósito (10 L) se vacía: sin agua, la fase de acción repetida no vería su `applied`. No se activa el modo demo.
 - **Qué cuenta como admitida.** `applied`, `duplicate`, `rejected` (también `insufficient_water`: el límite la dejó pasar, y CP-03 prueba el límite, no la economía) y `expired`. Informa `accepted_per_second` (admitidas entre la ventana) y `rate_limited`.
 - **Tolerancia de +1.** El hub usa una ventana deslizante (`src/hub/internal/ratelimit`): nunca admite más de 15 en cualquier intervalo de 1 s con su propio reloj. El bot mide con su reloj de envío y en cubos fijos de 1 s, así que la red puede mover una gota al cubo vecino.
 - **Entre fases** espera 1,1 s para que la ventana del límite quede vacía.

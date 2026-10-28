@@ -21,27 +21,27 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `drop.water_cost_liters` | Agua que cuesta una gota (en modo demo es gratis) | 1 |
 | `drop.humidity_points` | Humedad que suma una gota a su casilla | 100 |
 | `drop.demo_humidity_points` | Humedad que suma una gota en modo demo (gratis y de una sola casilla) | 1 |
-| `tank.capacity_liters` | Capacidad inicial del depósito | 20 |
+| `tank.capacity_liters` | Capacidad inicial del depósito | 10 |
 | `tank.refill_liters` | Litros que recarga el depósito en cada intervalo | 1 |
 | `tank.refill_interval_seconds` | Segundos entre recargas | 2 |
 | `growth.humidity_per_stage_points` | Humedad que hace falta, y se gasta, para subir una etapa | 100 |
-| `growth.leaves_grass`, `leaves_shrub`, `leaves_flowers`, `leaves_tree` | Hojas que gana quien hace llegar la casilla a cada etapa | 1, 2, 4, 8 |
+| `growth.leaves_grass`, `leaves_shrub`, `leaves_flowers`, `leaves_tree` | Hojas que gana quien hace llegar la casilla a cada etapa | 1, 2, 3, 5 |
 | `growth.tree_max_humidity_points` | Humedad máxima de un árbol | 100 |
 | `evaporation.humidity_per_second_points` | Humedad que pierde cada casilla por segundo | 2 |
-| `evaporation.wither_after_ticks` | Ticks con humedad 0 antes de bajar una etapa (un tick = 100 ms) | 100 |
+| `evaporation.wither_after_ticks` | Ticks con humedad 0 antes de bajar una etapa (un tick = 100 ms) | 140 |
 | `fire.drops_to_extinguish` | Gotas que apagan un incendio | 3 |
-| `fire.extinguish_bonus_leaves` | Hojas para quien suelta la última | 5 |
+| `fire.extinguish_bonus_leaves` | Hojas para quien suelta la última | 3 |
 | `fire.burn_out_ticks` | Ticks hasta que un incendio sin atender se consume | 300 |
-| `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón (0 = no hay incendios) | 50 |
-| `fire.propagation_chance_ppm` | Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por millón (0 = no hay propagación) | 2000 |
+| `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón (0 = no hay incendios) | 1250 |
+| `fire.propagation_chance_ppm` | Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por millón (0 = no hay propagación) | 10000 |
 | `terrain.river_width_tiles` | Ancho del río en casillas; 0 = sin río ni lago (expansión, nivel 2) | 2 |
 | `terrain.rock_count` | Rocas sueltas que se intentan colocar al crear o reiniciar el valle; 0 = sin rocas | 12 |
 | `urban.building_tree_threshold` | Árboles en el valle a partir de los cuales aparece el primer edificio... | 2 |
 | `urban.building_humidity_points_threshold` | ...o humedad total aportada a partir de la cual aparece | 500 |
 | `urban.max_buildings` | Tope de edificios en el valle | 2 |
-| `urban.trash_interval_seconds` | Segundos entre dos emisiones de basura de un edificio | 5 |
-| `urban.trash_spread_interval_seconds` | Segundos entre dos propagaciones de la basura de nivel 3 | 10 |
-| `urban.clean_reward_leaves` | Hojas de quien deja limpia una casilla de basura | 2 |
+| `urban.trash_interval_seconds` | Segundos entre dos emisiones de basura de un edificio | 6 |
+| `urban.trash_spread_interval_seconds` | Segundos entre dos crecimientos y propagaciones de la basura | 8 |
+| `urban.clean_reward_leaves` | Hojas de quien deja limpia una casilla de basura | 1 |
 | `installation_price_increase_percent` | Aumento del precio por cada compra del mismo tipo de instalación (RF-07) | 15 |
 | `offline_installation_seconds` | Tiempo que las instalaciones siguen trabajando tras la última acción de su dueño (RF-25) | 7200 |
 
@@ -84,10 +84,11 @@ La expansión de jugabilidad (`docs/plan-expansion-mecanicas.md`) cambió dos ci
 - `drop.humidity_points` pasa de 25 a 100: una gota hace subir una etapa (`growth.humidity_per_stage_points` sigue en 100).
 - `treatment_plant.refill_liters` pasa de 1 a 3.
 - Las `durability` de las cuatro instalaciones (30), el cesto de reciclaje, el terreno natural y la presión urbana son nuevos.
+- Ajuste de ritmo de Cristian Baczek (`12042fb`, `ad737ed`): `tank.capacity_liters` 20 → 10, `growth.leaves_flowers` 4 → 3, `growth.leaves_tree` 8 → 5, `evaporation.wither_after_ticks` 100 → 140, `fire.extinguish_bonus_leaves` 5 → 3, `fire.ignition_chance_ppm` 50 → 1250, `fire.propagation_chance_ppm` 2000 → 10000, `urban.trash_interval_seconds` 5 → 6, `urban.trash_spread_interval_seconds` 10 → 8 y `urban.clean_reward_leaves` 2 → 1. Son valores elegidos por el equipo y se evalúan jugando.
 
 Los guiones de conformidad 01 a 09 fijan las cifras originales de D-01 (ver `tests/conformance/README.md`); solo el 10 usa este archivo sin cambios.
 
 ## Datos pendientes
 
-- `fire.ignition_chance_ppm = 50` (50 por millón, por tick y por casilla elegible; con 1.024 casillas y 10 ticks por segundo equivale a unos 0,5 incendios por segundo si todo el valle fuera elegible) es un valor inicial elegido por el equipo, ajustable: D-01 dice que los incendios «aparecen al azar» pero no da la cifra. Falta recogerlo en D-01 por pull request.
+- `fire.ignition_chance_ppm = 1250` (1.250 por millón, por tick y por casilla elegible; con 1.024 casillas y 10 ticks por segundo equivale a unos 12,8 incendios por segundo si todo el valle fuera elegible) es un valor elegido por el equipo, ajustable: D-01 dice que los incendios «aparecen al azar» pero no da la cifra, y el valor inicial era 50. `[DATO: confirmar con el equipo que este ritmo de incendios es el buscado]`.
 - Fuera del catálogo, por ser estructura y no cifras de ajuste: el tamaño del valle (32 × 32), la ventana de 600 ticks de `action_id` recientes y el límite de 15 gotas por segundo (del hub).

@@ -15,10 +15,10 @@ state Casilla {
     Pasto --> Arbusto : humedad llega a 100 [sin fuego]\n/ humedad −100
     Arbusto --> Flores : humedad llega a 100 [sin fuego]\n/ humedad −100
     Flores --> Arbol : humedad llega a 100 [sin fuego]\n/ humedad −100
-    Arbol --> Flores : humedad 0\ndurante 100 ticks [sin fuego]
-    Flores --> Arbusto : humedad 0\ndurante 100 ticks [sin fuego]
-    Arbusto --> Pasto : humedad 0\ndurante 100 ticks [sin fuego]
-    Pasto --> Seca : humedad 0\ndurante 100 ticks [sin fuego]
+    Arbol --> Flores : humedad 0\ndurante 140 ticks [sin fuego]
+    Flores --> Arbusto : humedad 0\ndurante 140 ticks [sin fuego]
+    Arbusto --> Pasto : humedad 0\ndurante 140 ticks [sin fuego]
+    Pasto --> Seca : humedad 0\ndurante 140 ticks [sin fuego]
     Seca --> Pasto : pulso de la planta de tratamiento\n(+1 etapa a sus vecinas) [sin fuego, sin basura]
     Pasto -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
     Arbusto -[#B22222,dashed]-> Seca : <color:#B22222>fuego consumido</color>
@@ -46,13 +46,14 @@ state Casilla {
     state "Nivel 3" as T3
     state "Edificio" as Edificio
     Edificio : fijo; inmune al fuego y a la basura
-    T3 : propaga +1 a sus 4 vecinas\n(salvo las protegidas por un cesto)
+    T2 : desde aquí propaga +1 a sus 4 vecinas\n(salvo las protegidas por un cesto)
+    T3 : propaga igual; con 60 casillas sucias\nen el valle la propagación se detiene
 
     [*] --> Limpia
     Limpia --> Edificio : se cumple el umbral urbano\n[tierra seca libre en el borde]
-    Limpia --> T1 : un edificio o un nivel 3 vecino ensucia\n/ crecimiento := Tierra seca, sin humedad,\nsin fuego ni instalación
-    T1 --> T2 : ensucia otra vez
-    T2 --> T3 : ensucia otra vez
+    Limpia --> T1 : un edificio o una vecina de nivel 2 o 3 ensucia\n/ crecimiento := Tierra seca, sin humedad,\nsin fuego ni instalación
+    T1 --> T2 : ensucia otra vez o crece sola
+    T2 --> T3 : ensucia otra vez o crece sola
     T3 --> T2 : clean_trash o cesto de reciclaje
     T2 --> T1 : clean_trash o cesto de reciclaje
     T1 --> Limpia : clean_trash o cesto de reciclaje\n/ +hojas al jugador (clean_trash)
@@ -66,8 +67,8 @@ state Casilla {
     Roca : no crece, sin gotas ni instalaciones
 
     [*] --> Normal
-    Normal --> Agua : al crear o reiniciar el valle (azar con semilla)
-    Normal --> Roca : al crear o reiniciar el valle (azar con semilla)
+    Normal --> Agua : al crear el valle (azar con semilla;\nel reinicio lo conserva)
+    Normal --> Roca : al crear el valle (azar con semilla;\nel reinicio lo conserva)
   }
 }
 

@@ -145,7 +145,7 @@ end note
 note right of Casilla
   Expansión de jugabilidad (nivel 2): Water y Rock son terreno
   natural que el simulador sortea con el generador con semilla
-  al crear o reiniciar el valle; no crecen, no admiten gotas
+  al crear el valle (el reinicio lo conserva); no crecen, no admiten gotas
   ni instalaciones. has_building y trash_level van en la
   instantánea solo si no son los valores por defecto.
   Una casilla con edificio o basura no crece ni arde.
