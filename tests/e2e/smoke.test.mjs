@@ -187,7 +187,12 @@ describe("walking skeleton (CP-01-lite)", () => {
     // o sea, el simulador cargó su instantánea desde la persistencia.
     session = await openReadySession(account.token, { map: false });
 
-    // Tres gotas seguidas: cada una cuesta 1 L de los 20 iniciales (D-01).
+    // Tres gotas seguidas: cada una cuesta 1 L del depósito inicial, cuya
+    // capacidad se lee de catalog/catalog.json.
+    const capacity = BigInt(
+      JSON.parse(readFileSync(new URL("../../catalog/catalog.json", import.meta.url), "utf8")).rules.tank
+        .capacity_liters,
+    );
     const actionIds = [randomUUID(), randomUUID(), randomUUID()];
     for (const actionId of actionIds) {
       session.send({ type: "drop", action_id: actionId, x: 3, y: 4 });
@@ -205,14 +210,17 @@ describe("walking skeleton (CP-01-lite)", () => {
     // Solo cuenta un estado que llegue después de los resultados. El depósito
     // se recarga 1 L cada 2 s (catálogo) y el estado se difunde cada segundo,
     // así que entre las gotas y ese estado cabe como mucho una recarga:
-    // quedan 17 L, o 18 si cayó un tick de recarga.
+    // quedan capacidad - 3 L, o capacidad - 2 si cayó un tick de recarga.
     const state = await session.waitFor(
       "a state with the player",
       (f) => f.type === "state" && f.player !== undefined,
       5000,
     );
-    assert.ok(["17", "18"].includes(state.player.water), `water ${state.player.water}`);
-    assert.equal(state.player.tank_capacity, "20");
+    assert.ok(
+      [String(capacity - 3n), String(capacity - 2n)].includes(state.player.water),
+      `water ${state.player.water}`,
+    );
+    assert.equal(state.player.tank_capacity, String(capacity));
     assert.ok(account.player_id, "the API returns the player_id of the token");
   });
 

@@ -56,9 +56,9 @@ describe("offline summary (B6, RF-25)", () => {
   it("brings what the sprinkler did while away and clears it with the next action", { timeout: 120_000 }, async () => {
     const [account] = await provisionPlayers(await loginAdmin(), 1, "e2e-summary");
 
-    // 1. Hojas para un aspersor: una casilla hasta árbol (15 hojas).
+    // 1. Hojas para un aspersor: una casilla hasta árbol (11 hojas).
     const first = await openReadySession(account.token, { map: false });
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 6; i++) {
       await act(first, { type: "drop", ...TREE });
     }
     await first.waitFor("the leaves of the tree", (f) => f.type === "state" && BigInt(f.player?.leaves ?? 0) >= 10n, 10_000);

@@ -109,17 +109,26 @@ describe("gameplay expansion (RF-32, RF-33, RF-34)", () => {
     assert.deepEqual([outside.status, outside.reason], ["rejected", "out_of_bounds"], JSON.stringify(outside));
   });
 
-  it("grows a tile in four drops (one per stage) and buys a trash bin with the 15 leaves", async () => {
+  it("grows two tiles in four drops each (one per stage) and buys a trash bin with the 15 leaves", async () => {
     const state = await player.waitFor("a fresh state with the map", isMapState, 10_000);
     const tile = freeTile(state);
     used.push(tile);
-    for (let i = 0; i < 4; i += 1) await sendApplied(player, { type: "drop", ...tile });
+    const second = freeTile(state, used);
+    used.push(second);
+    // El depósito del catálogo real (10 L) alcanza justo para las ocho gotas.
+    for (const target of [tile, second]) {
+      for (let i = 0; i < 4; i += 1) await sendApplied(player, { type: "drop", ...target });
+    }
     const grown = await player.waitFor(
-      "the tile as a tree and the 15 leaves",
-      (f) => isMapState(f) && f.stages[index(f, tile.x, tile.y)] === 5 && BigInt(f.player?.leaves ?? "0") >= 15n,
+      "the two tiles as trees and the 22 leaves",
+      (f) =>
+        isMapState(f) &&
+        f.stages[index(f, tile.x, tile.y)] === 5 &&
+        f.stages[index(f, second.x, second.y)] === 5 &&
+        BigInt(f.player?.leaves ?? "0") >= 22n,
       10_000,
     );
-    assert.equal(BigInt(grown.player.leaves), 15n, "1 + 2 + 4 + 8 hojas");
+    assert.equal(BigInt(grown.player.leaves), 22n, "2 × (1 + 2 + 3 + 5) hojas");
 
     const binTile = { x: tile.x + 1, y: tile.y };
     await sendApplied(player, { type: "place_installation", installation: "trash_bin", ...binTile });
@@ -140,6 +149,8 @@ describe("gameplay expansion (RF-32, RF-33, RF-34)", () => {
     const state = await player.waitFor("a fresh state with the map", isMapState, 10_000);
     const tile = freeTile(state, used);
     used.push(tile);
+    // Las gotas anteriores vaciaron casi todo el depósito: se espera a la recarga.
+    await player.waitFor("water for three drops", (f) => f.type === "state" && BigInt(f.player?.water ?? "0") >= 3n, 20_000);
     for (let i = 0; i < 3; i += 1) await sendApplied(player, { type: "drop", ...tile });
 
     const dirty = await player.waitFor(
@@ -151,7 +162,7 @@ describe("gameplay expansion (RF-32, RF-33, RF-34)", () => {
     const target = { x: at % dirty.width, y: Math.floor(at / dirty.width) };
 
     const leavesBefore = BigInt(dirty.player?.leaves ?? "0");
-    // Hasta dejarla limpia: cada acción quita un nivel (la basura nueva llega cada 5 s).
+    // Hasta dejarla limpia: cada acción quita un nivel (la basura nueva llega cada 6 s).
     let cleaned = false;
     for (let i = 0; i < 12 && !cleaned; i += 1) {
       const result = await send(player, { type: "clean_trash", ...target });
@@ -167,9 +178,9 @@ describe("gameplay expansion (RF-32, RF-33, RF-34)", () => {
     assert.ok(cleaned, "la casilla debe quedar limpia");
     const paid = await player.waitFor(
       "the reward for cleaning",
-      (f) => f.type === "state" && BigInt(f.player?.leaves ?? "0") >= leavesBefore + 2n,
+      (f) => f.type === "state" && BigInt(f.player?.leaves ?? "0") >= leavesBefore + 1n,
       10_000,
     );
-    assert.ok(BigInt(paid.player.leaves) >= leavesBefore + 2n);
+    assert.ok(BigInt(paid.player.leaves) >= leavesBefore + 1n);
   });
 });
