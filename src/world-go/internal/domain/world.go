@@ -553,7 +553,8 @@ func (w *World) burnFires() {
 // vuelve a su estado inicial y los jugadores a los valores de arranque del
 // catálogo, con los contadores de RF-27 y de las 3R a cero. El terreno natural
 // (río, lago y rocas) se conserva tal cual: el reinicio no consume el azar ni
-// cambia el mapa.
+// cambia el mapa. Si el valle no tiene terreno (restaurado de una instantánea
+// anterior a la expansión), el reinicio lo genera con el generador con semilla.
 func (w *World) resetValley() {
 	if w.resetCatalog != nil {
 		w.catalog = *w.resetCatalog
@@ -566,6 +567,9 @@ func (w *World) resetValley() {
 		}
 		w.tiles[i] = Tile{Stage: stage}
 	}
+	if !w.hasNaturalTerrain() {
+		w.generateNaturalTerrain()
+	}
 	w.epoch = satAdd32(w.epoch, 1)
 	tank := w.catalog.Tank.Capacity
 	for _, slot := range w.players {
@@ -574,6 +578,16 @@ func (w *World) resetValley() {
 		slot.record.LastActionTick = previous.LastActionTick
 		slot.record.RecentActions = previous.RecentActions
 	}
+}
+
+// hasNaturalTerrain dice si alguna casilla es agua o roca.
+func (w *World) hasNaturalTerrain() bool {
+	for i := range w.tiles {
+		if w.tiles[i].Stage.IsNatural() {
+			return true
+		}
+	}
+	return false
 }
 
 // forgetOldActions olvida los action_id aplicados hace más de la ventana

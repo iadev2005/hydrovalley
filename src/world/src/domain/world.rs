@@ -1172,6 +1172,8 @@ impl World {
     /// jugadores a los valores de arranque del catálogo, con los contadores
     /// de RF-27 y de las 3R a cero. El terreno natural (río, lago y rocas) se
     /// conserva tal cual: el reinicio no consume el azar ni cambia el mapa.
+    /// Si el valle no tiene terreno (restaurado de una instantánea anterior a
+    /// la expansión), el reinicio lo genera con el generador con semilla.
     fn reset_valley(&mut self) {
         if let Some(catalog) = self.reset_catalog.take() {
             self.catalog = catalog;
@@ -1182,6 +1184,9 @@ impl World {
             if let Some(stage) = natural {
                 tile.stage = stage;
             }
+        }
+        if !self.tiles.iter().any(|tile| tile.stage.is_natural()) {
+            self.generate_natural_terrain();
         }
         self.epoch = self.epoch.saturating_add(1);
         let tank = self.catalog.tank.capacity;
@@ -3585,6 +3590,25 @@ mod tests {
             w.tiles[neighbor_idx].fire.is_none(),
             "la orilla de agua debe suprimir el fuego"
         );
+    }
+
+    #[test]
+    fn reset_valley_generates_the_terrain_of_a_valley_restored_without_one() {
+        // Instantánea de antes de la expansión: valle sin río ni rocas.
+        let old = World::with_seed(Catalog::d01(), 42);
+        let mut w = World::restore(terrain_catalog(), old.parts()).unwrap();
+        assert_eq!(count_stage(&w, TileStage::Water), 0);
+
+        w.step(&[reset_cmd(&action(1))]);
+        assert_eq!(count_stage(&w, TileStage::Rock), 12);
+        assert!(count_stage(&w, TileStage::Water) >= 64);
+
+        // El terreno nuevo se conserva en el siguiente reinicio sin sortear más.
+        let terrain = w.tiles().to_vec();
+        let rng = w.rng.to_bytes();
+        w.step(&[reset_cmd(&action(2))]);
+        assert_eq!(w.tiles(), &terrain[..]);
+        assert_eq!(w.rng.to_bytes(), rng);
     }
 
     #[test]
