@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { type StateFrame, type PlacedInstallation } from "../logic/play.ts";
 import { buildTiles, isTileInDripArea, type Tile } from "../logic/valley.ts";
+import { isInstallationTool, placementFor } from "../logic/tools.ts";
 import {
   gridToIsometric,
   isometricToGrid,
@@ -38,7 +39,15 @@ interface PendingDropItem {
 
 const MAX_VISUAL_PENDING_DROPS = 24;
 
+/** Zoom inicial: el valle ocupa casi todo el lienzo sin recortar los árboles del fondo. */
+const INITIAL_ZOOM = 0.9;
+
 export type TileSelectedCallback = (coord: { x: number; y: number }) => void;
+
+/** Casilla bajo el ratón y su posición en la página, o `null` al salir del valle. */
+export type TileHoverCallback = (
+  hover: { x: number; y: number; clientX: number; clientY: number } | null,
+) => void;
 
 export class ValleyScene extends Phaser.Scene {
   public static readonly KEY = "ValleyScene";
@@ -52,6 +61,15 @@ export class ValleyScene extends Phaser.Scene {
   private pendingState: StateFrame | null = null;
   private pendingSelected: { x: number; y: number } | null = null;
   private tileSelectedCallback: TileSelectedCallback | null = null;
+  private tileHoverCallback: TileHoverCallback | null = null;
+  private cancelToolCallback: (() => void) | null = null;
+
+  // Casilla bajo el ratón y vista previa de la instalación elegida
+  private hoverSprite: Phaser.GameObjects.Image | null = null;
+  private ghostSprite: Phaser.GameObjects.Image | null = null;
+  private hoveredTile: { x: number; y: number } | null = null;
+  private placementTool: string | null = null;
+  private lastState: StateFrame | null = null;
 
   // Interacción de cámara
   private isDragging = false;
@@ -190,6 +208,19 @@ export class ValleyScene extends Phaser.Scene {
       .setVisible(false)
       .setDepth(10000);
 
+    // Rombo de la casilla bajo el ratón y fantasma de la instalación elegida
+    this.hoverSprite = this.add
+      .image(0, 0, "tile_selector")
+      .setOrigin(0.5, 0.5)
+      .setAlpha(0.55)
+      .setVisible(false)
+      .setDepth(10001);
+    this.ghostSprite = this.add
+      .image(0, 0, "sprinkler")
+      .setAlpha(0.6)
+      .setVisible(false)
+      .setDepth(10002);
+
     // Configuración de controles de cámara y clics
     this.setupCameraAndInput();
 
@@ -224,14 +255,21 @@ export class ValleyScene extends Phaser.Scene {
    */
   private setupCameraAndInput(): void {
     const cam = this.cameras.main;
-    cam.setZoom(0.65);
+    cam.setZoom(INITIAL_ZOOM);
 
     // Centrar inicialmente en el punto medio del valle
     const centerY = this.originY + (VALLEY_GRID_SIZE * ISO_TILE_HEIGHT) / 2;
     cam.centerOn(this.originX, centerY);
 
+    // El clic derecho suelta la herramienta: sin menú contextual del navegador
+    this.input.mouse?.disableContextMenu();
+
     // 1. Inicio de arrastre
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown()) {
+        this.cancelToolCallback?.();
+        return;
+      }
       if (pointer.button === 0 || pointer.button === 1) {
         this.isDragging = true;
         this.dragStartX = pointer.x;
@@ -259,7 +297,14 @@ export class ValleyScene extends Phaser.Scene {
           cam.scrollX = this.dragStartScrollX - dx / cam.zoom;
           cam.scrollY = this.dragStartScrollY - dy / cam.zoom;
         }
+        return;
       }
+      this.handlePointerHover(pointer);
+    });
+
+    // El puntero sale del lienzo: sin casilla bajo el ratón
+    this.input.on("gameout", () => {
+      this.setHoveredTile(null, 0, 0);
     });
 
     // 3. Fin de arrastre o Clic
@@ -285,6 +330,80 @@ export class ValleyScene extends Phaser.Scene {
    * Resuelve el clic del puntero convirtiéndolo a coordenadas de casilla.
    */
   private handlePointerClick(pointer: Phaser.Input.Pointer): void {
+    const hit = this.pointerToTile(pointer);
+    if (hit) {
+      this.setSelectedTile(hit.tile);
+      this.events.emit("tile-selected", hit.tile);
+      if (this.tileSelectedCallback) {
+        this.tileSelectedCallback(hit.tile);
+      }
+    }
+  }
+
+  /** Avisa de la casilla bajo el ratón solo cuando cambia. */
+  private handlePointerHover(pointer: Phaser.Input.Pointer): void {
+    const hit = this.pointerToTile(pointer);
+    if (!hit) {
+      this.setHoveredTile(null, 0, 0);
+      return;
+    }
+    const same =
+      this.hoveredTile !== null &&
+      this.hoveredTile.x === hit.tile.x &&
+      this.hoveredTile.y === hit.tile.y;
+    if (!same) this.setHoveredTile(hit.tile, hit.clientX, hit.clientY);
+  }
+
+  private setHoveredTile(tile: { x: number; y: number } | null, clientX: number, clientY: number): void {
+    if (tile === null && this.hoveredTile === null) return;
+    this.hoveredTile = tile;
+    if (tile && this.hoverSprite) {
+      const pos = gridToIsometric(tile.x, tile.y, this.originX, this.originY, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
+      this.hoverSprite.setPosition(pos.x, pos.y).setVisible(true);
+    } else {
+      this.hoverSprite?.setVisible(false);
+    }
+    this.updateGhost();
+    this.tileHoverCallback?.(tile ? { ...tile, clientX, clientY } : null);
+  }
+
+  /** Fantasma semitransparente de la instalación elegida, solo donde cabe. */
+  private updateGhost(): void {
+    const ghost = this.ghostSprite;
+    if (!ghost) return;
+    const tool = this.placementTool;
+    const tile = this.hoveredTile;
+    if (!tool || !isInstallationTool(tool) || !tile || !placementFor(this.lastState, tile, tool).ok) {
+      ghost.setVisible(false);
+      return;
+    }
+    const pos = gridToIsometric(tile.x, tile.y, this.originX, this.originY, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
+    ghost
+      .setTexture(tool)
+      .setOrigin(0.5, tool === "drip" ? 0.5 : 0.75)
+      .setPosition(pos.x, pos.y)
+      .setVisible(true);
+  }
+
+  /** Instalación que coloca el clic (modo pincel), o `null` para «Interactuar». */
+  public setPlacementTool(tool: string | null): void {
+    this.placementTool = tool;
+    if (this.isMapReady) this.updateGhost();
+  }
+
+  public onHoverTile(cb: TileHoverCallback): void {
+    this.tileHoverCallback = cb;
+  }
+
+  /** Clic derecho sobre el valle: volver a «Interactuar». */
+  public onCancelTool(cb: () => void): void {
+    this.cancelToolCallback = cb;
+  }
+
+  /** Casilla bajo el puntero, con su posición en la página. */
+  private pointerToTile(
+    pointer: Phaser.Input.Pointer,
+  ): { tile: { x: number; y: number }; clientX: number; clientY: number } | null {
     const cam = this.cameras.main;
     const canvas = this.game.canvas;
     const rect = canvas.getBoundingClientRect();
@@ -315,13 +434,7 @@ export class ValleyScene extends Phaser.Scene {
       ISO_TILE_HEIGHT,
     );
 
-    if (tile) {
-      this.setSelectedTile(tile);
-      this.events.emit("tile-selected", tile);
-      if (this.tileSelectedCallback) {
-        this.tileSelectedCallback(tile);
-      }
-    }
+    return tile ? { tile, clientX, clientY } : null;
   }
 
   /**
@@ -337,7 +450,7 @@ export class ValleyScene extends Phaser.Scene {
   public resetCamera(): void {
     const cam = this.cameras.main;
     const centerY = this.originY + (VALLEY_GRID_SIZE * ISO_TILE_HEIGHT) / 2;
-    cam.setZoom(0.65);
+    cam.setZoom(INITIAL_ZOOM);
     cam.centerOn(this.originX, centerY);
   }
 
@@ -506,6 +619,7 @@ export class ValleyScene extends Phaser.Scene {
     }
     if (!state || state.stages.length === 0) return;
 
+    this.lastState = state;
     this.currentInstallations = state.installations;
 
     // Coordenadas de los goteos activos para calcular el sombreado 5x5
@@ -525,6 +639,7 @@ export class ValleyScene extends Phaser.Scene {
 
       this.updateSingleTile(view, tileData, inDripArea);
     }
+    this.updateGhost();
   }
 
   /**

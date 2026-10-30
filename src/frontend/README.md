@@ -32,8 +32,10 @@ La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada indepen
 - **Degradación elegante automática (*Graceful Degradation*)**: si `new Phaser.Game(...)` lanza una excepción o el entorno carece de soporte Canvas2D/WebGL, la aplicación conmuta inmediatamente a la vista cenital de emergencia y muestra la insignia informativa `.view-emergency-badge`, sin interrumpir la partida.
 - **Paridad funcional total**: ambas vistas reflejan el mismo estado del mundo (`gameState`), sincronizan la casilla seleccionada (`selected`) y aceptan las mismas acciones (gotas, compra de mejoras, colocación de instalaciones).
 - Visualización de etapas de vegetación (tierra seca, pasto, arbusto, flores, árbol), fuego activo e instalaciones (A: Aspersor, G: Goteo, P: Planta de tratamiento, C: Cesto de reciclaje). Con la expansión de jugabilidad (nivel 2) también agua y roca, edificios y basura de tres niveles, el sombreado del área del goteo, el pulso de la planta y un destello al limpiar basura; la vista cenital los dibuja con su propio color (`STAGE_COLOURS`, `BUILDING_COLOUR`, `TRASH_COLOURS`).
-- Panel de recursos: agua disponible, capacidad del depósito, hojas ganadas y costos dinámicos de las siguientes instalaciones.
-- Botones de acción: **Soltar gota**, colocar instalaciones (incluido el cesto de reciclaje) en la casilla seleccionada, **Limpiar basura** (solo si la casilla seleccionada tiene basura; es una acción con `action_id`, pendiente y resultado como las demás) y adquirir mejoras de depósito/gota. Al seleccionar una instalación se ve su durabilidad restante.
+- **Pantalla compacta (correcciones de la predefensa)**: todo en una sola pantalla. Barra superior con agua y hojas (`<ResourceHud />`), estado de la conexión, botones de los paneles y menú de la cuenta (`<AccountMenu />`: salir, administración, registro y panel del sistema). Herramientas a la izquierda, valle al centro y paneles plegables a la derecha (Ranking, Chat y Mi aporte en pestañas).
+- **Clic contextual (`logic/tools.ts`)**: con la herramienta **Interactuar** el clic en una casilla hace la única acción posible: regar (`drop`) en tierra o planta, también sobre una instalación o un fuego; recoger (`clean_trash`) si hay basura; nada en río, roca o edificio, con un aviso que dice por qué. Las reglas imitan las de `world.rs` (`drop`, `clean_trash`, `place_installation`) solo para avisar antes de enviar; quien decide sigue siendo el simulador.
+- **Herramientas como en Paint (`<ToolPalette />`)**: al elegir aspersor, goteo, planta de tratamiento o papelera, la herramienta queda activa y cada clic coloca una más, con una vista previa semitransparente en la casilla bajo el ratón (solo donde cabe). Esc, el clic derecho o «Terminar» vuelven a Interactuar. Cada herramienta dice para qué sirve (al pasar el ratón o mientras está activa) y su precio siguiente; las descripciones no llevan cifras del catálogo porque cambian sin tocar código.
+- **Tooltip de casilla**: al pasar el ratón por el valle isométrico se ve qué hay en la casilla, su humedad, los usos que le quedan a una instalación y qué hará el clic. La vista cenital acepta los mismos clics, sin tooltip.
 - **Resumen al volver (RF-25, tarea B6; `<OfflineSummaryPanel />`)**: el hub manda lo que hicieron los aspersores del jugador desde su última acción aplicada (`player.offline_summary`) solo en el primer `state` de cada conexión y solo si no está vacío. El panel descartable dice, con las palabras del documento, «Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio», con las hojas ganadas y el agua reutilizada. El hook lo guarda hasta que el jugador lo cierra; la siguiente conexión lo vuelve a mostrar si el jugador no ha actuado. Los contadores son `u64` en texto (`BigInt`, nunca `Number`).
 - **Panel de administración (RF-31)**: visible solo para usuarios con rol `admin` (leído de la carga útil del JWT; validado autoritativamente por el hub), permitiendo activar/desactivar el modo demo y reiniciar el valle previa confirmación modal.
 
@@ -85,10 +87,11 @@ src/frontend/
     │   ├── OfflineSummaryPanel.tsx # Resumen al volver (B6)
     │   ├── RankingTable.tsx    # Tabla del ranking de jugadores
     │   ├── ReportPanel.tsx     # Panel de reportes de sostenibilidad 3R
-    │   ├── SessionBar.tsx      # Barra de usuario activo y botón salir
+    │   ├── AccountMenu.tsx     # Menú de la cuenta: salir, administración y registro
+    │   ├── ResourceHud.tsx     # Agua y hojas en la barra superior
     │   ├── SystemDashboard.tsx # Métricas de servicios y componentes del sistema
     │   ├── ValleyCanvas.tsx    # Vista cenital 2D (salida de emergencia A4)
-    │   ├── ValleyControls.tsx  # Botones de acciones del juego y costes
+    │   ├── ToolPalette.tsx     # Herramientas, descripciones y mejoras
     │   ├── ValleyPhaser.tsx    # Valle isométrico en Phaser con cámara y animaciones (A3)
     │   └── *.test.tsx          # Pruebas unitarias de componentes
     ├── hooks/                  # Custom Hooks para ciclo de vida y red
@@ -105,6 +108,7 @@ src/frontend/
         ├── play.ts             # Protocolo WebSocket, backoff, UUIDs y frames
         ├── reports.ts          # Procesamiento numérico seguro de reportes 3R
         ├── system.ts           # Normalización de métricas de salud de servicios
+        ├── tools.ts            # Herramientas y clic contextual (qué hace cada casilla)
         ├── valley.ts           # Renderizado de celdas del valle y costes
         ├── viewMode.ts         # Resolución de modo de vista y persistencia (A4)
         └── *.test.ts           # Pruebas unitarias de lógica de negocio

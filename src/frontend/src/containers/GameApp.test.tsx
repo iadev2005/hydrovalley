@@ -146,4 +146,113 @@ describe("GameApp", () => {
       expect(screen.queryByText(/Mientras no estabas/)).toBeNull();
     });
   });
+  describe("clic contextual y herramientas", () => {
+    class SendingSocket {
+      static last: SendingSocket | null = null;
+      static OPEN = 1;
+      readyState = SendingSocket.OPEN;
+      sent: Record<string, unknown>[] = [];
+      listeners: Record<string, ((event: { data?: unknown; code?: number }) => void)[]> = {};
+      constructor(url: string) {
+        if (url.includes("/play")) SendingSocket.last = this;
+      }
+      addEventListener(type: string, listener: (event: { data?: unknown; code?: number }) => void) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      send(frame: string) {
+        this.sent.push(JSON.parse(frame) as Record<string, unknown>);
+      }
+      close() {}
+      emit(type: string, event: { data?: unknown } = {}) {
+        for (const listener of this.listeners[type] ?? []) listener(event);
+      }
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    /** Valle de 32 × 32 en tierra seca con un río en (1,0) y basura en (2,0). */
+    function startGame() {
+      vi.stubGlobal("WebSocket", SendingSocket);
+      // happy-dom no dibuja: un contexto 2D que acepta cualquier llamada.
+      const ctx = new Proxy({}, { get: () => () => undefined, set: () => true });
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        ctx as unknown as CanvasRenderingContext2D,
+      );
+      const storage = memoryStorage({
+        [VIEW_MODE_KEY]: "zenithal",
+        [SESSION_KEY]: JSON.stringify({
+          token: "tok",
+          expiresAt: Date.now() + 100_000,
+          username: "Ana",
+        }),
+      });
+      render(
+        <GameApp
+          sessionOptions={{ storage }}
+          socketOptions={{ location: { protocol: "http:", host: "localhost:8080" } }}
+        />,
+      );
+      const stages = new Array<number>(1024).fill(1);
+      stages[1] = 6;
+      const trash = new Array<number>(1024).fill(0);
+      trash[2] = 1;
+      act(() => {
+        SendingSocket.last?.emit("open");
+        SendingSocket.last?.emit("message", {
+          data: JSON.stringify({
+            type: "state",
+            tick: "5",
+            width: 32,
+            height: 32,
+            stages,
+            trash,
+            humidity: new Array<string>(1024).fill("0"),
+            player: { water: "5", tank_capacity: "10", leaves: "50", next_sprinkler_price: "10" },
+          }),
+        });
+      });
+      const canvas = document.getElementById("valley") as HTMLCanvasElement;
+      canvas.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, width: 512, height: 512, right: 512, bottom: 512, x: 0, y: 0 }) as DOMRect;
+      const clickTile = (x: number, y: number) =>
+        fireEvent.click(canvas, { clientX: x * 16 + 8, clientY: y * 16 + 8 });
+      const sentTypes = () => (SendingSocket.last?.sent ?? []).map((f) => f["type"]);
+      return { clickTile, sentTypes, socket: () => SendingSocket.last };
+    }
+
+    it("riega la tierra y recoge la basura sin botones intermedios", () => {
+      const { clickTile, sentTypes } = startGame();
+      clickTile(5, 5);
+      clickTile(2, 0);
+      expect(sentTypes()).toEqual(["drop", "clean_trash"]);
+    });
+
+    it("no envía nada al hacer clic en el río y explica por qué", () => {
+      const { clickTile, sentTypes } = startGame();
+      clickTile(1, 0);
+      expect(sentTypes()).toEqual([]);
+      expect(screen.getByText("El río no se riega: aquí no hay nada que hacer.")).toBeDefined();
+    });
+
+    it("con una instalación elegida coloca una en cada clic hasta pulsar Esc", () => {
+      const { clickTile, socket } = startGame();
+      fireEvent.click(screen.getByRole("button", { name: /Aspersor/ }));
+      expect(screen.getByText("Colocando: Aspersor")).toBeDefined();
+      clickTile(4, 4);
+      clickTile(6, 4);
+      const placed = (socket()?.sent ?? []).filter((f) => f["type"] === "place_installation");
+      expect(placed.map((f) => [f["installation"], f["x"], f["y"]])).toEqual([
+        ["sprinkler", 4, 4],
+        ["sprinkler", 6, 4],
+      ]);
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByText("Colocando: Aspersor")).toBeNull();
+      clickTile(8, 8);
+      expect(socket()?.sent.at(-1)?.["type"]).toBe("drop");
+    });
+  });
 });
