@@ -1731,3 +1731,515 @@ progress#water-bar::-moz-progress-bar {
     color: #fff4cf !important;
   }
 }
+
+/* ================================================================
+   Pantalla de juego compacta (correcciones de la predefensa):
+   barra superior, herramientas a la izquierda, valle al centro y
+   paneles plegables a la derecha, todo en una sola pantalla.
+   ================================================================ */
+body:has(.game-shell) {
+  padding: 0;
+}
+
+main.game-shell {
+  max-width: none;
+  min-height: 100vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.9rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.topbar .brand-title {
+  margin: 0;
+  font-size: 1.35rem;
+  letter-spacing: 0.06em;
+  text-align: left;
+}
+
+.topbar .resource-hud {
+  align-self: center;
+  align-items: center;
+}
+
+.topbar .resource-pill {
+  padding: 0.3rem 0.8rem;
+  gap: 0.45rem;
+}
+
+.topbar .resource-pill-water .resource-icon {
+  color: var(--color-water-dark);
+}
+
+.topbar .resource-pill-leaves .resource-icon {
+  color: var(--color-veg-deep);
+}
+
+.topbar .resource-pill strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+.topbar .connection-status {
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+}
+
+.drawer-buttons {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.pill-button {
+  min-height: 2.5rem;
+  padding: 0 0.9rem;
+  background: var(--bg-card-muted);
+}
+
+.pill-button-on,
+.pill-button-on:hover:not(:disabled) {
+  background: var(--color-water-dark);
+  color: #ffffff;
+}
+
+/* Menú de la cuenta: salir, administración, registro y panel del sistema */
+.account-menu {
+  position: relative;
+}
+
+.account-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.5rem;
+  padding: 0 0.6rem;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+
+.account-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: var(--color-water-light);
+  color: var(--color-water-dark);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.account-menu-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 60;
+  width: min(26rem, 92vw);
+  max-height: 75vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  box-shadow: 0 12px 32px rgba(20, 48, 66, 0.18);
+}
+
+.account-menu-body .section-shell {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+}
+
+.account-menu-body .section-shell > h2 {
+  text-align: left;
+  font-size: 1rem;
+}
+
+.account-menu-body #log {
+  max-height: 14rem;
+  overflow: auto;
+  font-size: 0.8rem;
+}
+
+/* Cuerpo: herramientas | valle | paneles */
+.game-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.tool-palette {
+  flex: 0 0 17.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem;
+  background: var(--section-bg);
+  overflow-y: auto;
+}
+
+.palette-heading {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tool-list,
+.upgrade-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tool-palette .tool {
+  justify-content: flex-start;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  background: var(--bg-card);
+}
+
+.tool-palette .tool:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+}
+
+.tool-palette .tool-selected,
+.tool-palette .tool-selected:hover:not(:disabled) {
+  background: var(--color-water-dark);
+  color: #ffffff;
+}
+
+.tool-palette .tool-selected .tool-text span {
+  color: #ffffff;
+}
+
+.tool-palette .tool-poor {
+  opacity: 0.55;
+}
+
+.tool-icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  background: var(--color-water-bg);
+  color: var(--color-water-dark);
+}
+
+.tool-sprite {
+  width: 2rem;
+  height: 2rem;
+  image-rendering: pixelated;
+}
+
+.tool-sprite-flat {
+  height: 1rem;
+}
+
+.tool-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.tool-text strong {
+  font-size: 0.95rem;
+}
+
+.tool-text span {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.tool-price {
+  flex: none;
+  padding: 0.15rem 0.5rem;
+  background: var(--color-veg-bg);
+  color: var(--color-veg-deep);
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-card);
+}
+
+.tool-info-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tool-info p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.tool-info .tool-info-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.upgrade {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-card);
+}
+
+.btn-buy {
+  flex: none;
+  min-height: 2.25rem;
+  padding: 0 0.8rem;
+  background: var(--color-veg-deep);
+  color: #ffffff;
+}
+
+.btn-buy:hover:not(:disabled) {
+  background: var(--color-veg-leaf);
+}
+
+/* Centro: barra de modo, valle, tooltip y avisos */
+.valley-stage {
+  flex: 1 1 32rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+}
+
+.mode-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.5rem 0.35rem 1rem;
+  background: var(--bg-card);
+  font-size: 0.92rem;
+}
+
+.mode-bar-paint {
+  background: var(--color-water-dark);
+  color: #ffffff;
+}
+
+.mode-bar > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.mode-bar .pill-button {
+  flex: none;
+}
+
+.valley-stage .layout {
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  height: auto;
+  min-height: 420px;
+  max-height: none;
+  margin: 0;
+}
+
+.layout.tool-paint #valley {
+  cursor: copy;
+}
+
+.layout.tile-blocked #valley {
+  cursor: not-allowed;
+}
+
+.tile-tooltip {
+  position: fixed;
+  z-index: 80;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  background: #143042;
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(20, 48, 66, 0.25);
+  pointer-events: none;
+  font-size: 0.85rem;
+}
+
+.tile-tooltip-coord {
+  font-size: 0.75rem;
+  color: #b8d3e0;
+}
+
+.tile-tooltip-row {
+  color: #d7eff4;
+}
+
+.tile-tooltip-action {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #2f495e;
+  font-weight: 600;
+}
+
+.tile-tooltip-action.ok {
+  color: #9ce6c4;
+}
+
+.tile-tooltip-action.blocked {
+  color: #ffb4a8;
+}
+
+.stage-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1rem;
+}
+
+.action-toast {
+  flex: 1 1 20rem;
+  margin: 0;
+  padding: 0.45rem 0.9rem;
+  background: var(--bg-card);
+  font-size: 0.92rem;
+}
+
+.action-toast.ok {
+  color: var(--color-success);
+}
+
+.action-toast.error {
+  color: var(--color-danger);
+}
+
+.stage-footer .meta {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* Derecha: ranking, chat y aporte en pestañas */
+.side-drawer {
+  flex: 0 0 21rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.drawer-tabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.drawer-tabs .drawer-tab {
+  flex: 1;
+  margin: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.drawer-tabs .drawer-tab-on {
+  color: var(--color-water-dark);
+  box-shadow: inset 0 -3px 0 var(--color-water-dark) !important;
+  background: transparent;
+}
+
+.drawer-close {
+  flex: none;
+  width: 2.75rem;
+  background: transparent;
+  font-size: 1.3rem;
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.25rem 0.75rem 1rem;
+}
+
+.drawer-body #ranking-panel,
+.drawer-body #report-panel,
+.drawer-body #chat-panel {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.25rem;
+}
+
+.drawer-body #ranking-panel table,
+.drawer-body #report-panel table {
+  min-width: 0;
+}
+
+/* Pantallas estrechas: todo apilado y con desplazamiento normal */
+@media (max-width: 900px) {
+  .tool-palette,
+  .side-drawer {
+    flex: 1 1 100%;
+  }
+
+  .tool-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  }
+
+  .side-drawer {
+    border-left: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .tool-palette .tool-selected .tool-icon,
+  .tool-icon {
+    background: var(--color-water-bg);
+    color: var(--color-water-light);
+  }
+
+  .topbar .resource-pill-leaves .resource-icon {
+    color: var(--color-veg-primary);
+  }
+}
