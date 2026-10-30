@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { StateFrame } from "./play.ts";
 import {
   TOOLS,
+  hasWaterForDrop,
   interactionFor,
   isInstallationTool,
   placementFor,
@@ -156,5 +157,21 @@ describe("TOOLS", () => {
     for (const tool of TOOLS) expect(tool.description.length).toBeGreaterThan(20);
     expect(isInstallationTool("drip")).toBe(true);
     expect(isInstallationTool("interact")).toBe(false);
+  });
+});
+
+describe("hasWaterForDrop", () => {
+  it("no deja regar con el depósito vacío", () => {
+    expect(hasWaterForDrop({ demo_mode: false, player: { water: 0n } })).toBe(false);
+    expect(hasWaterForDrop({ demo_mode: false, player: { water: 1n } })).toBe(true);
+  });
+
+  it("en modo demo la gota no gasta agua", () => {
+    expect(hasWaterForDrop({ demo_mode: true, player: { water: 0n } })).toBe(true);
+  });
+
+  it("antes del primer comando el servidor decide", () => {
+    expect(hasWaterForDrop(state())).toBe(true);
+    expect(hasWaterForDrop(null)).toBe(true);
   });
 });

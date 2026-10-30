@@ -165,6 +165,19 @@ export function placementFor(
   return { ok: true, label: `Colocar ${toolName(tool).toLowerCase()}` };
 }
 
+/**
+ * Si el jugador puede pagar una gota: con el depósito vacío el simulador la
+ * rechaza (`insufficient_water`), así que no se envía. En modo demo la gota
+ * no gasta agua, y antes del primer comando el estado aún no trae al jugador:
+ * en esos casos decide el servidor.
+ */
+export function hasWaterForDrop(
+  state: Pick<StateFrame, "demo_mode"> & { player: { water: bigint } | null } | null,
+): boolean {
+  if (!state || state.demo_mode || !state.player) return true;
+  return state.player.water > 0n;
+}
+
 export interface TileTooltip {
   title: string;
   coord: string;

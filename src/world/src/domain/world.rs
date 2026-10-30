@@ -1555,6 +1555,30 @@ mod tests {
     }
 
     #[test]
+    fn clicking_without_water_only_applies_the_drops_the_refill_pays_for() {
+        // Un jugador que vacía el depósito y sigue soltando una gota por tick
+        // durante 60 ticks (6 s): solo pasan las que paga la recarga de
+        // 1 L cada 2 s; el resto se rechaza sin cobrar ni humedecer.
+        let mut w = world();
+        let drops: Vec<Command> = (0..20).map(|n| drop_cmd(&action(n), ANA, 1, 1)).collect();
+        w.step(&drops);
+        assert_eq!(w.player(ANA).unwrap().water, 0);
+
+        let (mut applied, mut rejected) = (0, 0);
+        for n in 0..60 {
+            let out = w.step(&[drop_cmd(&action(100 + n), ANA, 2, 2)]);
+            match out.results[0].outcome {
+                CommandOutcome::Applied => applied += 1,
+                CommandOutcome::Rejected(RejectReason::InsufficientWater) => rejected += 1,
+                other => panic!("unexpected outcome {other:?}"),
+            }
+            assert!(w.player(ANA).unwrap().water <= 1);
+        }
+        assert_eq!((applied, rejected), (3, 57));
+        assert_eq!(w.humidity_contributed(), (20 + 3) * 25);
+    }
+
+    #[test]
     fn results_follow_request_order_across_players() {
         let mut w = world();
         let out = w.step(&[
@@ -3609,6 +3633,19 @@ mod tests {
         w.step(&[reset_cmd(&action(2))]);
         assert_eq!(w.tiles(), &terrain[..]);
         assert_eq!(w.rng.to_bytes(), rng);
+    }
+
+    #[test]
+    fn the_reset_button_generates_the_terrain_with_the_catalog_it_reloads() {
+        // Como en el laboratorio: el simulador arrancó con un catálogo sin
+        // terreno y una instantánea vieja; el botón «Reiniciar valle» llega con
+        // el catálogo recargado de la persistencia (`GetCatalog`), que sí trae
+        // río y rocas.
+        let old = World::with_seed(Catalog::d01(), 42);
+        let mut w = World::restore(Catalog::d01(), old.parts()).unwrap();
+        w.step_with_reset_catalog(&[reset_cmd(&action(1))], Some(terrain_catalog()));
+        assert_eq!(count_stage(&w, TileStage::Rock), 12);
+        assert!(count_stage(&w, TileStage::Water) >= 64);
     }
 
     #[test]

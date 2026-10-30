@@ -230,6 +230,27 @@ describe("GameApp", () => {
       expect(sentTypes()).toEqual(["drop", "clean_trash"]);
     });
 
+    it("con el depósito vacío no envía la gota y avisa", () => {
+      const { clickTile, sentTypes, socket } = startGame();
+      act(() => {
+        socket()?.emit("message", {
+          data: JSON.stringify({
+            type: "state",
+            tick: "6",
+            width: 32,
+            height: 32,
+            stages: new Array<number>(1024).fill(1),
+            humidity: new Array<string>(1024).fill("0"),
+            player: { water: "0", tank_capacity: "10", leaves: "50" },
+          }),
+        });
+      });
+      clickTile(5, 5);
+      clickTile(6, 5);
+      expect(sentTypes()).toEqual([]);
+      expect(screen.getByText("Tu depósito está vacío: espera a que se recargue.")).toBeDefined();
+    });
+
     it("no envía nada al hacer clic en el río y explica por qué", () => {
       const { clickTile, sentTypes } = startGame();
       clickTile(1, 0);
