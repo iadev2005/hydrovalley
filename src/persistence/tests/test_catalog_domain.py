@@ -52,10 +52,10 @@ def test_the_repository_catalog_is_valid_and_carries_the_d01_figures(document):
     assert values["urban"]["clean_reward_leaves"] == 1
     assert values["bigger_drop"]["price_leaves"] == 30
     assert values["bigger_tank"]["extra_capacity_liters"] == 10
-    assert values["installation_price_increase_percent"] == 15
+    assert values["installation_price_increase_percent"] == 5
     assert values["offline_installation_seconds"] == 7200
-    assert values["fire"]["ignition_chance_ppm"] == 1250
-    assert values["fire"]["propagation_chance_ppm"] == 10000
+    assert values["fire"]["ignition_chance_ppm"] == 400
+    assert values["fire"]["propagation_chance_ppm"] == 3000
 
 
 def test_every_entry_has_the_kind_of_its_group(document):

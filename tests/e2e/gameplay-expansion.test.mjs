@@ -140,7 +140,7 @@ describe("gameplay expansion (RF-32, RF-33, RF-34)", () => {
     const bin = placed.installations.find((i) => i.installation === "trash_bin" && i.x === binTile.x && i.y === binTile.y);
     const durability = Number(bin.remaining_durability ?? 0);
     assert.ok(durability >= 1 && durability <= 30, `durabilidad ${durability}: empieza en 30 y baja con cada limpieza`);
-    // Cada compra del mismo tipo sube el precio un 15 %.
+    // Cada compra del mismo tipo sube el precio (installation_price_increase_percent, redondeo hacia arriba).
     assert.ok(BigInt(placed.player.next_trash_bin_price) > 15n, JSON.stringify(placed.player));
   });
 
@@ -162,7 +162,7 @@ describe("gameplay expansion (RF-32, RF-33, RF-34)", () => {
     const target = { x: at % dirty.width, y: Math.floor(at / dirty.width) };
 
     const leavesBefore = BigInt(dirty.player?.leaves ?? "0");
-    // Hasta dejarla limpia: cada acción quita un nivel (la basura nueva llega cada 6 s).
+    // Hasta dejarla limpia: cada acción quita un nivel (la basura nueva llega cada trash_interval_seconds).
     let cleaned = false;
     for (let i = 0; i < 12 && !cleaned; i += 1) {
       const result = await send(player, { type: "clean_trash", ...target });
