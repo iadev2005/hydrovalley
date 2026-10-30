@@ -241,7 +241,8 @@ export class ValleyScene extends Phaser.Scene {
 
   /** Ajusta el zoom desde el contenedor del mapa sin desplazar la página. */
   public zoomBy(deltaY: number): void {
-    const cam = this.cameras.main;
+    const cam = this.cameras?.main;
+    if (!cam) return;
     const zoomFactor = deltaY > 0 ? 0.9 : 1.1;
     cam.setZoom(Phaser.Math.Clamp(cam.zoom * zoomFactor, 0.4, 2.5));
   }
@@ -250,7 +251,8 @@ export class ValleyScene extends Phaser.Scene {
    * Resuelve el clic del puntero convirtiéndolo a coordenadas de casilla.
    */
   private handlePointerClick(pointer: Phaser.Input.Pointer): void {
-    const cam = this.cameras.main;
+    const cam = this.cameras?.main;
+    if (!cam || !this.game?.canvas) return;
     const canvas = this.game.canvas;
     const rect = canvas.getBoundingClientRect();
     const gameWidth = this.scale.width;
@@ -300,10 +302,27 @@ export class ValleyScene extends Phaser.Scene {
    * Centra la cámara de nuevo en el centro del valle y restablece el zoom a 1x.
    */
   public resetCamera(): void {
-    const cam = this.cameras.main;
+    const cam = this.cameras?.main;
+    if (!cam) return;
     const centerY = this.originY + (VALLEY_GRID_SIZE * ISO_TILE_HEIGHT) / 2;
     cam.setZoom(0.65);
     cam.centerOn(this.originX, centerY);
+  }
+
+  /**
+   * Centra suavemente la cámara sobre una casilla específica del valle.
+   */
+  public centerOnTile(gridX: number, gridY: number): void {
+    if (!this.isMapReady || !this.cameras?.main) return;
+    const pos = gridToIsometric(
+      gridX,
+      gridY,
+      this.originX,
+      this.originY,
+      ISO_TILE_WIDTH,
+      ISO_TILE_HEIGHT,
+    );
+    this.cameras.main.pan(pos.x, pos.y, 250, "Sine.easeInOut");
   }
 
   /**

@@ -16,6 +16,7 @@ export interface ValleyPhaserHandle {
   resolvePendingDrop: (actionId: string, status: string) => void;
   clearPendingDrops: () => void;
   resetCamera: () => void;
+  centerOnTile: (x: number, y: number) => void;
 }
 
 export interface ValleyPhaserProps {
@@ -70,6 +71,9 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
       },
       resetCamera: () => {
         getScene()?.resetCamera();
+      },
+      centerOnTile: (x: number, y: number) => {
+        getScene()?.centerOnTile(x, y);
       },
     }),
     [getScene],
@@ -147,6 +151,22 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
     getScene()?.setSelectedTile(selected);
   }, [getScene, selected]);
 
+  // 5. Zoom con rueda de ratón evitando el scroll de página (listener no pasivo)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if ((event.target as HTMLElement).closest(".valley-toolbar")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      getScene()?.zoomBy(event.deltaY);
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [getScene]);
+
   const handleResetCamera = () => {
     getScene()?.resetCamera();
   };
@@ -159,11 +179,6 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
         aria-label="Valle isométrico de 32 por 32 casillas"
         aria-describedby="isometric-help"
         tabIndex={0}
-        onWheel={(event) => {
-          if ((event.target as HTMLElement).closest(".valley-toolbar")) return;
-          event.preventDefault();
-          getScene()?.zoomBy(event.deltaY);
-        }}
       />
       <p id="isometric-help" className="visually-hidden">
         Arrastra el mapa para mover la vista y usa la rueda para acercar o alejar.

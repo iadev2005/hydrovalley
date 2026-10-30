@@ -6,7 +6,7 @@ import react from "@vitejs/plugin-react";
 // Destino del plan B (nginx, HTTPS con certificado autofirmado) para el
 // servidor de desarrollo; se cambia con VITE_PROXY_TARGET si el stack corre en
 // otro puerto. `secure: false` acepta ese certificado autofirmado.
-const target = process.env.VITE_PROXY_TARGET ?? "https://localhost:8080";
+const target = process.env.VITE_PROXY_TARGET ?? "https://localhost:8081";
 
 export default defineConfig({
   plugins: [react()],
@@ -25,6 +25,7 @@ export default defineConfig({
       // El hub compara Origin con Host: sin changeOrigin, el Host sigue siendo
       // el de Vite (localhost:5173), igual que el Origin del navegador.
       "/play": { target, ws: true, changeOrigin: false, secure: false },
+      "/chat": { target, ws: true, changeOrigin: false, secure: false },
     },
   },
   test: {

@@ -49,6 +49,7 @@ describe("ValleyPhaser", () => {
     expect(typeof handle.resolvePendingDrop).toBe("function");
     expect(typeof handle.clearPendingDrops).toBe("function");
     expect(typeof handle.resetCamera).toBe("function");
+    expect(typeof handle.centerOnTile).toBe("function");
 
     // Call them to ensure safe execution even without active Phaser scene
     expect(() => {
@@ -56,6 +57,7 @@ describe("ValleyPhaser", () => {
       handle.resolvePendingDrop("act-1", "applied");
       handle.clearPendingDrops();
       handle.resetCamera();
+      handle.centerOnTile(5, 5);
     }).not.toThrow();
   });
 });

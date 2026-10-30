@@ -34,6 +34,34 @@ La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada indepen
 - Visualización de etapas de vegetación (tierra seca, pasto, arbusto, flores, árbol), fuego activo e instalaciones (A: Aspersor, G: Goteo, P: Planta de tratamiento).
 - Panel de recursos: agua disponible, capacidad del depósito, hojas ganadas y costos dinámicos de las siguientes instalaciones.
 - Botones de acción: **Soltar gota**, colocar instalaciones en la casilla seleccionada y adquirir mejoras de depósito/gota.
+- **Atajos de teclado y controles tácticos (`useKeyboardShortcuts`)**:
+  - `WASD` / `Flechas`: navegación y selección rápida de casillas por la cuadrícula 32 × 32.
+  - `Espacio` / `Enter`: soltar gota en la casilla seleccionada.
+  - `1`, `2`, `3`: compra y colocación inmediata de instalaciones 3R (aspersor, goteo, planta).
+  - `F`: centrado y ciclado automático de cámara en emergencias de incendios activos (*Focus Fire*).
+  - `C`: centrar cámara suavemente sobre la casilla seleccionada.
+  - `R` / `0`: restablecer cámara y zoom al centro del valle.
+  - `V`: conmutar instantáneamente entre vista isométrica y cenital.
+  - `Escape`: deseleccionar casilla activa.
+  - Protección de contexto: los atajos se deshabilitan automáticamente cuando el foco está sobre campos de texto (chat, login/registro) o con teclas modificadoras del sistema.
+- **Arquitectura Cockpit / RTS y Pantalla Completa**:
+  - Cabecera unificada con título, estado de conexión de red, barra de sesión del usuario (`SessionBar`), botón de silenciar/activar sonido (`#btn-toggle-sound`) y alternancia de pantalla completa nativa (`#btn-fullscreen`).
+  - Distribución dividida en dos columnas: viewport interactivo del valle a la izquierda y **Dock lateral interactivo** a la derecha (`#cockpit-dock`).
+  - Pestañas organizadas: **Chat** (con contador numérico de mensajes no leídos cuando la pestaña o el dock están cerrados), **Ranking**, **Reportes 3R**, **Logs** de eventos y **Admin**.
+  - Control de colapso rápido (`▶` / `◀`): permite replegar el dock lateral a un ancho mínimo de iconos para maximizar la inmersión sobre el mapa en partidas intensas.
+- **Sistema de Efectos de Sonido Procedurales (`useSoundEffects` / Web Audio API)**:
+  - Generación de audio procedural en tiempo real sin requerir descarga de archivos de sonido externos ni dependencias pesadas (100% funcional offline).
+  - Efectos sintetizados: caída de gota de agua (`waterDrop`), construcción de instalaciones 3R (`install`), extinción de fuego con vapor (`extinguish`), alerta de incendios (`fireAlert`), clic táctil de botones/pestañas (`click`) y desplazamiento mecánico del dock (`dockToggle`).
+  - Control de silenciamiento persistente en `localStorage` (`hydrovalley_sfx_muted`) mediante el botón `🔊 Sonido` / `🔇 Silencio` en la cabecera.
+- **Barra de Telemetría Táctica en Vivo (`<ValleyTelemetryHUD />`)**:
+  - Mini-panel superior de métricas del valle en tiempo real derivadas del marco de juego:
+    - **Fuegos activos**: contador con alerta visual pulsante y botón de acceso rápido para enfocar la cámara directamente sobre el fuego (<kbd>F</kbd>). Si no hay incendios, muestra una insignia verde de valle protegido.
+    - **Nivel de agua**: indicador de reserva hídrica del jugador con barra de llenado porcentual sobre la capacidad del depósito.
+    - **Salud del ecosistema**: porcentaje de superficie cubierta con vegetación viva (pasto, arbustos, flores, árboles).
+    - **Hojas ecológicas y tecnologías 3R**: balance de divisas ecológicas y conteo de estructuras desplegadas en la cuadrícula.
+- **Microinteracciones Visuales y Avisos Tácticos («Juice», `<TacticalToasts />` y `useTacticalAlerts`)**:
+  - Notificaciones flotantes tipo *toast* con animaciones de entrada y auto-cierre tras unos segundos.
+  - Alertas automáticas ante eventos clave de la partida: detección de nuevos focos de incendio (con botón de enfoque inmediato), avisos de fuego extinguido, advertencia de depósito de agua agotado y confirmación de instalación de estructuras 3R.
 - **Resumen al volver (RF-25, tarea B6; `<OfflineSummaryPanel />`)**: el hub manda lo que hicieron los aspersores del jugador desde su última acción aplicada (`player.offline_summary`) solo en el primer `state` de cada conexión y solo si no está vacío. El panel descartable dice, con las palabras del documento, «Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio», con las hojas ganadas y el agua reutilizada. El hook lo guarda hasta que el jugador lo cierra; la siguiente conexión lo vuelve a mostrar si el jugador no ha actuado. Los contadores son `u64` en texto (`BigInt`, nunca `Number`).
 - **Panel de administración (RF-31)**: visible solo para usuarios con rol `admin` (leído de la carga útil del JWT; validado autoritativamente por el hub), permitiendo activar/desactivar el modo demo y reiniciar el valle previa confirmación modal.
 
@@ -87,18 +115,25 @@ src/frontend/
     │   ├── ReportPanel.tsx     # Panel de reportes de sostenibilidad 3R
     │   ├── SessionBar.tsx      # Barra de usuario activo y botón salir
     │   ├── SystemDashboard.tsx # Métricas de servicios y componentes del sistema
+    │   ├── TacticalToasts.tsx  # Avisos flotantes y notificaciones reactivas (Juice)
     │   ├── ValleyCanvas.tsx    # Vista cenital 2D (salida de emergencia A4)
-    │   ├── ValleyControls.tsx  # Botones de acciones del juego y costes
+    │   ├── ValleyControls.tsx  # Botones de acciones del juego, costes y atajos de teclado
     │   ├── ValleyPhaser.tsx    # Valle isométrico en Phaser con cámara y animaciones (A3)
+    │   ├── ValleyTelemetryHUD.tsx # Barra de telemetría táctica en vivo del valle
     │   └── *.test.tsx          # Pruebas unitarias de componentes
     ├── hooks/                  # Custom Hooks para ciclo de vida y red
+    │   ├── useChatSocket.ts    # WebSocket de chat en tiempo real
     │   ├── useGameSocket.ts    # WebSocket /play, reconexión y cola de acciones
+    │   ├── useKeyboardShortcuts.ts # Atajos de teclado globales (WASD, Espacio, 1-3, F, C, V, R, Esc)
     │   ├── useReports.ts       # Sondeo de ranking y reportes
     │   ├── useSession.ts       # Estado de sesión y persistencia local
+    │   ├── useSoundEffects.ts  # Control de efectos sonoros y estado de mute
     │   ├── useSystemMetrics.ts # Sondeo y reintentos del panel del sistema
+    │   ├── useTacticalAlerts.ts # Generación reactiva de alertas tácticas
     │   ├── useValleyView.ts    # Conmutación de vista isométrica/cenital y fallback de emergencia (A4)
     │   └── *.test.ts           # Pruebas unitarias de hooks
     └── logic/                  # Lógica de dominio pura sin dependencias de DOM
+        ├── audio.ts            # Síntesis procedural de sonido (Web Audio API)
         ├── auth.ts             # Funciones de login, registro y parsing de JWT
         ├── offlineSummary.ts   # Texto del resumen al volver (B6)
         ├── isometric.ts        # Matemáticas de proyección isométrica 2.5D (pantalla ↔ cuadrícula)

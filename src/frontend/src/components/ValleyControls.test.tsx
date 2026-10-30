@@ -114,4 +114,31 @@ describe("ValleyControls", () => {
     fireEvent.click(buyDropBtn);
     expect(onBuyUpgrade).toHaveBeenCalledWith("bigger_drop");
   });
+
+  it("renders active fires button when fires exist and triggers onFocusFire", () => {
+    const onFocusFire = vi.fn();
+    const stateWithFires: StateFrame = {
+      ...mockState,
+      fires: [{ x: 12, y: 14, drops_received: 1 }],
+    };
+
+    render(
+      <ValleyControls
+        gameState={stateWithFires}
+        selected={{ x: 5, y: 10 }}
+        isOpen={true}
+        pendingCount={0}
+        actionMessage={null}
+        onDrop={vi.fn()}
+        onPlaceInstallation={vi.fn()}
+        onBuyUpgrade={vi.fn()}
+        onFocusFire={onFocusFire}
+      />,
+    );
+
+    const fireBtn = screen.getByRole("button", { name: /Incendios activos/i });
+    expect(fireBtn).toBeDefined();
+    fireEvent.click(fireBtn);
+    expect(onFocusFire).toHaveBeenCalledTimes(1);
+  });
 });

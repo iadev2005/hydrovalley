@@ -83,6 +83,26 @@ describe("GameApp", () => {
     expect(screen.getByText("Cuadrícula 2D (vista cenital)")).toBeDefined();
   });
 
+  it("renders sound toggle button and allows muting/unmuting", () => {
+    const storage = memoryStorage();
+    render(
+      <GameApp
+        sessionOptions={{ storage }}
+        socketOptions={{ location: { protocol: "http:", host: "localhost:8080" } }}
+      />,
+    );
+
+    const soundBtn = screen.getByRole("button", { name: "Silenciar efectos de sonido" });
+    expect(soundBtn).toBeDefined();
+    expect(soundBtn.textContent).toContain("🔊 Sonido");
+
+    fireEvent.click(soundBtn);
+    expect(soundBtn.textContent).toContain("🔇 Silencio");
+
+    fireEvent.click(soundBtn);
+    expect(soundBtn.textContent).toContain("🔊 Sonido");
+  });
+
   describe("offline summary", () => {
     class FakeSocket {
       static last: FakeSocket | null = null;
