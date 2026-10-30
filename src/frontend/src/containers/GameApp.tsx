@@ -18,6 +18,7 @@ import { useSession, type UseSessionOptions } from "../hooks/useSession.ts";
 import { useValleyView, type UseValleyViewOptions } from "../hooks/useValleyView.ts";
 import { describeFrame } from "../logic/play.ts";
 import {
+  hasWaterForDrop,
   interactionFor,
   isInstallationTool,
   placementFor,
@@ -163,6 +164,11 @@ export function GameApp({
       if (action.kind === "none") {
         clearActionMessage();
         setNotice(`${action.label}: aquí no hay nada que hacer.`);
+        return;
+      }
+      if (action.kind === "drop" && !hasWaterForDrop(gameState)) {
+        clearActionMessage();
+        setNotice("Tu depósito está vacío: espera a que se recargue.");
         return;
       }
       setNotice(null);
