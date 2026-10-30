@@ -103,11 +103,13 @@ Todos los servicios deben salir en `up`.
 
 El reinicio borra el progreso de todos los jugadores (casillas, hojas e instalaciones), pero conserva las cuentas y el tick. **Hacerlo antes de la demostración.**
 
+> **Importante:** en la predefensa «Reiniciar valle» no generó el río porque el nodo `world` corría una imagen anterior al arreglo ([#81](https://github.com/iadev2005/hydrovalley/pull/81), publicado la noche del 29 de octubre). El botón solo funciona después de los pasos 1 y 2 con las imágenes `:dev` nuevas. Si se reinicia antes, no pasa nada malo: basta con actualizar los nodos y reiniciar otra vez.
+
 ## Si algo falla
 
 | Síntoma | Qué hacer |
 | --- | --- |
-| Tras reiniciar sigue sin río | El nodo `world` no tiene la imagen nueva. Repetir el paso 2 y comprobar la fecha de la imagen con `docker image ls ghcr.io/iadev2005/hydrovalley-world`. Después, reiniciar el valle otra vez |
+| Tras reiniciar sigue sin río | El nodo `world` no tiene la imagen nueva (lo que pasó en la predefensa). Repetir el paso 2 y comprobar que la imagen es del 30 de octubre o posterior con `docker image ls ghcr.io/iadev2005/hydrovalley-world` (columna CREATED). Si `persistence` también es vieja, el catálogo no trae el río: repetir el paso 1 y luego el 2. Después, reiniciar el valle otra vez |
 | La interfaz es la vieja (botones «Soltar gota») | Repetir el paso 3 y recargar con Ctrl+F5 |
 | Los precios siguen subiendo un 15 % | Repetir el paso 1 y después el paso 2 (el simulador lee el catálogo al arrancar) |
 | `health.ps1` muestra un servicio en `down` | Mirar los registros en esa PC: `docker logs --tail 50 <contenedor>` (`docker ps` da los nombres). Volver a ejecutar `deploy-node.ps1` de ese nodo |
