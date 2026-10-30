@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import Phaser from "phaser";
-import { ValleyScene } from "../game/ValleyScene.ts";
+import { ValleyScene, type TileHoverCallback } from "../game/ValleyScene.ts";
 import type { StateFrame } from "../logic/play.ts";
 
 export interface ValleyPhaserHandle {
@@ -22,6 +22,12 @@ export interface ValleyPhaserProps {
   gameState: StateFrame | null;
   selected: { x: number; y: number } | null;
   onSelectTile: (coord: { x: number; y: number }) => void;
+  /** Casilla bajo el ratón (para el tooltip), o `null` al salir. */
+  onHoverTile?: TileHoverCallback;
+  /** Clic derecho sobre el valle: soltar la herramienta. */
+  onCancelTool?: () => void;
+  /** Instalación del modo pincel, para su vista previa; `null` con «Interactuar». */
+  placementTool?: string | null;
   onError?: (error: unknown) => void;
   toolbarExtra?: ReactNode;
 }
@@ -37,7 +43,16 @@ function isCanvasSupported(): boolean {
 }
 
 export const ValleyPhaser = forwardRef(function ValleyPhaser(
-  { gameState, selected, onSelectTile, onError, toolbarExtra }: ValleyPhaserProps,
+  {
+    gameState,
+    selected,
+    onSelectTile,
+    onHoverTile,
+    onCancelTool,
+    placementTool = null,
+    onError,
+    toolbarExtra,
+  }: ValleyPhaserProps,
   ref: ForwardedRef<ValleyPhaserHandle>,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -46,11 +61,17 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
   const gameStateRef = useRef<StateFrame | null>(gameState);
   const selectedRef = useRef<{ x: number; y: number } | null>(selected);
   const onSelectTileRef = useRef(onSelectTile);
+  const onHoverTileRef = useRef(onHoverTile);
+  const onCancelToolRef = useRef(onCancelTool);
+  const placementToolRef = useRef(placementTool);
   const onErrorRef = useRef(onError);
 
   gameStateRef.current = gameState;
   selectedRef.current = selected;
   onSelectTileRef.current = onSelectTile;
+  onHoverTileRef.current = onHoverTile;
+  onCancelToolRef.current = onCancelTool;
+  placementToolRef.current = placementTool;
   onErrorRef.current = onError;
 
   const getScene = useCallback((): ValleyScene | null => {
@@ -165,6 +186,10 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
           if (scene) {
             sceneRef.current = scene;
             scene.onSelectTile(onSelectTileRef.current);
+            // Por referencia: los callbacks cambian sin volver a montar Phaser.
+            scene.onHoverTile((hover) => onHoverTileRef.current?.(hover));
+            scene.onCancelTool(() => onCancelToolRef.current?.());
+            scene.setPlacementTool(placementToolRef.current);
             if (gameStateRef.current) scene.updateState(gameStateRef.current);
             if (selectedRef.current) scene.setSelectedTile(selectedRef.current);
           }
@@ -187,6 +212,11 @@ export const ValleyPhaser = forwardRef(function ValleyPhaser(
   useEffect(() => {
     getScene()?.onSelectTile(onSelectTile);
   }, [getScene, onSelectTile]);
+
+  // 2b. Vista previa de la instalación elegida
+  useEffect(() => {
+    getScene()?.setPlacementTool(placementTool);
+  }, [getScene, placementTool]);
 
   // 3. Sincronización de gameState
   useEffect(() => {
