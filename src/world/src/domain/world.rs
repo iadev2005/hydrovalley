@@ -3636,6 +3636,19 @@ mod tests {
     }
 
     #[test]
+    fn the_reset_button_generates_the_terrain_with_the_catalog_it_reloads() {
+        // Como en el laboratorio: el simulador arrancó con un catálogo sin
+        // terreno y una instantánea vieja; el botón «Reiniciar valle» llega con
+        // el catálogo recargado de la persistencia (`GetCatalog`), que sí trae
+        // río y rocas.
+        let old = World::with_seed(Catalog::d01(), 42);
+        let mut w = World::restore(Catalog::d01(), old.parts()).unwrap();
+        w.step_with_reset_catalog(&[reset_cmd(&action(1))], Some(terrain_catalog()));
+        assert_eq!(count_stage(&w, TileStage::Rock), 12);
+        assert!(count_stage(&w, TileStage::Water) >= 64);
+    }
+
+    #[test]
     fn reset_valley_keeps_the_natural_terrain_and_does_not_draw_random_numbers() {
         let mut w = World::with_seed(terrain_catalog(), 42);
         let water_count_before = w
