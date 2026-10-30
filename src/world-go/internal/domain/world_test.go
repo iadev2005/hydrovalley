@@ -862,6 +862,35 @@ func countStage(w *World, stage TileStage) int {
 	return count
 }
 
+// world.rs: reset_valley_generates_the_terrain_of_a_valley_restored_without_one.
+func TestResetValleyGeneratesTheTerrainOfAValleyRestoredWithoutOne(t *testing.T) {
+	// Instantánea de antes de la expansión: valle sin río ni rocas.
+	old := NewWorld(d01(), 42)
+	w := mustRestore(t, terrainCatalog(), old.Parts())
+	if got := countStage(w, Water); got != 0 {
+		t.Fatalf("water before the reset = %d, want 0", got)
+	}
+
+	w.Step([]Command{resetCmd(action(1))})
+	if got := countStage(w, Rock); got != 12 {
+		t.Errorf("rocks after the reset = %d, want 12", got)
+	}
+	if got := countStage(w, Water); got < 64 {
+		t.Errorf("water after the reset = %d, want at least 64", got)
+	}
+
+	// El terreno nuevo se conserva en el siguiente reinicio sin sortear más.
+	terrain := append([]Tile(nil), w.Tiles()...)
+	rng := w.RngState()
+	w.Step([]Command{resetCmd(action(2))})
+	if !reflect.DeepEqual(w.Tiles(), terrain) {
+		t.Error("the second reset changed the terrain")
+	}
+	if !bytes.Equal(w.RngState(), rng) {
+		t.Error("the second reset used the generator")
+	}
+}
+
 func TestACatalogWithoutTerrainLeavesTheValleyEmptyAndTheGeneratorUntouched(t *testing.T) {
 	w := NewWorld(d01(), 42)
 	for i, tile := range w.Tiles() {

@@ -186,5 +186,5 @@ def test_a_changed_figure_is_updated_and_a_removed_one_is_deleted(seeded):
 @integration
 def test_the_ignition_chance_survives_the_round_trip(seeded):
     fire = {e.key: e.value for e in seeded.load_entries()}["fire"]
-    assert fire["ignition_chance_ppm"] == 1250
-    assert fire["propagation_chance_ppm"] == 10000
+    assert fire["ignition_chance_ppm"] == 400
+    assert fire["propagation_chance_ppm"] == 3000

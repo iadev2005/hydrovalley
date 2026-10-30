@@ -100,16 +100,16 @@ def test_get_catalog_returns_the_d01_figures_as_typed_fields(stub):
     assert (catalog.terrain.river_width, catalog.terrain.rock_count) == (2, 12)
     assert (catalog.urban.building_tree_threshold, catalog.urban.building_humidity_threshold) == (2, 500)
     assert catalog.urban.max_buildings == 2
-    assert (catalog.urban.trash_interval_seconds, catalog.urban.trash_spread_interval_seconds) == (6, 8)
+    assert (catalog.urban.trash_interval_seconds, catalog.urban.trash_spread_interval_seconds) == (15, 20)
     assert catalog.urban.clean_reward_leaves == 1
-    assert catalog.installation_price_increase_percent == 15
+    assert catalog.installation_price_increase_percent == 5
     assert (catalog.bigger_drop.price, catalog.bigger_drop.area_side) == (30, 3)
     assert (catalog.bigger_tank.price, catalog.bigger_tank.extra_capacity) == (20, 10)
     assert catalog.offline_installation_seconds == 7200
 
 
 def test_the_seeded_ignition_chance_is_delivered(stub):
-    assert get_catalog(stub).fire.ignition_chance_ppm == 1250
+    assert get_catalog(stub).fire.ignition_chance_ppm == 400
 
 
 def test_a_changed_ignition_chance_is_delivered(stub, catalog_repository):

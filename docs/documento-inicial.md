@@ -164,7 +164,7 @@ Propuesta mínima, suficiente para cumplir todo lo exigido:
 | Crecer | Cuando una casilla acumula suficiente humedad, sube de etapa y gasta esa humedad. Quien soltó la gota que la hizo crecer gana hojas: más cuanto más alta la etapa. Si la hizo crecer una instalación, las hojas son para su dueño |
 | Hojas | La moneda: se gastan en instalaciones y mejoras |
 | Evaporación | Cada tick las casillas pierden un poco de humedad. Si una se queda seca (humedad 0) demasiado tiempo, su planta se marchita y baja una etapa |
-| Instalaciones (las 3R) | **Reutilizar**: aspersor de agua gris, que riega solo las casillas de alrededor sin gastar tu depósito. **Reducir**: riego por goteo, que hace que las casillas de su zona se evaporen a la mitad. **Reciclar**: planta de tratamiento, que recarga tu depósito más rápido. Cada una cuesta un 15 % más que la anterior del mismo tipo. Como mucho una instalación por casilla |
+| Instalaciones (las 3R) | **Reutilizar**: aspersor de agua gris, que riega solo las casillas de alrededor sin gastar tu depósito. **Reducir**: riego por goteo, que hace que las casillas de su zona se evaporen a la mitad. **Reciclar**: planta de tratamiento, que recarga tu depósito más rápido. Cada una cuesta un 5 % más que la anterior del mismo tipo (valor elegido por el equipo tras la predefensa; el original era 15 %). Como mucho una instalación por casilla |
 | Mejoras | Dos para empezar: gota más grande y depósito mayor |
 | Incendios | Aparecen al azar en casillas secas con planta y la queman poco a poco. Se apagan con tres gotas, de uno o de varios jugadores; quien suelta la tercera gana un bono. Un aspersor apaga los que caen en su zona. Si nadie lo apaga a tiempo, el fuego se consume y la casilla vuelve a tierra seca |
 | Límite de gotas | 15 gotas por segundo por jugador. Lo que pase de ahí se rechaza |
@@ -210,11 +210,11 @@ Cifras de arranque, para empezar a probar. Todas son valores iniciales: viven en
 | Planta de tratamiento (Reciclar) | 40 hojas | +3 L extra de recarga cada 2 s (valor elegido por el equipo; el original era +1 L) y, cada 2 s, un pulso que sube una etapa a sus 8 casillas vecinas con planta y paga las hojas a su dueño |
 | Cesto de reciclaje (limpieza, nivel 2) | 15 hojas | Cada 2 s quita un nivel de basura a las casillas de su zona de 3 × 3 y la protege de que la basura se propague hasta ella |
 | Durabilidad (nivel 2) | — | Aspersor, goteo, planta y cesto empiezan con 30 puntos y pierden uno por cada ciclo de trabajo (2 s); al llegar a cero la instalación se destruye. Solo cuenta mientras trabaja (RF-25) |
-| Terreno natural (nivel 2) | — | Al crear el valle (el reinicio lo conserva tal cual): un río de 2 casillas de ancho que serpentea alrededor de la columna 24, con un lago más ancho entre las filas 12 y 16, una laguna de 3 × 3 casillas al sur (columnas 17 a 19, filas 26 a 28) y 12 rocas sueltas en tierra seca desde la columna 17 (la mitad izquierda del valle queda libre). La orilla del agua evapora a la mitad y no se enciende |
-| Presión urbana (nivel 2) | — | Con 2 árboles en el valle o 500 de humedad aportada aparece un edificio en el borde, hasta 2. Cada 6 s cada edificio suma un nivel de basura a su primera casilla vecina libre con menos de 3 niveles (y borra su planta, humedad, fuego e instalación). Cada 8 s toda casilla con basura sube un nivel y, si ya tenía nivel 2 o más, suma un nivel a sus 4 vecinas; con 60 casillas sucias la propagación se detiene hasta que se limpie. Limpiar el último nivel da 1 hoja |
+| Terreno natural (nivel 2) | — | Al crear el valle (el reinicio lo conserva tal cual; si el valle no tiene terreno, como uno restaurado de una instantánea anterior a la expansión, el reinicio lo genera): un río de 2 casillas de ancho que serpentea alrededor de la columna 24, con un lago más ancho entre las filas 12 y 16, una laguna de 3 × 3 casillas al sur (columnas 17 a 19, filas 26 a 28) y 12 rocas sueltas en tierra seca desde la columna 17 (la mitad izquierda del valle queda libre). La orilla del agua evapora a la mitad y no se enciende |
+| Presión urbana (nivel 2) | — | Con 2 árboles en el valle o 500 de humedad aportada aparece un edificio en el borde, hasta 2. Cada 15 s cada edificio suma un nivel de basura a su primera casilla vecina libre con menos de 3 niveles (y borra su planta, humedad, fuego e instalación). Cada 20 s toda casilla con basura sube un nivel y, si ya tenía nivel 2 o más, suma un nivel a sus 4 vecinas; con 60 casillas sucias la propagación se detiene hasta que se limpie. Limpiar el último nivel da 1 hoja |
 | Gota más grande (mejora) | 30 hojas | La gota humedece 3 × 3 casillas |
 | Depósito mayor (mejora) | 20 hojas | +10 L de capacidad del depósito |
-| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 1.250 por millón por tick (valor elegido por el equipo; el inicial era 50 por millón; unos 1,25 por segundo con 100 casillas así). Se propaga a casillas vecinas ortogonales elegibles (secas y con planta) con una probabilidad de 10.000 por millón por tick (1 % por tick, unos 10 % por segundo; valor elegido por el equipo, de nivel 2; el inicial era 2.000 por millón). Cada casilla elegible con al menos una vecina ardiendo hace un solo sorteo por tick, sin importar cuántas vecinas ardan; no hay propagación en modo demo. Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 3 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
+| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 400 por millón por tick (valor elegido por el equipo; el inicial era 50 por millón; unos 0,4 por segundo con 100 casillas así). Se propaga a casillas vecinas ortogonales elegibles (secas y con planta) con una probabilidad de 3.000 por millón por tick (0,3 % por tick, unos 3 % por segundo; valor elegido por el equipo, de nivel 2; el inicial era 2.000 por millón). Cada casilla elegible con al menos una vecina ardiendo hace un solo sorteo por tick, sin importar cuántas vecinas ardan; no hay propagación en modo demo. Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 3 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
 
 #### Valores elegidos por el equipo para la jugabilidad
 
@@ -229,15 +229,18 @@ Estas cifras no estaban en la primera versión de D-01: las eligieron Cristian y
 | `trash_bin.price_leaves`, `area_side_tiles`, `interval_seconds` | no existía | 15, 3, 2 |
 | `terrain.river_width_tiles`, `terrain.rock_count` | no existía | 2, 12 |
 | `urban.building_tree_threshold`, `building_humidity_points_threshold`, `max_buildings` | no existía | 2, 500, 2 |
-| `urban.trash_interval_seconds`, `trash_spread_interval_seconds`, `clean_reward_leaves` | no existía | 6, 8, 1 |
+| `urban.trash_interval_seconds`, `trash_spread_interval_seconds`, `clean_reward_leaves` | no existía | 15, 20, 1 (antes de la predefensa: 6, 8, 1) |
 | `tank.capacity_liters` | 20 | 10 |
 | `growth.leaves_flowers`, `growth.leaves_tree` | 4, 8 | 3, 5 |
 | `evaporation.wither_after_ticks` | 100 | 140 |
 | `fire.extinguish_bonus_leaves` | 5 | 3 |
-| `fire.ignition_chance_ppm` | 50 | 1.250 |
-| `fire.propagation_chance_ppm` | 2.000 | 10.000 |
+| `fire.ignition_chance_ppm` | 50 | 400 (antes de la predefensa: 1.250) |
+| `fire.propagation_chance_ppm` | 2.000 | 3.000 (antes de la predefensa: 10.000) |
+| `installation_price_increase_percent` | 15 | 5 |
 
 Las seis últimas filas (depósito, hojas, marchitamiento, bono por apagar, ignición y propagación) las ajustó Cristian Baczek para acelerar el juego (`12042fb`, `ad737ed`). El tope de 60 casillas sucias de la propagación de la basura, el pulso de la planta (2 s, 3 × 3 casillas), la orilla de agua (evaporación a la mitad) y el doble de humedad del goteo son reglas del código, no cifras del catálogo. `[DATO: confirmar con el equipo si estos valores se congelan tras la evaluación]`.
+
+Tras la predefensa del 29 de octubre se bajaron la basura, el fuego y la subida de precios, porque en la partida aparecían demasiado deprisa y las instalaciones se encarecían demasiado: basura cada 15 s y propagación cada 20 s (antes 6 y 8), ignición 400 y propagación del fuego 3.000 por millón por tick (antes 1.250 y 10.000) y subida de precio del 5 % (antes 15 %). Son valores elegidos por el equipo para jugar, no medidos.
 
 #### Los estados de una casilla
 
@@ -447,7 +450,7 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 | RF-04 | El jugador debe poder soltar gotas sobre cualquier casilla del valle, y comprar y colocar instalaciones de las tres familias de las 3R, siempre que le alcance el agua o las hojas | Fuera del modo demo, una gota gasta 1 L del depósito y suma humedad; al pasar el umbral, la casilla crece y el jugador gana hojas |
 | RF-05 | El sistema debe rechazar las gotas de un jugador que pasen de 15 por segundo | Un bot envía 50 gotas por segundo y solo se aceptan 15 |
 | RF-06 | El sistema debe rechazar con un error claro cualquier acción inválida, sin interrumpir el servicio | Se envía una acción inventada y responde con un error claro |
-| RF-07 | El jugador debe poder gastar hojas en instalaciones y mejoras, y el sistema debe subir un 15 % el precio de cada instalación tras cada compra del mismo tipo | Se compra un aspersor: bajan las hojas, y el siguiente cuesta un 15 % más |
+| RF-07 | El jugador debe poder gastar hojas en instalaciones y mejoras, y el sistema debe subir el precio de cada instalación un porcentaje del catálogo (5 %) tras cada compra del mismo tipo | Se compra un aspersor: bajan las hojas, y el siguiente cuesta un 5 % más, redondeado hacia arriba |
 | RF-08 | **El sistema debe aplicar todas las acciones simultáneas de un mismo jugador sin duplicar ni perder recursos** | Se lanzan 100 acciones a la vez y el total final es exacto |
 | RF-09 | El sistema debe aplicar una sola vez una acción que llegue repetida con el mismo identificador | Se repite la petición con el mismo identificador y el saldo no cambia |
 | RF-25 | El sistema debe mantener trabajando las instalaciones de un jugador aunque no esté conectado, hasta 2 horas después de su última acción | Se coloca un aspersor, se cierra la pestaña y al volver sus casillas crecieron; pasadas 2 horas, el aspersor está parado |

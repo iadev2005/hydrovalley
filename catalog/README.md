@@ -32,17 +32,17 @@ Tres grupos, que son el `kind` de las filas de `catalog_entries`: `rules`, `inst
 | `fire.drops_to_extinguish` | Gotas que apagan un incendio | 3 |
 | `fire.extinguish_bonus_leaves` | Hojas para quien suelta la última | 3 |
 | `fire.burn_out_ticks` | Ticks hasta que un incendio sin atender se consume | 300 |
-| `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón (0 = no hay incendios) | 1250 |
-| `fire.propagation_chance_ppm` | Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por millón (0 = no hay propagación) | 10000 |
+| `fire.ignition_chance_ppm` | Probabilidad por tick de que arda cada casilla seca con planta, en partes por millón (0 = no hay incendios) | 400 |
+| `fire.propagation_chance_ppm` | Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por millón (0 = no hay propagación) | 3000 |
 | `terrain.river_width_tiles` | Ancho del río en casillas; 0 = sin río ni lago (expansión, nivel 2) | 2 |
 | `terrain.rock_count` | Rocas sueltas que se intentan colocar al crear o reiniciar el valle; 0 = sin rocas | 12 |
 | `urban.building_tree_threshold` | Árboles en el valle a partir de los cuales aparece el primer edificio... | 2 |
 | `urban.building_humidity_points_threshold` | ...o humedad total aportada a partir de la cual aparece | 500 |
 | `urban.max_buildings` | Tope de edificios en el valle | 2 |
-| `urban.trash_interval_seconds` | Segundos entre dos emisiones de basura de un edificio | 6 |
-| `urban.trash_spread_interval_seconds` | Segundos entre dos crecimientos y propagaciones de la basura | 8 |
+| `urban.trash_interval_seconds` | Segundos entre dos emisiones de basura de un edificio | 15 |
+| `urban.trash_spread_interval_seconds` | Segundos entre dos crecimientos y propagaciones de la basura | 20 |
 | `urban.clean_reward_leaves` | Hojas de quien deja limpia una casilla de basura | 1 |
-| `installation_price_increase_percent` | Aumento del precio por cada compra del mismo tipo de instalación (RF-07) | 15 |
+| `installation_price_increase_percent` | Aumento del precio por cada compra del mismo tipo de instalación (RF-07) | 5 |
 | `offline_installation_seconds` | Tiempo que las instalaciones siguen trabajando tras la última acción de su dueño (RF-25) | 7200 |
 
 ### `installations`
@@ -85,10 +85,11 @@ La expansión de jugabilidad (`docs/plan-expansion-mecanicas.md`) cambió dos ci
 - `treatment_plant.refill_liters` pasa de 1 a 3.
 - Las `durability` de las cuatro instalaciones (30), el cesto de reciclaje, el terreno natural y la presión urbana son nuevos.
 - Ajuste de ritmo de Cristian Baczek (`12042fb`, `ad737ed`): `tank.capacity_liters` 20 → 10, `growth.leaves_flowers` 4 → 3, `growth.leaves_tree` 8 → 5, `evaporation.wither_after_ticks` 100 → 140, `fire.extinguish_bonus_leaves` 5 → 3, `fire.ignition_chance_ppm` 50 → 1250, `fire.propagation_chance_ppm` 2000 → 10000, `urban.trash_interval_seconds` 5 → 6, `urban.trash_spread_interval_seconds` 10 → 8 y `urban.clean_reward_leaves` 2 → 1. Son valores elegidos por el equipo y se evalúan jugando.
+- Ajuste tras la predefensa del 29 de octubre (había demasiada basura y fuego y los precios subían demasiado): `fire.ignition_chance_ppm` 1250 → 400, `fire.propagation_chance_ppm` 10000 → 3000, `urban.trash_interval_seconds` 6 → 15, `urban.trash_spread_interval_seconds` 8 → 20 e `installation_price_increase_percent` 15 → 5.
 
 Los guiones de conformidad 01 a 09 fijan las cifras originales de D-01 (ver `tests/conformance/README.md`); solo el 10 usa este archivo sin cambios.
 
 ## Datos pendientes
 
-- `fire.ignition_chance_ppm = 1250` (1.250 por millón, por tick y por casilla elegible; con 1.024 casillas y 10 ticks por segundo equivale a unos 12,8 incendios por segundo si todo el valle fuera elegible) es un valor elegido por el equipo, ajustable: D-01 dice que los incendios «aparecen al azar» pero no da la cifra, y el valor inicial era 50. `[DATO: confirmar con el equipo que este ritmo de incendios es el buscado]`.
+- `fire.ignition_chance_ppm = 400` (400 por millón, por tick y por casilla elegible; con 1.024 casillas y 10 ticks por segundo equivale a unos 4,1 incendios por segundo si todo el valle fuera elegible) es un valor elegido por el equipo, ajustable: D-01 dice que los incendios «aparecen al azar» pero no da la cifra, y el valor inicial era 50. `[DATO: confirmar con el equipo que este ritmo de incendios es el buscado]`.
 - Fuera del catálogo, por ser estructura y no cifras de ajuste: el tamaño del valle (32 × 32), la ventana de 600 ticks de `action_id` recientes y el límite de 15 gotas por segundo (del hub).
