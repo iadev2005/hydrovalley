@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 3244" width="1700" height="3244">
+<style>
+text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2937; }
+.b { font-weight: 700; }
+.s { fill: #4b5563; }
+.i { font-style: italic; }
+.h { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+</style>
+<rect width="1700" height="3244" fill="#ffffff"/>
+<defs><marker id="m0" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9a3412"/></marker><marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e3a8a"/></marker><marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker><marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/></marker><marker id="m4" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker></defs>
+<line x1="130" y1="165" x2="130" y2="3224" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="380" y1="165" x2="380" y2="3224" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="630" y1="165" x2="630" y2="3224" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="890" y1="165" x2="890" y2="3224" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="1150" y1="165" x2="1150" y2="3224" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="1365" y1="165" x2="1365" y2="3224" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="1595" y1="165" x2="1595" y2="3224" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="40" y="60" font-size="26" text-anchor="start" class="b">HydroValley</text>
+<text x="40" y="84" font-size="15" text-anchor="start" class="s">Registro, acceso y apertura del canal en vivo</text>
+<rect x="35" y="105" width="190" height="60" rx="7" fill="#dbe8f7" stroke="#3b6ea8" stroke-width="1.8"/>
+<text x="130" y="129" font-size="15" text-anchor="middle" class="b">Jugador</text>
+<text x="130" y="148" font-size="12.5" text-anchor="middle" class="s"></text>
+<rect x="285" y="105" width="190" height="60" rx="7" fill="#dbe8f7" stroke="#3b6ea8" stroke-width="1.8"/>
+<text x="380" y="129" font-size="15" text-anchor="middle" class="b">Navegador</text>
+<text x="380" y="148" font-size="12.5" text-anchor="middle" class="s">React + Phaser</text>
+<rect x="535" y="105" width="190" height="60" rx="7" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="630" y="129" font-size="15" text-anchor="middle" class="b">Proxy de entrada</text>
+<text x="630" y="148" font-size="12.5" text-anchor="middle" class="s">nginx</text>
+<rect x="795" y="105" width="190" height="60" rx="7" fill="#d8eee3" stroke="#3a8062" stroke-width="1.8"/>
+<text x="890" y="129" font-size="15" text-anchor="middle" class="b">Hub</text>
+<text x="890" y="148" font-size="12.5" text-anchor="middle" class="s">Go</text>
+<rect x="1055" y="105" width="190" height="60" rx="7" fill="#dbe8f7" stroke="#3b6ea8" stroke-width="1.8"/>
+<text x="1150" y="129" font-size="15" text-anchor="middle" class="b">API</text>
+<text x="1150" y="148" font-size="12.5" text-anchor="middle" class="s">TypeScript</text>
+<rect x="1270" y="105" width="190" height="60" rx="7" fill="#fbf0c8" stroke="#a07a12" stroke-width="1.8"/>
+<text x="1365" y="129" font-size="15" text-anchor="middle" class="b">Persistencia</text>
+<text x="1365" y="148" font-size="12.5" text-anchor="middle" class="s">Python · AccountService</text>
+<rect x="1500" y="105" width="190" height="60" rx="7" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="1595" y="129" font-size="15" text-anchor="middle" class="b">PostgreSQL</text>
+<text x="1595" y="148" font-size="12.5" text-anchor="middle" class="s"></text>
+<rect x="40" y="196" width="1630" height="28" rx="4" fill="#e8eaed" stroke="#6b7280" stroke-width="1.4"/>
+<text x="855" y="215" font-size="14" text-anchor="middle" class="b">Registro (RF-01)</text>
+<polyline points="130,261 380,261" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="255" y="253" font-size="13" text-anchor="middle" class="h">nombre de usuario y contraseña</text>
+<polyline points="380,317 630,317" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="505" y="294" font-size="13" text-anchor="middle" class="h">POST /api/auth/register (HTTPS) {"username": "…",</text>
+<text x="505" y="309" font-size="13" text-anchor="middle" class="h">"password": "…"}</text>
+<polyline points="630,358 1150,358" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="890" y="350" font-size="13" text-anchor="middle" class="h">reenvía /api</text>
+<rect x="1140" y="376" width="330.875" height="33" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="1152" y="395" font-size="12.5" text-anchor="start">calcula el hash Argon2id de la contraseña (RNF-12)</text>
+<polyline points="1150,461 1365,461" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m1)"/>
+<text x="1257.5" y="438" font-size="13" text-anchor="middle" class="h">AccountService.Register(username,</text>
+<text x="1257.5" y="453" font-size="13" text-anchor="middle" class="h">password_hash)</text>
+<polyline points="1365,532 1595,532" fill="none" stroke="#374151" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m2)"/>
+<text x="1480" y="494" font-size="13" text-anchor="middle" class="h">INSERT INTO accounts (id,</text>
+<text x="1480" y="509" font-size="13" text-anchor="middle" class="h">username, password_hash, role =</text>
+<text x="1480" y="524" font-size="13" text-anchor="middle" class="h">'player', created_at)</text>
+<polyline points="1595,607 1365,607" fill="none" stroke="#374151" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m2)"/>
+<text x="1480" y="599" font-size="13" text-anchor="middle" class="h">fila creada</text>
+<polyline points="1365,648 1150,648" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m1)"/>
+<text x="1257.5" y="640" font-size="13" text-anchor="middle" class="h">account_id, role = player</text>
+<polyline points="1150,689 380,689" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="765" y="681" font-size="13" text-anchor="middle" class="h">201 + token firmado (ver «Acceso»)</text>
+<polyline points="1595,760 1365,760" fill="none" stroke="#374151" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m2)"/>
+<text x="1480" y="752" font-size="13" text-anchor="middle" class="h">violación de UNIQUE (username)</text>
+<polyline points="1365,801 1150,801" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m1)"/>
+<text x="1257.5" y="793" font-size="13" text-anchor="middle" class="h">ALREADY_EXISTS</text>
+<polyline points="1150,842 380,842" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="765" y="834" font-size="13" text-anchor="middle" class="h">409 {"error": "El nombre de usuario ya existe"}</text>
+<rect x="310" y="550" width="1355" height="320" rx="0" fill="none" stroke="#6b7280" stroke-width="1.5"/>
+<path d="M310,550 h215.116 v18 l-8,8 h-207.116 z" fill="#e8eaed" stroke="#6b7280" stroke-width="1.5"/>
+<text x="320" y="567" font-size="12.5" text-anchor="start" class="b">alt · nombre de usuario libre</text>
+<line x1="310" y1="713" x2="1665" y2="713" stroke="#6b7280" stroke-width="1.3" stroke-dasharray="6 4"/>
+<text x="320" y="730" font-size="12.5" text-anchor="start" class="b">nombre de usuario ya registrado</text>
+<rect x="40" y="888" width="1630" height="28" rx="4" fill="#e8eaed" stroke="#6b7280" stroke-width="1.4"/>
+<text x="855" y="907" font-size="14" text-anchor="middle" class="b">Acceso (RF-01, RF-02)</text>
+<polyline points="130,953 380,953" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="255" y="945" font-size="13" text-anchor="middle" class="h">nombre de usuario y contraseña</text>
+<polyline points="380,1009 630,1009" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="505" y="986" font-size="13" text-anchor="middle" class="h">POST /api/auth/login (HTTPS) {"username": "…",</text>
+<text x="505" y="1001" font-size="13" text-anchor="middle" class="h">"password": "…"}</text>
+<polyline points="630,1050 1150,1050" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="890" y="1042" font-size="13" text-anchor="middle" class="h">reenvía /api</text>
+<polyline points="1150,1091 1365,1091" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m1)"/>
+<text x="1257.5" y="1083" font-size="13" text-anchor="middle" class="h">AccountService.GetAccount(username)</text>
+<polyline points="1365,1147 1595,1147" fill="none" stroke="#374151" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m2)"/>
+<text x="1480" y="1124" font-size="13" text-anchor="middle" class="h">SELECT id, password_hash, role</text>
+<text x="1480" y="1139" font-size="13" text-anchor="middle" class="h">FROM accounts WHERE username = …</text>
+<polyline points="1595,1188 1365,1188" fill="none" stroke="#374151" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m2)"/>
+<text x="1480" y="1180" font-size="13" text-anchor="middle" class="h">fila (o ninguna)</text>
+<polyline points="1365,1244 1150,1244" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m1)"/>
+<text x="1257.5" y="1221" font-size="13" text-anchor="middle" class="h">id, password_hash, role (o</text>
+<text x="1257.5" y="1236" font-size="13" text-anchor="middle" class="h">NOT_FOUND)</text>
+<rect x="757.875" y="1262" width="402.125" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="769.875" y="1281" font-size="12.5" text-anchor="start">verifica la contraseña contra el hash Argon2id (si NOT_FOUND,</text>
+<text x="769.875" y="1298" font-size="12.5" text-anchor="start">contra un hash de relleno: mismo tiempo de respuesta)</text>
+<rect x="854.5" y="1360" width="305.5" height="84" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="866.5" y="1379" font-size="12.5" text-anchor="start">firma el token con la clave privada Ed25519</text>
+<text x="866.5" y="1396" font-size="12.5" text-anchor="start">{player_id, username, role,</text>
+<text x="866.5" y="1413" font-size="12.5" text-anchor="start"> iss = hydrovalley-api, aud = hydrovalley-play,</text>
+<text x="866.5" y="1430" font-size="12.5" text-anchor="start"> exp = ahora + 12 h}</text>
+<polyline points="1150,1481 380,1481" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="765" y="1473" font-size="13" text-anchor="middle" class="h">200 {"token": "…", "expires_at": "ISO 8601 en UTC"}</text>
+<rect x="370" y="1499" width="116.875" height="33" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="382" y="1518" font-size="12.5" text-anchor="start">guarda el token</text>
+<polyline points="1150,1599 380,1599" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="765" y="1591" font-size="13" text-anchor="middle" class="h">401 {"error": "Usuario o contraseña incorrectos"}</text>
+<rect x="370" y="1617" width="241.25" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="382" y="1636" font-size="12.5" text-anchor="start">El mismo mensaje en los dos casos:</text>
+<text x="382" y="1653" font-size="12.5" text-anchor="start">no revela si el usuario existe.</text>
+<rect x="310" y="1326" width="1355" height="365" rx="0" fill="none" stroke="#6b7280" stroke-width="1.5"/>
+<path d="M310,1326 h208.295 v18 l-8,8 h-200.295 z" fill="#e8eaed" stroke="#6b7280" stroke-width="1.5"/>
+<text x="320" y="1343" font-size="12.5" text-anchor="start" class="b">alt · credenciales correctas</text>
+<line x1="310" y1="1552" x2="1665" y2="1552" stroke="#6b7280" stroke-width="1.3" stroke-dasharray="6 4"/>
+<text x="320" y="1569" font-size="12.5" text-anchor="start" class="b">usuario inexistente o contraseña incorrecta</text>
+<rect x="380" y="1703" width="1250" height="84" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="392" y="1722" font-size="12.5" text-anchor="start">Firma asimétrica Ed25519: solo la API tiene la clave privada y firma; el hub tiene la clave pública y verifica por sí solo, sin llamar a nadie. Las dos llegan por variables de entorno, nunca en el</text>
+<text x="392" y="1739" font-size="12.5" text-anchor="start">repositorio (RNF-13).</text>
+<text x="392" y="1756" font-size="12.5" text-anchor="start">RNF-12: nginx termina TLS (certificado autofirmado en el laboratorio), así que navegador ↔ proxy va por HTTPS/WSS. La contraseña no sale de la API: el gRPC interno va sin cifrar dentro de la red del</text>
+<text x="392" y="1773" font-size="12.5" text-anchor="start">laboratorio y solo lleva el hash.</text>
+<rect x="40" y="1807" width="1630" height="28" rx="4" fill="#e8eaed" stroke="#6b7280" stroke-width="1.4"/>
+<text x="855" y="1826" font-size="14" text-anchor="middle" class="b">Apertura del canal en vivo (RF-02, RF-31)</text>
+<polyline points="380,1872 630,1872" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="505" y="1864" font-size="13" text-anchor="middle" class="h">WSS /play?token=…</text>
+<polyline points="630,1913 890,1913" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="760" y="1905" font-size="13" text-anchor="middle" class="h">reenvía /play (upgrade a WebSocket)</text>
+<rect x="880" y="1931" width="305.5" height="101" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="892" y="1950" font-size="12.5" text-anchor="start">verifica la firma del token</text>
+<text x="892" y="1967" font-size="12.5" text-anchor="start">comprueba el emisor y la audiencia</text>
+<text x="892" y="1984" font-size="12.5" text-anchor="start">(iss = hydrovalley-api, aud = hydrovalley-play)</text>
+<text x="892" y="2001" font-size="12.5" text-anchor="start">comprueba que no ha vencido (exp)</text>
+<text x="892" y="2018" font-size="12.5" text-anchor="start">comprueba el rol: player | admin</text>
+<rect x="880" y="2080" width="199" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="892" y="2099" font-size="12.5" text-anchor="start">abre la goroutine del jugador</text>
+<text x="892" y="2116" font-size="12.5" text-anchor="start">con player_id y role</text>
+<polyline points="890,2167 380,2167" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="635" y="2159" font-size="13" text-anchor="middle" class="h">conexión aceptada</text>
+<rect x="370" y="2185" width="221" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="382" y="2204" font-size="12.5" text-anchor="start">reenvía las acciones pendientes,</text>
+<text x="382" y="2221" font-size="12.5" text-anchor="start">si las hay (Capa 3)</text>
+<rect x="880" y="2249" width="417.375" height="101" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="892" y="2268" font-size="12.5" text-anchor="start">El rol se guarda en la sesión: los comandos de administración</text>
+<text x="892" y="2285" font-size="12.5" text-anchor="start">(modo demo, reiniciar el valle) solo se admiten con role = admin;</text>
+<text x="892" y="2302" font-size="12.5" text-anchor="start">con role = player reciben forbidden (diagrama 03).</text>
+<text x="892" y="2319" font-size="12.5" text-anchor="start">El token se comprueba solo al abrir /play: si vence con la</text>
+<text x="892" y="2336" font-size="12.5" text-anchor="start">conexión abierta, no se corta; dura hasta que se cierra.</text>
+<polyline points="890,2417 380,2417" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="635" y="2409" font-size="13" text-anchor="middle" class="h">cierra la conexión (código 4401)</text>
+<polyline points="380,2458 130,2458" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="255" y="2450" font-size="13" text-anchor="middle" class="h">«La sesión ha vencido. Vuelve a entrar.»</text>
+<rect x="310" y="2046" width="1355" height="440" rx="0" fill="none" stroke="#6b7280" stroke-width="1.5"/>
+<path d="M310,2046 h137.408 v18 l-8,8 h-129.408 z" fill="#e8eaed" stroke="#6b7280" stroke-width="1.5"/>
+<text x="320" y="2063" font-size="12.5" text-anchor="start" class="b">alt · token válido</text>
+<line x1="310" y1="2370" x2="1665" y2="2370" stroke="#6b7280" stroke-width="1.3" stroke-dasharray="6 4"/>
+<text x="320" y="2387" font-size="12.5" text-anchor="start" class="b">firma inválida, emisor o audiencia incorrectos, token vencido o rol desconocido</text>
+<rect x="340" y="2498" width="900" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="352" y="2517" font-size="12.5" text-anchor="start">Recarga de la página (RF-02): el navegador conserva el token y abre /play de nuevo sin pasar por la API mientras el token siga vigente (12 h).</text>
+<text x="352" y="2534" font-size="12.5" text-anchor="start">Toda reconexión necesita un token vigente; si venció, se vuelve a entrar.</text>
+<rect x="40" y="2568" width="1630" height="28" rx="4" fill="#e8eaed" stroke="#6b7280" stroke-width="1.4"/>
+<text x="855" y="2587" font-size="14" text-anchor="middle" class="b">Persistencia caída (RNF-04, CP-07)</text>
+<rect x="1276.12" y="2610" width="177.75" height="50" rx="6" fill="#fde4e4" stroke="#b91c1c" stroke-width="1.4"/>
+<text x="1288.12" y="2629" font-size="12.5" text-anchor="start">contenedor de Python</text>
+<text x="1288.12" y="2646" font-size="12.5" text-anchor="start">o de PostgreSQL detenido</text>
+<polyline points="380,2697 630,2697" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="505" y="2689" font-size="13" text-anchor="middle" class="h">POST /api/auth/login</text>
+<polyline points="630,2738 1150,2738" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="890" y="2730" font-size="13" text-anchor="middle" class="h">reenvía /api</text>
+<polyline points="1150,2779 1365,2779" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m1)"/>
+<text x="1257.5" y="2771" font-size="13" text-anchor="middle" class="h">AccountService.GetAccount(…)</text>
+<polyline points="1365,2820 1150,2820" fill="none" stroke="#b91c1c" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m3)"/>
+<text x="1257.5" y="2812" font-size="13" text-anchor="middle" class="h">UNAVAILABLE o plazo agotado</text>
+<polyline points="1150,2861 380,2861" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="765" y="2853" font-size="13" text-anchor="middle" class="h">503 {"error": "El servicio de cuentas no está disponible en este momento. Inténtalo de nuevo en unos minutos."}</text>
+<rect x="370" y="2879" width="299.875" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="382" y="2898" font-size="12.5" text-anchor="start">Aviso claro, nunca un error interno (RNF-06).</text>
+<text x="382" y="2915" font-size="12.5" text-anchor="start">El registro se comporta igual.</text>
+<polyline points="380,2966 630,2966" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="505" y="2958" font-size="13" text-anchor="middle" class="h">WSS /play?token=… (jugador con token vigente)</text>
+<polyline points="630,3007 890,3007" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="760" y="2999" font-size="13" text-anchor="middle" class="h">reenvía /play</text>
+<rect x="880" y="3025" width="222.875" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="892" y="3044" font-size="12.5" text-anchor="start">verifica firma, vencimiento y rol</text>
+<text x="892" y="3061" font-size="12.5" text-anchor="start">(sin llamar a la persistencia)</text>
+<polyline points="890,3112 380,3112" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m0)"/>
+<text x="635" y="3104" font-size="13" text-anchor="middle" class="h">conexión aceptada: sigue jugando</text>
+<rect x="500" y="3130" width="1100" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="512" y="3149" font-size="12.5" text-anchor="start">Quien ya juega no nota nada: el hub no depende de la persistencia para validar tokens ni para llamar a Step, y las gotas siguen por debajo de 200 ms. Las instantáneas que fallen se</text>
+<text x="512" y="3166" font-size="12.5" text-anchor="start">reintentan en el siguiente tick de instantánea (Capa 5).</text>
+<polyline points="1010,44 1046,44" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1056" y="48" font-size="12.5" text-anchor="start">HTTP / WebSocket</text>
+<polyline points="1010,68 1046,68" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m1)"/>
+<text x="1056" y="72" font-size="12.5" text-anchor="start">gRPC</text>
+<polyline points="1200,44 1236,44" fill="none" stroke="#374151" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#m2)"/>
+<text x="1246" y="48" font-size="12.5" text-anchor="start">SQL</text>
+<polyline points="1200,68 1236,68" fill="none" stroke="#6b7280" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m4)"/>
+<text x="1246" y="72" font-size="12.5" text-anchor="start">respuesta (trazo discontinuo)</text>
+</svg>

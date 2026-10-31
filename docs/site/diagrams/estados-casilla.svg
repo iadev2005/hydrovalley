@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1470" width="1600" height="1470">
+<style>
+text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2937; }
+.b { font-weight: 700; }
+.s { fill: #4b5563; }
+.i { font-style: italic; }
+.h { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+</style>
+<rect width="1600" height="1470" fill="#ffffff"/>
+<defs><marker id="m0" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker><marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3a8062"/></marker><marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/></marker></defs>
+<text x="40" y="60" font-size="26" text-anchor="start" class="b">HydroValley</text>
+<text x="40" y="84" font-size="15" text-anchor="start" class="s">Estados de una casilla</text>
+<rect x="30" y="108" width="1540" height="1277" rx="14" fill="#fcfcfd" stroke="#6b7280" stroke-width="1.6"/>
+<text x="46" y="132" font-size="15" text-anchor="start" class="b">Casilla</text>
+<text x="112" y="132" font-size="12.5" text-anchor="start" class="s">· cuatro regiones ortogonales: avanzan a la vez</text>
+<text x="46" y="160" font-size="14" text-anchor="start" class="b">Crecimiento</text>
+<rect x="110" y="275" width="140" height="64" rx="12" fill="#d8eee3" stroke="#3a8062" stroke-width="1.8"/>
+<text x="180" y="299" font-size="14.5" text-anchor="middle" class="b">Tierra seca</text>
+<rect x="420" y="275" width="140" height="64" rx="12" fill="#d8eee3" stroke="#3a8062" stroke-width="1.8"/>
+<text x="490" y="299" font-size="14.5" text-anchor="middle" class="b">Pasto</text>
+<rect x="730" y="275" width="140" height="64" rx="12" fill="#d8eee3" stroke="#3a8062" stroke-width="1.8"/>
+<text x="800" y="299" font-size="14.5" text-anchor="middle" class="b">Arbusto</text>
+<rect x="1040" y="275" width="140" height="64" rx="12" fill="#d8eee3" stroke="#3a8062" stroke-width="1.8"/>
+<text x="1110" y="299" font-size="14.5" text-anchor="middle" class="b">Flores</text>
+<rect x="1350" y="275" width="140" height="64" rx="12" fill="#d8eee3" stroke="#3a8062" stroke-width="1.8"/>
+<text x="1420" y="299" font-size="14.5" text-anchor="middle" class="b">Árbol</text>
+<text x="1420" y="318" font-size="12" text-anchor="middle" class="s">humedad máxima</text>
+<text x="1420" y="333" font-size="12" text-anchor="middle" class="s">100</text>
+<circle cx="66" cy="307" r="7" fill="#374151"/>
+<polyline points="73,307 110,307" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<polyline points="250,292 420,292" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="335" y="262" font-size="11.5" text-anchor="middle" class="h">humedad llega a 100</text>
+<text x="335" y="276.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego] / humedad −100</text>
+<polyline points="420,322 250,322" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="335" y="340" font-size="11.5" text-anchor="middle" class="h">humedad 0 durante 140 ticks</text>
+<text x="335" y="354.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego]</text>
+<polyline points="560,292 730,292" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="645" y="262" font-size="11.5" text-anchor="middle" class="h">humedad llega a 100</text>
+<text x="645" y="276.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego] / humedad −100</text>
+<polyline points="730,322 560,322" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="645" y="340" font-size="11.5" text-anchor="middle" class="h">humedad 0 durante 140 ticks</text>
+<text x="645" y="354.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego]</text>
+<polyline points="870,292 1040,292" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="955" y="262" font-size="11.5" text-anchor="middle" class="h">humedad llega a 100</text>
+<text x="955" y="276.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego] / humedad −100</text>
+<polyline points="1040,322 870,322" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="955" y="340" font-size="11.5" text-anchor="middle" class="h">humedad 0 durante 140 ticks</text>
+<text x="955" y="354.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego]</text>
+<polyline points="1180,292 1350,292" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1265" y="262" font-size="11.5" text-anchor="middle" class="h">humedad llega a 100</text>
+<text x="1265" y="276.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego] / humedad −100</text>
+<polyline points="1350,322 1180,322" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1265" y="340" font-size="11.5" text-anchor="middle" class="h">humedad 0 durante 140 ticks</text>
+<text x="1265" y="354.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego]</text>
+<path d="M180,275 V215 H490 V273" fill="none" stroke="#3a8062" stroke-width="2" marker-end="url(#m1)"/>
+<text x="335" y="184" font-size="11.5" text-anchor="middle" class="h">pulso de la planta de tratamiento (+1 etapa a sus vecinas)</text>
+<text x="335" y="198.5" font-size="11.5" text-anchor="middle" class="h">[sin fuego, sin basura]</text>
+<polyline points="490,339 490,412" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 4"/>
+<polyline points="800,339 800,412" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 4"/>
+<polyline points="1110,339 1110,412" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 4"/>
+<polyline points="1420,339 1420,412" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 4"/>
+<polyline points="1420,412 180,412 180,341" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m2)"/>
+<text x="330" y="404" font-size="12" text-anchor="middle" class="h" fill="#b91c1c">fuego consumido</text>
+<line x1="30" y1="442" x2="1570" y2="442" stroke="#9ca3af" stroke-width="1.4" stroke-dasharray="7 5"/>
+<text x="46" y="466" font-size="14" text-anchor="start" class="b">Fuego</text>
+<rect x="110" y="490" width="140" height="160" rx="12" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="180" y="514" font-size="14.5" text-anchor="middle" class="b">Sin fuego</text>
+<rect x="650" y="490" width="330" height="160" rx="12" fill="#fde4e4" stroke="#b91c1c" stroke-width="1.8"/>
+<text x="815" y="514" font-size="14.5" text-anchor="middle" class="b">Ardiendo</text>
+<text x="815" y="533" font-size="12" text-anchor="middle" class="s">cuenta las gotas recibidas</text>
+<text x="815" y="548" font-size="12" text-anchor="middle" class="s">congela el crecimiento (ni crece ni se seca;</text>
+<text x="815" y="563" font-size="12" text-anchor="middle" class="s">dry_ticks no avanza)</text>
+<circle cx="66" cy="570" r="7" fill="#374151"/>
+<polyline points="73,570 110,570" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<polyline points="250,520 650,520" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="450" y="509" font-size="11.5" text-anchor="middle" class="h">azar o propagación vecina, si está seca y tiene planta</text>
+<polyline points="650,562 250,562" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="450" y="554" font-size="11.5" text-anchor="middle" class="h">tercera gota (de cualquier jugador)</text>
+<polyline points="650,590 250,590" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="450" y="582" font-size="11.5" text-anchor="middle" class="h">aspersor en su zona</text>
+<polyline points="650,630 250,630" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round" marker-end="url(#m2)"/>
+<text x="450" y="646" font-size="11.5" text-anchor="middle" class="h" fill="#b91c1c">se consume (300 ticks)</text>
+<text x="450" y="660.5" font-size="11.5" text-anchor="middle" class="h" fill="#b91c1c">/ crecimiento := Tierra seca</text>
+<rect x="1030" y="490" width="510" height="152" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="1042" y="509" font-size="12.5" text-anchor="start" class="b">Cómo se relacionan fuego y crecimiento</text>
+<text x="1042" y="526" font-size="12.5" text-anchor="start">Mientras arde, el crecimiento queda congelado (guarda [sin fuego]); las gotas</text>
+<text x="1042" y="543" font-size="12.5" text-anchor="start">siguen sumando a la humedad aportada y cuentan para apagarlo.</text>
+<text x="1042" y="560" font-size="12.5" text-anchor="start">El fuego siempre se resuelve: tercera gota, aspersor o se consume a los 300</text>
+<text x="1042" y="577" font-size="12.5" text-anchor="start">ticks.</text>
+<text x="1042" y="594" font-size="12.5" text-anchor="start">Punto de contacto (en rojo): si el fuego se consume antes de que lo apaguen,</text>
+<text x="1042" y="611" font-size="12.5" text-anchor="start">dispara en la región de crecimiento el paso a Tierra seca, desde cualquier</text>
+<text x="1042" y="628" font-size="12.5" text-anchor="start">etapa.</text>
+<line x1="30" y1="690" x2="1570" y2="690" stroke="#9ca3af" stroke-width="1.4" stroke-dasharray="7 5"/>
+<text x="46" y="714" font-size="14" text-anchor="start" class="b">Basura y edificio</text>
+<rect x="179.338" y="698" width="51.2" height="21" rx="10.5" fill="#fff" stroke="#6b7280" stroke-width="1.2"/>
+<text x="204.938" y="712.5" font-size="11" text-anchor="middle">nivel 2</text>
+<rect x="110" y="818" width="140" height="64" rx="12" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="180" y="842" font-size="14.5" text-anchor="middle" class="b">Limpia</text>
+<rect x="510" y="818" width="140" height="64" rx="12" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="580" y="842" font-size="14.5" text-anchor="middle" class="b">Nivel 1</text>
+<rect x="850" y="800" width="230" height="100" rx="12" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="965" y="824" font-size="14.5" text-anchor="middle" class="b">Nivel 2</text>
+<text x="965" y="843" font-size="12" text-anchor="middle" class="s">desde aquí propaga +1 a sus 4</text>
+<text x="965" y="858" font-size="12" text-anchor="middle" class="s">vecinas (salvo las protegidas por un</text>
+<text x="965" y="873" font-size="12" text-anchor="middle" class="s">cesto)</text>
+<rect x="1280" y="800" width="230" height="100" rx="12" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="1395" y="824" font-size="14.5" text-anchor="middle" class="b">Nivel 3</text>
+<text x="1395" y="843" font-size="12" text-anchor="middle" class="s">propaga igual; con 60 casillas</text>
+<text x="1395" y="858" font-size="12" text-anchor="middle" class="s">sucias en el valle la propagación se</text>
+<text x="1395" y="873" font-size="12" text-anchor="middle" class="s">detiene</text>
+<circle cx="66" cy="850" r="7" fill="#374151"/>
+<polyline points="73,850 110,850" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<polyline points="250,832 510,832" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="380" y="748" font-size="11.5" text-anchor="middle" class="h">un edificio o una vecina de</text>
+<text x="380" y="762.5" font-size="11.5" text-anchor="middle" class="h">nivel 2 o 3 ensucia</text>
+<text x="380" y="777" font-size="11.5" text-anchor="middle" class="h">/ crecimiento := Tierra seca,</text>
+<text x="380" y="791.5" font-size="11.5" text-anchor="middle" class="h">sin humedad, sin fuego</text>
+<text x="380" y="806" font-size="11.5" text-anchor="middle" class="h">ni instalación</text>
+<polyline points="650,832 850,832" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="750" y="800" font-size="11.5" text-anchor="middle" class="h">ensucia otra vez</text>
+<text x="750" y="814.5" font-size="11.5" text-anchor="middle" class="h">o crece sola</text>
+<polyline points="1080,832 1280,832" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1180" y="800" font-size="11.5" text-anchor="middle" class="h">ensucia otra vez</text>
+<text x="1180" y="814.5" font-size="11.5" text-anchor="middle" class="h">o crece sola</text>
+<polyline points="1280,868 1080,868" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1180" y="886" font-size="11.5" text-anchor="middle" class="h">clean_trash o cesto</text>
+<text x="1180" y="900.5" font-size="11.5" text-anchor="middle" class="h">de reciclaje</text>
+<polyline points="850,868 650,868" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="750" y="886" font-size="11.5" text-anchor="middle" class="h">clean_trash o cesto</text>
+<text x="750" y="900.5" font-size="11.5" text-anchor="middle" class="h">de reciclaje</text>
+<polyline points="510,868 250,868" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="380" y="886" font-size="11.5" text-anchor="middle" class="h">clean_trash o cesto de reciclaje</text>
+<text x="380" y="900.5" font-size="11.5" text-anchor="middle" class="h">/ +hojas al jugador (clean_trash)</text>
+<rect x="110" y="1010" width="270" height="70" rx="12" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="245" y="1034" font-size="14.5" text-anchor="middle" class="b">Edificio</text>
+<text x="245" y="1053" font-size="12" text-anchor="middle" class="s">fijo; inmune al fuego y a la basura</text>
+<polyline points="180,884 180,1010" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="196" y="960" font-size="11.5" text-anchor="start" class="h">se cumple el umbral urbano</text>
+<text x="196" y="974.5" font-size="11.5" text-anchor="start" class="h">[tierra seca libre en el borde]</text>
+<line x1="30" y1="1100" x2="1570" y2="1100" stroke="#9ca3af" stroke-width="1.4" stroke-dasharray="7 5"/>
+<text x="46" y="1124" font-size="14" text-anchor="start" class="b">Terreno natural</text>
+<rect x="171.099" y="1108" width="51.2" height="21" rx="10.5" fill="#fff" stroke="#6b7280" stroke-width="1.2"/>
+<text x="196.699" y="1122.5" font-size="11" text-anchor="middle">nivel 2</text>
+<rect x="110" y="1150" width="140" height="190" rx="12" fill="#dbe8f7" stroke="#3b6ea8" stroke-width="1.8"/>
+<text x="180" y="1174" font-size="14.5" text-anchor="middle" class="b">Suelo normal</text>
+<rect x="560" y="1150" width="400" height="90" rx="12" fill="#dbe8f7" stroke="#3b6ea8" stroke-width="1.8"/>
+<text x="760" y="1174" font-size="14.5" text-anchor="middle" class="b">Agua</text>
+<text x="760" y="1193" font-size="12" text-anchor="middle" class="s">no crece, no se evapora, sin gotas ni instalaciones; su orilla</text>
+<text x="760" y="1208" font-size="12" text-anchor="middle" class="s">evapora a la mitad y no arde</text>
+<rect x="560" y="1268" width="400" height="72" rx="12" fill="#dbe8f7" stroke="#3b6ea8" stroke-width="1.8"/>
+<text x="760" y="1292" font-size="14.5" text-anchor="middle" class="b">Roca</text>
+<text x="760" y="1311" font-size="12" text-anchor="middle" class="s">no crece, sin gotas ni instalaciones</text>
+<circle cx="66" cy="1245" r="7" fill="#374151"/>
+<polyline points="73,1245 110,1245" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<polyline points="250,1195 560,1195" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="405" y="1165" font-size="11.5" text-anchor="middle" class="h">al crear el valle (azar con semilla;</text>
+<text x="405" y="1179.5" font-size="11.5" text-anchor="middle" class="h">el reinicio lo conserva)</text>
+<polyline points="250,1304 560,1304" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="405" y="1274" font-size="11.5" text-anchor="middle" class="h">al crear el valle (azar con semilla;</text>
+<text x="405" y="1288.5" font-size="11.5" text-anchor="middle" class="h">el reinicio lo conserva)</text>
+<rect x="1040" y="1130" width="500" height="220" rx="7" fill="#fff" stroke="#c7cbd1" stroke-width="1"/>
+<text x="1054" y="1154" font-size="13" text-anchor="start" class="b">Cómo leer las transiciones</text>
+<circle cx="1064" cy="1178" r="7" fill="#374151"/>
+<text x="1082" y="1182" font-size="12" text-anchor="start">estado inicial de la región</text>
+<polyline points="1054,1204 1092,1204" fill="none" stroke="#374151" stroke-width="2" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1102" y="1208" font-size="12" text-anchor="start">evento [condición] / efecto</text>
+<polyline points="1054,1230 1092,1230" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#m2)"/>
+<text x="1102" y="1234" font-size="12" text-anchor="start">el fuego se consume (lleva a Tierra seca)</text>
+<polyline points="1054,1256 1092,1256" fill="none" stroke="#3a8062" stroke-width="2" stroke-linejoin="round" marker-end="url(#m1)"/>
+<text x="1102" y="1260" font-size="12" text-anchor="start">pulso de la planta de tratamiento</text>
+<rect x="1054" y="1272" width="51.2" height="21" rx="10.5" fill="#fff" stroke="#6b7280" stroke-width="1.2"/>
+<text x="1079.6" y="1286.5" font-size="11" text-anchor="middle">nivel 2</text>
+<text x="1124" y="1287" font-size="12" text-anchor="start">expansión de jugabilidad</text>
+<text x="1054" y="1320" font-size="12" text-anchor="start" class="s">Cifras iniciales del catálogo (catalog/).</text>
+<rect x="30" y="1405" width="1540" height="50" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="42" y="1424" font-size="12.5" text-anchor="start" class="b">Nota sobre las regiones de nivel 2</text>
+<text x="42" y="1441" font-size="12.5" text-anchor="start">Las regiones «Basura y edificio» y «Terreno natural» son la expansión de jugabilidad (nivel 2). Mientras hay basura o edificio, o si la casilla es agua o roca, la región de crecimiento no avanza y no hay fuego.</text>
+</svg>
