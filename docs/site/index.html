@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HydroValley</title>
+<meta name="description" content="Juego incremental cooperativo y distribuido sobre las 3R del agua. Proyecto de Sistemas Distribuidos y Computación en la Nube, UCAB.">
+<style>
+  :root {
+    --bg: #f5f7f9; --fg: #1b2530; --muted: #526070; --card: #ffffff; --line: #d6dde4;
+    --accent: #0b6aa2; --accent-fg: #ffffff; --chip: #e7f0f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10161c; --fg: #e6ecf1; --muted: #9fb0bf; --card: #18212a; --line: #2a3744;
+      --accent: #6cb8e6; --accent-fg: #0b1620; --chip: #1f2d3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); line-height: 1.6;
+    font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 56px; }
+  h1 { font-size: 2.4rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.35rem; margin: 40px 0 12px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--accent); }
+  .lead { font-size: 1.1rem; color: var(--muted); }
+  .team { color: var(--muted); font-size: 0.95rem; }
+  .links { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 0; padding: 0; list-style: none; }
+  .links a {
+    display: inline-block; padding: 9px 16px; border-radius: 8px; text-decoration: none; font-weight: 600;
+    background: var(--accent); color: var(--accent-fg);
+  }
+  .links a.sec { background: var(--chip); color: var(--accent); border: 1px solid var(--line); }
+  figure { margin: 0 0 28px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: block; }
+  .card img { display: block; width: 100%; height: auto; }
+  figcaption { color: var(--muted); font-size: 0.93rem; margin-top: 8px; }
+  ul.gallery { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  ul.gallery li {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  ul.gallery .src { font-size: 0.85rem; color: var(--muted); }
+  footer { color: var(--muted); font-size: 0.88rem; margin-top: 48px; border-top: 1px solid var(--line); padding-top: 16px; }
+  @media (max-width: 520px) { h1 { font-size: 1.9rem; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>HydroValley</h1>
+  <p class="lead">Juego incremental cooperativo sobre las 3R del agua (reducir, reutilizar y reciclar), con un valle isométrico compartido y simulado en el servidor.</p>
+  <p>Es un sistema distribuido hecho para la materia Sistemas Distribuidos y Computación en la Nube de la UCAB. Los servicios se comunican por gRPC y el simulador del valle es el único escritor del estado del mundo.</p>
+  <p class="team">Equipo: Ignacio Aliendres, Cristian Baczek, Alfonso Palma y Fernando Pérez.</p>
+  <ul class="links">
+    <li><a href="https://github.com/iadev2005/hydrovalley">Repositorio</a></li>
+    <li><a class="sec" href="informe.pdf">Informe (PDF)</a></li>
+    <li><a class="sec" href="api.html">Documentación de la API</a></li>
+  </ul>
+
+  <h2>Diagramas rediseñados</h2>
+  <figure>
+    <a class="card" href="diagrams/componentes.svg"><img src="diagrams/componentes.svg" alt="Diagrama de componentes de HydroValley en notación lollipop"></a>
+    <figcaption>Componentes: servicios, interfaces gRPC y patrones de la nube donde viven.</figcaption>
+  </figure>
+  <figure>
+    <a class="card" href="diagrams/despliegue.svg"><img src="diagrams/despliegue.svg" alt="Diagrama de despliegue del plan A en el laboratorio"></a>
+    <figcaption>Despliegue: un nodo Docker por servicio en el laboratorio, más el nodo de respaldo.</figcaption>
+  </figure>
+  <figure>
+    <a class="card" href="diagrams/secuencia-gota.svg"><img src="diagrams/secuencia-gota.svg" alt="Secuencia de una gota de punta a punta"></a>
+    <figcaption>Secuencia: el recorrido de una gota, del clic al resultado y la instantánea.</figcaption>
+  </figure>
+
+  <h2>Los nueve diagramas UML</h2>
+  <p>Generados con PlantUML; el <code>.puml</code> es la fuente de verdad.</p>
+  <ul class="gallery">
+    <li><a href="diagrams/01-casos-de-uso.svg">01 · Casos de uso</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/01-casos-de-uso.puml">.puml</a></li>
+    <li><a href="diagrams/02-componentes.svg">02 · Componentes</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/02-componentes.puml">.puml</a></li>
+    <li><a href="diagrams/03-secuencia-gota.svg">03 · Secuencia de la gota</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/03-secuencia-gota.puml">.puml</a></li>
+    <li><a href="diagrams/04-secuencia-reinicio-rust.svg">04 · Secuencia del reinicio de Rust</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/04-secuencia-reinicio-rust.puml">.puml</a></li>
+    <li><a href="diagrams/05-estados-casilla.svg">05 · Estados de la casilla</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/05-estados-casilla.puml">.puml</a></li>
+    <li><a href="diagrams/06-dominio-simulador.svg">06 · Dominio del simulador</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/06-dominio-simulador.puml">.puml</a></li>
+    <li><a href="diagrams/07-entidad-relacion.svg">07 · Entidad-relación</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/07-entidad-relacion.puml">.puml</a></li>
+    <li><a href="diagrams/08-despliegue.svg">08 · Despliegue</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/08-despliegue.puml">.puml</a></li>
+    <li><a href="diagrams/09-secuencia-acceso.svg">09 · Secuencia de acceso</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/09-secuencia-acceso.puml">.puml</a></li>
+  </ul>
+
+  <footer>HydroValley · UCAB · Sistemas Distribuidos y Computación en la Nube.</footer>
+</main>
+</body>
+</html>

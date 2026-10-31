@@ -2,6 +2,8 @@
 
 Juego incremental cooperativo y distribuido sobre las 3R del agua (reducir, reutilizar y reciclar), inspirado en la mecánica de *Drop and Grow*. Proyecto de Sistemas Distribuidos y Computación en la Nube, Universidad Católica Andrés Bello (UCAB).
 
+Página del proyecto, con los diagramas y la documentación de la API: <https://iadev2005.github.io/hydrovalley/>.
+
 ## Arquitectura
 
 El sistema sigue una arquitectura de microservicios contenerizada con Docker Compose:

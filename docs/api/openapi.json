@@ -1,0 +1,1910 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "hydrovalley API",
+        "description": "Registro, acceso, cat\u00e1logo, ranking y reportes. Por ahora expone la salud del servicio, el registro, el acceso, el cat\u00e1logo, el ranking y el reporte de las 3R.",
+        "version": "0.1.0"
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Token firmado que devuelve el acceso o el registro."
+            }
+        },
+        "schemas": {}
+    },
+    "paths": {
+        "/api/health": {
+            "get": {
+                "summary": "Estado del proceso",
+                "tags": [
+                    "system"
+                ],
+                "description": "Responde 200 mientras la API atiende peticiones.",
+                "responses": {
+                    "200": {
+                        "description": "Default Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "enum": [
+                                                "ok"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "status"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "description": "Default Response"
+                    }
+                }
+            }
+        },
+        "/api/auth/register": {
+            "post": {
+                "summary": "Registrar una cuenta de jugador",
+                "tags": [
+                    "auth"
+                ],
+                "description": "Crea la cuenta con rol `player` y devuelve un token firmado, como el acceso: no hace falta entrar despu\u00e9s. La contrase\u00f1a se convierte en un hash Argon2id dentro de la API y nunca se guarda ni se devuelve en claro. L\u00edmite por instancia (429): 5 registros cada 10 minutos por IP.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "username": {
+                                        "type": "string",
+                                        "pattern": "^[A-Za-z0-9_.-]{3,32}$",
+                                        "description": "De 3 a 32 caracteres `A-Z a-z 0-9 _ . -`; \u00fanico sin distinguir may\u00fasculas."
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "minLength": 8,
+                                        "maxLength": 128
+                                    }
+                                },
+                                "required": [
+                                    "username",
+                                    "password"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Cuenta creada",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Cuenta creada",
+                                    "type": "object",
+                                    "properties": {
+                                        "player_id": {
+                                            "type": "string",
+                                            "format": "uuid"
+                                        },
+                                        "username": {
+                                            "type": "string"
+                                        },
+                                        "token": {
+                                            "type": "string"
+                                        },
+                                        "expires_at": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                            "description": "ISO 8601 en UTC"
+                                        }
+                                    },
+                                    "required": [
+                                        "player_id",
+                                        "username",
+                                        "token",
+                                        "expires_at"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Datos no v\u00e1lidos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Datos no v\u00e1lidos",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "El nombre de usuario ya existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "El nombre de usuario ya existe",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error interno",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Error interno",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "La persistencia no est\u00e1 disponible",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "La persistencia no est\u00e1 disponible",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/login": {
+            "post": {
+                "summary": "Entrar y obtener un token firmado",
+                "tags": [
+                    "auth"
+                ],
+                "description": "Devuelve un JWT firmado con Ed25519 (`alg: EdDSA`) con los campos `sub`, `player_id`, `username`, `role`, `iat` y `exp`. El mismo 401 sirve para usuario inexistente y contrase\u00f1a incorrecta. L\u00edmites por instancia (429): 10 intentos por minuto por usuario e IP y 30 por minuto por IP entre todos los usuarios.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "username": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
+                                    }
+                                },
+                                "required": [
+                                    "username",
+                                    "password"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Credenciales correctas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Credenciales correctas",
+                                    "type": "object",
+                                    "properties": {
+                                        "token": {
+                                            "type": "string"
+                                        },
+                                        "expires_at": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                            "description": "ISO 8601 en UTC"
+                                        }
+                                    },
+                                    "required": [
+                                        "token",
+                                        "expires_at"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Datos no v\u00e1lidos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Datos no v\u00e1lidos",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Usuario o contrase\u00f1a incorrectos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Usuario o contrase\u00f1a incorrectos",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Demasiados intentos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Demasiados intentos",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error interno",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Error interno",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "La persistencia no est\u00e1 disponible",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "La persistencia no est\u00e1 disponible",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ranking": {
+            "get": {
+                "summary": "Ranking global por hojas ganadas",
+                "tags": [
+                    "ranking"
+                ],
+                "description": "Ordenado de mayor a menor; los empatados comparten posici\u00f3n y la siguiente salta (1, 2, 2, 4). Se recalcula en cada llamada sin pausar el juego. Requiere el token del acceso. Si no se puede resolver el nombre de un jugador, se muestra `jugador-` y los 8 primeros caracteres de su identificador. L\u00edmite por instancia (429): 60 consultas por minuto por IP, compartido por el ranking y el reporte.",
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]{0,2}$"
+                        },
+                        "in": "query",
+                        "name": "limit",
+                        "required": false,
+                        "description": "Entradas a devolver, de 1 a 100 (por defecto 20)."
+                    }
+                ],
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ranking",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Ranking",
+                                    "type": "object",
+                                    "properties": {
+                                        "tick": {
+                                            "type": "string",
+                                            "pattern": "^[0-9]+$",
+                                            "description": "Tick en el que se calcul\u00f3 el ranking (entero de 64 bits sin signo, como texto)"
+                                        },
+                                        "entries": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "rank": {
+                                                        "type": "integer",
+                                                        "minimum": 1
+                                                    },
+                                                    "player_id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "username": {
+                                                        "type": "string"
+                                                    },
+                                                    "leaves_earned": {
+                                                        "type": "string",
+                                                        "pattern": "^[0-9]+$",
+                                                        "description": "Hojas ganadas (entero de 64 bits sin signo, como texto)"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "rank",
+                                                    "player_id",
+                                                    "username",
+                                                    "leaves_earned"
+                                                ],
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "tick",
+                                        "entries"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Par\u00e1metros no v\u00e1lidos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Par\u00e1metros no v\u00e1lidos",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Falta el token o no es v\u00e1lido",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Falta el token o no es v\u00e1lido",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Demasiadas consultas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Demasiadas consultas",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error interno",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Error interno",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "El servicio de origen no est\u00e1 disponible",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "El servicio de origen no est\u00e1 disponible",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/report": {
+            "get": {
+                "summary": "Reporte de las 3R",
+                "tags": [
+                    "reports"
+                ],
+                "description": "Totales de agua reducida (goteo), reutilizada (aspersores) y reciclada (planta de tratamiento), m\u00e1s los saldos de RF-27, de la \u00e9poca actual del valle. `scope=me` (por defecto) toma al jugador del token; `scope=global` suma a todos. Sin periodo, va desde el inicio de la \u00e9poca hasta la \u00faltima instant\u00e1nea; con `from_tick` y `to_tick`, es la diferencia entre las instant\u00e1neas en o antes de esos ticks. Sale de las instant\u00e1neas, que se guardan cada 5 s: puede ir hasta 5 s por detr\u00e1s del valle. Requiere el token del acceso. L\u00edmite por instancia (429): 60 consultas por minuto por IP, compartido por el ranking y el reporte.",
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "me",
+                                "global"
+                            ],
+                            "default": "me"
+                        },
+                        "in": "query",
+                        "name": "scope",
+                        "required": false
+                    },
+                    {
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9]{1,20}$"
+                        },
+                        "in": "query",
+                        "name": "from_tick",
+                        "required": false,
+                        "description": "Inicio del periodo (tick). Sin valor: inicio de la \u00e9poca."
+                    },
+                    {
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9]{1,20}$"
+                        },
+                        "in": "query",
+                        "name": "to_tick",
+                        "required": false,
+                        "description": "Fin del periodo (tick). Sin valor: la \u00faltima instant\u00e1nea."
+                    }
+                ],
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Reporte",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Reporte",
+                                    "type": "object",
+                                    "properties": {
+                                        "scope": {
+                                            "type": "string",
+                                            "enum": [
+                                                "me",
+                                                "global"
+                                            ]
+                                        },
+                                        "player_id": {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "description": "Solo en `scope=me`."
+                                        },
+                                        "epoch": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                        },
+                                        "from_tick": {
+                                            "type": "string",
+                                            "pattern": "^[0-9]+$",
+                                            "description": "Tick de la instant\u00e1nea inicial usada (0: inicio de la \u00e9poca) (entero de 64 bits sin signo, como texto)"
+                                        },
+                                        "to_tick": {
+                                            "type": "string",
+                                            "pattern": "^[0-9]+$",
+                                            "description": "Tick de la instant\u00e1nea final usada (entero de 64 bits sin signo, como texto)"
+                                        },
+                                        "totals": {
+                                            "type": "object",
+                                            "properties": {
+                                                "water_reduced": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Agua reducida (Reducir) (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "water_reused": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Agua reutilizada (Reutilizar) (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "water_recycled": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Agua reciclada (Reciclar) (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "water_refilled": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Agua recargada en el dep\u00f3sito (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "water_spent": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Agua gastada en gotas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "leaves_earned": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas ganadas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "leaves_spent": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas gastadas (entero de 64 bits sin signo, como texto)"
+                                                }
+                                            },
+                                            "required": [
+                                                "water_reduced",
+                                                "water_reused",
+                                                "water_recycled",
+                                                "water_refilled",
+                                                "water_spent",
+                                                "leaves_earned",
+                                                "leaves_spent"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "required": [
+                                        "scope",
+                                        "epoch",
+                                        "from_tick",
+                                        "to_tick",
+                                        "totals"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Par\u00e1metros no v\u00e1lidos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Par\u00e1metros no v\u00e1lidos",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Falta el token o no es v\u00e1lido",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Falta el token o no es v\u00e1lido",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Todav\u00eda no hay instant\u00e1neas o la cuenta no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Todav\u00eda no hay instant\u00e1neas o la cuenta no existe",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Demasiadas consultas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Demasiadas consultas",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error interno",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Error interno",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "El servicio de origen no est\u00e1 disponible",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "El servicio de origen no est\u00e1 disponible",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/bot-accounts": {
+            "post": {
+                "summary": "Crear cuentas de bots",
+                "tags": [
+                    "admin"
+                ],
+                "description": "Solo con token de administrador. Crea `count` cuentas de jugador (rol `player`) llamadas `<prefix>-<8 hex aleatorios>`, cada una con una contrase\u00f1a aleatoria que no se devuelve ni se registra, y devuelve un token por cuenta (mismos campos y vigencia que el acceso). No pasa por el l\u00edmite p\u00fablico de registro; su l\u00edmite por instancia (429) es de 10 solicitudes por minuto por administrador. Los hashes Argon2id se calculan con concurrencia 4: con `count` 100 la respuesta puede tardar varios segundos. Si la persistencia falla a mitad, responde 503 con `created` (cu\u00e1ntas cuentas llegaron a crearse) y **sin tokens**: esas cuentas quedan hu\u00e9rfanas, pero no estorban (los nombres son aleatorios).",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "count": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 100,
+                                        "description": "N\u00famero de cuentas a crear."
+                                    },
+                                    "prefix": {
+                                        "type": "string",
+                                        "pattern": "^[A-Za-z0-9_.-]{1,23}$",
+                                        "description": "Prefijo del nombre; por defecto `bot`."
+                                    }
+                                },
+                                "required": [
+                                    "count"
+                                ],
+                                "additionalProperties": false
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Cuentas creadas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Cuentas creadas",
+                                    "type": "object",
+                                    "properties": {
+                                        "accounts": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "player_id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "username": {
+                                                        "type": "string"
+                                                    },
+                                                    "token": {
+                                                        "type": "string"
+                                                    },
+                                                    "expires_at": {
+                                                        "type": "string",
+                                                        "format": "date-time",
+                                                        "description": "ISO 8601 en UTC"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "player_id",
+                                                    "username",
+                                                    "token",
+                                                    "expires_at"
+                                                ],
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "accounts"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Datos no v\u00e1lidos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Datos no v\u00e1lidos",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Falta el token o no es v\u00e1lido",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Falta el token o no es v\u00e1lido",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El token no es de un administrador",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "El token no es de un administrador",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Cuerpo demasiado grande",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Cuerpo demasiado grande",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Demasiadas solicitudes",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Demasiadas solicitudes",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error interno a mitad; `created` cuenta las cuentas ya creadas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Error interno a mitad; `created` cuenta las cuentas ya creadas",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        },
+                                        "created": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "created"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "La persistencia no estuvo disponible a mitad; `created` cuenta las cuentas ya creadas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "La persistencia no estuvo disponible a mitad; `created` cuenta las cuentas ya creadas",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        },
+                                        "created": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "created"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/system": {
+            "get": {
+                "summary": "Estado del sistema",
+                "tags": [
+                    "system"
+                ],
+                "description": "Estado de nginx, la API, el hub, el simulador y la persistencia, m\u00e1s las cifras del hub. Sin token. Responde siempre 200: un servicio que no contesta sale con `status: \"down\"` y un `detail` corto (`timeout`, `unavailable`, `not_serving`, `http_503`\u2026), y si el hub cae, `hub` es `null`. Cada consulta interna tiene un plazo de 1 s y el resultado se guarda 1 s, as\u00ed que muchos visores no multiplican las llamadas. L\u00edmite por instancia (429): 120 consultas por minuto por IP.",
+                "responses": {
+                    "200": {
+                        "description": "Estado del sistema",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Estado del sistema",
+                                    "type": "object",
+                                    "properties": {
+                                        "generated_at": {
+                                            "type": "string",
+                                            "description": "Hora de la agregaci\u00f3n, ISO 8601 en UTC"
+                                        },
+                                        "services": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "name": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "nginx",
+                                                            "api",
+                                                            "hub",
+                                                            "world",
+                                                            "persistence"
+                                                        ]
+                                                    },
+                                                    "status": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "up",
+                                                            "down"
+                                                        ]
+                                                    },
+                                                    "detail": {
+                                                        "type": "string",
+                                                        "description": "Motivo corto, solo si est\u00e1 ca\u00eddo"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "name",
+                                                    "status"
+                                                ],
+                                                "additionalProperties": false
+                                            }
+                                        },
+                                        "hub": {
+                                            "type": [
+                                                "null",
+                                                "object"
+                                            ],
+                                            "description": "Cifras del hub (`GET /stats` interno); `null` si el hub no respondi\u00f3.",
+                                            "properties": {
+                                                "tick": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "\u00daltimo tick devuelto por `Step` (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "paused": {
+                                                    "type": "boolean",
+                                                    "description": "El valle est\u00e1 en pausa"
+                                                },
+                                                "breaker": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "closed",
+                                                        "open",
+                                                        "half_open"
+                                                    ]
+                                                },
+                                                "queue": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Comandos en la cola del tick"
+                                                },
+                                                "sessions": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Conexiones WebSocket abiertas"
+                                                },
+                                                "goroutines": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Goroutines del proceso del hub"
+                                                },
+                                                "actions_per_second": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "admitted": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "description": "Acciones admitidas por segundo"
+                                                        },
+                                                        "applied": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "description": "Acciones aplicadas por segundo"
+                                                        },
+                                                        "window_seconds": {
+                                                            "type": "integer",
+                                                            "minimum": 0,
+                                                            "description": "Ventana del promedio, en segundos"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "admitted",
+                                                        "applied",
+                                                        "window_seconds"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "latency_ms": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "p50": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "description": "Mediana, de la admisi\u00f3n al resultado final"
+                                                        },
+                                                        "p95": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "description": "Percentil 95"
+                                                        },
+                                                        "samples": {
+                                                            "type": "integer",
+                                                            "minimum": 0,
+                                                            "description": "Muestras usadas"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "p50",
+                                                        "p95",
+                                                        "samples"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "step_ms": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "last": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "description": "Duraci\u00f3n del \u00faltimo `Step`"
+                                                        },
+                                                        "p95": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "description": "Percentil 95 de los \u00faltimos 600 `Step`"
+                                                        },
+                                                        "failures_total": {
+                                                            "type": "integer",
+                                                            "minimum": 0,
+                                                            "description": "`Step` fallidos desde que arranc\u00f3 el hub"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "last",
+                                                        "p95",
+                                                        "failures_total"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "humidity_total": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad total del valle (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "humidity_contributed": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad aportada por las gotas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "accepted_drops": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Gotas aceptadas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "active_fires": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Casillas que arden"
+                                                },
+                                                "boot_id": {
+                                                    "type": "string",
+                                                    "description": "`boot_id` del \u00faltimo `Step`"
+                                                },
+                                                "restored_tick": {
+                                                    "type": [
+                                                        "null",
+                                                        "string"
+                                                    ],
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Tick del que Rust se recuper\u00f3 en el arranque que informa `boot_id`; `null` si el hub es anterior a este campo (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "generated_at": {
+                                                    "type": "string",
+                                                    "description": "Hora de la foto del hub, ISO 8601 en UTC"
+                                                }
+                                            },
+                                            "required": [
+                                                "tick",
+                                                "paused",
+                                                "breaker",
+                                                "queue",
+                                                "sessions",
+                                                "goroutines",
+                                                "actions_per_second",
+                                                "latency_ms",
+                                                "step_ms",
+                                                "humidity_total",
+                                                "humidity_contributed",
+                                                "accepted_drops",
+                                                "active_fires",
+                                                "boot_id",
+                                                "restored_tick",
+                                                "generated_at"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "required": [
+                                        "generated_at",
+                                        "services",
+                                        "hub"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Demasiadas consultas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Demasiadas consultas",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/catalog": {
+            "get": {
+                "summary": "Cat\u00e1logo del juego",
+                "tags": [
+                    "catalog"
+                ],
+                "description": "Instalaciones (aspersor, goteo, planta de tratamiento, cesto de reciclaje), mejoras (gota m\u00e1s grande, dep\u00f3sito mayor) y dem\u00e1s cifras del juego, tal como las sirve la persistencia (`catalog/catalog.json`, secci\u00f3n D-01). Sin token. La API guarda una copia 30 s (`Cache-Control: public, max-age=30`) y `ETag` es el hash del cat\u00e1logo: con `If-None-Match` responde `304`. Si la persistencia no responde y hay una copia vencida, se sirve esa (con `Cache-Control: no-cache`); sin copia, `503`. L\u00edmite por instancia (429): 60 consultas por minuto por IP.",
+                "responses": {
+                    "200": {
+                        "description": "Cat\u00e1logo del juego",
+                        "headers": {
+                            "type": {
+                                "schema": {
+                                    "0": "o",
+                                    "1": "b",
+                                    "2": "j",
+                                    "3": "e",
+                                    "4": "c",
+                                    "5": "t"
+                                }
+                            },
+                            "properties": {
+                                "schema": {
+                                    "cache-control": {
+                                        "type": "string"
+                                    },
+                                    "etag": {
+                                        "type": "string",
+                                        "description": "Hash del cat\u00e1logo, entre comillas"
+                                    }
+                                }
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "description": "Cat\u00e1logo del juego",
+                                    "properties": {
+                                        "catalog_version": {
+                                            "type": "string",
+                                            "description": "Hash del contenido del cat\u00e1logo"
+                                        },
+                                        "drop": {
+                                            "type": "object",
+                                            "description": "Gota",
+                                            "properties": {
+                                                "water_cost": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Agua que se toma del dep\u00f3sito por gota, en litros (modo demo: gratis) (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "humidity": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad que suma a la casilla fuera del modo demo (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "demo_humidity": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad que suma una gota en modo demo (entero de 64 bits sin signo, como texto)"
+                                                }
+                                            },
+                                            "required": [
+                                                "water_cost",
+                                                "humidity",
+                                                "demo_humidity"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "tank": {
+                                            "type": "object",
+                                            "description": "Dep\u00f3sito",
+                                            "properties": {
+                                                "capacity": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Capacidad inicial, en litros (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "refill_amount": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Recarga por intervalo, en litros (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "refill_interval_seconds": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Segundos entre recargas"
+                                                }
+                                            },
+                                            "required": [
+                                                "capacity",
+                                                "refill_amount",
+                                                "refill_interval_seconds"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "growth": {
+                                            "type": "object",
+                                            "description": "Crecimiento",
+                                            "properties": {
+                                                "humidity_per_stage": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad que hace falta, y se gasta, para subir una etapa (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "leaves_grass": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas al llegar a pasto (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "leaves_shrub": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas al llegar a arbusto (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "leaves_flowers": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas al llegar a flores (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "leaves_tree": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas al llegar a \u00e1rbol (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "tree_max_humidity": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad m\u00e1xima de un \u00e1rbol (entero de 64 bits sin signo, como texto)"
+                                                }
+                                            },
+                                            "required": [
+                                                "humidity_per_stage",
+                                                "leaves_grass",
+                                                "leaves_shrub",
+                                                "leaves_flowers",
+                                                "leaves_tree",
+                                                "tree_max_humidity"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "evaporation": {
+                                            "type": "object",
+                                            "description": "Evaporaci\u00f3n",
+                                            "properties": {
+                                                "humidity_per_second": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad que pierde cada casilla por segundo (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "wither_after_ticks": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Ticks con humedad 0 antes de que la casilla se marchite una etapa"
+                                                }
+                                            },
+                                            "required": [
+                                                "humidity_per_second",
+                                                "wither_after_ticks"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "fire": {
+                                            "type": "object",
+                                            "description": "Incendios",
+                                            "properties": {
+                                                "drops_to_extinguish": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Gotas necesarias para apagar un incendio"
+                                                },
+                                                "extinguish_bonus_leaves": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas para quien suelta la \u00faltima gota (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "burn_out_ticks": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Ticks hasta que un incendio sin atender se consume"
+                                                },
+                                                "ignition_chance_ppm": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Probabilidad por tick de que arda una casilla seca con planta, en partes por mill\u00f3n"
+                                                },
+                                                "propagation_chance_ppm": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Probabilidad por tick de que un fuego salte a una casilla vecina elegible, en partes por mill\u00f3n"
+                                                }
+                                            },
+                                            "required": [
+                                                "drops_to_extinguish",
+                                                "extinguish_bonus_leaves",
+                                                "burn_out_ticks",
+                                                "ignition_chance_ppm",
+                                                "propagation_chance_ppm"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "sprinkler": {
+                                            "type": "object",
+                                            "description": "Aspersor de agua gris (Reutilizar)",
+                                            "properties": {
+                                                "price": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Precio del primero, en hojas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "area_side": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Lado del \u00e1rea cuadrada que cubre, en casillas"
+                                                },
+                                                "humidity": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad que suma a cada casilla por intervalo (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "interval_seconds": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Segundos entre riegos"
+                                                },
+                                                "durability": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Durabilidad base: riegos antes de destruirse"
+                                                }
+                                            },
+                                            "required": [
+                                                "price",
+                                                "area_side",
+                                                "humidity",
+                                                "interval_seconds",
+                                                "durability"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "drip": {
+                                            "type": "object",
+                                            "description": "Riego por goteo (Reducir)",
+                                            "properties": {
+                                                "price": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Precio del primero, en hojas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "area_side": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Lado del \u00e1rea cuadrada que cubre, en casillas"
+                                                },
+                                                "evaporation_divisor": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "La evaporaci\u00f3n en su \u00e1rea se divide entre este valor"
+                                                },
+                                                "durability": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Durabilidad base: puntos de desgaste antes de destruirse"
+                                                },
+                                                "wear_interval_seconds": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Segundos de trabajo activo que cuestan un punto de durabilidad"
+                                                }
+                                            },
+                                            "required": [
+                                                "price",
+                                                "area_side",
+                                                "evaporation_divisor",
+                                                "durability",
+                                                "wear_interval_seconds"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "treatment_plant": {
+                                            "type": "object",
+                                            "description": "Planta de tratamiento (Reciclar)",
+                                            "properties": {
+                                                "price": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Precio de la primera, en hojas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "refill_amount": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Recarga extra del dep\u00f3sito de su due\u00f1o por intervalo, en litros (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "interval_seconds": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Segundos entre recargas"
+                                                },
+                                                "durability": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Durabilidad base: pulsos antes de destruirse"
+                                                }
+                                            },
+                                            "required": [
+                                                "price",
+                                                "refill_amount",
+                                                "interval_seconds",
+                                                "durability"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "trash_bin": {
+                                            "type": "object",
+                                            "description": "Cesto de reciclaje (limpieza)",
+                                            "properties": {
+                                                "price": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Precio del primero, en hojas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "area_side": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Lado del \u00e1rea cuadrada que limpia y protege, en casillas"
+                                                },
+                                                "interval_seconds": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Segundos entre limpiezas"
+                                                },
+                                                "durability": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Durabilidad base: limpiezas antes de destruirse"
+                                                }
+                                            },
+                                            "required": [
+                                                "price",
+                                                "area_side",
+                                                "interval_seconds",
+                                                "durability"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "terrain": {
+                                            "type": "object",
+                                            "description": "Terreno natural (expansi\u00f3n de jugabilidad)",
+                                            "properties": {
+                                                "river_width": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Ancho del r\u00edo en casillas (0 = sin r\u00edo)"
+                                                },
+                                                "rock_count": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Rocas sueltas que se intentan colocar (0 = sin rocas)"
+                                                }
+                                            },
+                                            "required": [
+                                                "river_width",
+                                                "rock_count"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "urban": {
+                                            "type": "object",
+                                            "description": "Presi\u00f3n urbana (expansi\u00f3n de jugabilidad)",
+                                            "properties": {
+                                                "building_tree_threshold": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "\u00c1rboles a partir de los cuales aparece el primer edificio"
+                                                },
+                                                "building_humidity_threshold": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Humedad total aportada a partir de la cual aparece el primer edificio (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "max_buildings": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Tope de edificios en el valle"
+                                                },
+                                                "trash_interval_seconds": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Segundos entre dos emisiones de basura de un edificio"
+                                                },
+                                                "trash_spread_interval_seconds": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Segundos entre dos propagaciones de la basura de nivel 3"
+                                                },
+                                                "clean_reward_leaves": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Hojas de quien deja limpia una casilla de basura (entero de 64 bits sin signo, como texto)"
+                                                }
+                                            },
+                                            "required": [
+                                                "building_tree_threshold",
+                                                "building_humidity_threshold",
+                                                "max_buildings",
+                                                "trash_interval_seconds",
+                                                "trash_spread_interval_seconds",
+                                                "clean_reward_leaves"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "installation_price_increase_percent": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "description": "Aumento de precio, en porcentaje, por cada compra del mismo tipo de instalaci\u00f3n"
+                                        },
+                                        "bigger_drop": {
+                                            "type": "object",
+                                            "description": "Mejora: gota m\u00e1s grande",
+                                            "properties": {
+                                                "price": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Precio, en hojas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "area_side": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "description": "Lado del \u00e1rea cuadrada que cubre una gota, en casillas"
+                                                }
+                                            },
+                                            "required": [
+                                                "price",
+                                                "area_side"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "bigger_tank": {
+                                            "type": "object",
+                                            "description": "Mejora: dep\u00f3sito mayor",
+                                            "properties": {
+                                                "price": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Precio, en hojas (entero de 64 bits sin signo, como texto)"
+                                                },
+                                                "extra_capacity": {
+                                                    "type": "string",
+                                                    "pattern": "^[0-9]+$",
+                                                    "description": "Capacidad extra del dep\u00f3sito, en litros (entero de 64 bits sin signo, como texto)"
+                                                }
+                                            },
+                                            "required": [
+                                                "price",
+                                                "extra_capacity"
+                                            ],
+                                            "additionalProperties": false
+                                        },
+                                        "offline_installation_seconds": {
+                                            "type": "string",
+                                            "pattern": "^[0-9]+$",
+                                            "description": "Segundos que las instalaciones siguen trabajando tras la \u00faltima acci\u00f3n de su due\u00f1o (entero de 64 bits sin signo, como texto)"
+                                        }
+                                    },
+                                    "required": [
+                                        "catalog_version",
+                                        "drop",
+                                        "tank",
+                                        "growth",
+                                        "evaporation",
+                                        "fire",
+                                        "sprinkler",
+                                        "drip",
+                                        "treatment_plant",
+                                        "trash_bin",
+                                        "terrain",
+                                        "urban",
+                                        "installation_price_increase_percent",
+                                        "bigger_drop",
+                                        "bigger_tank",
+                                        "offline_installation_seconds"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "El cat\u00e1logo no cambi\u00f3 (`If-None-Match`)"
+                    },
+                    "429": {
+                        "description": "Demasiadas consultas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Demasiadas consultas",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Error interno",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "Error interno",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "La persistencia no est\u00e1 disponible y no hay copia",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "La persistencia no est\u00e1 disponible y no hay copia",
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "system",
+            "description": "Operaci\u00f3n del servicio"
+        },
+        {
+            "name": "auth",
+            "description": "Registro y acceso con token firmado"
+        },
+        {
+            "name": "ranking",
+            "description": "Ranking global por hojas ganadas"
+        },
+        {
+            "name": "catalog",
+            "description": "Instalaciones, mejoras y cifras del juego"
+        },
+        {
+            "name": "admin",
+            "description": "Operaci\u00f3n reservada a administradores"
+        },
+        {
+            "name": "reports",
+            "description": "Reporte de las 3R, por jugador y global"
+        }
+    ]
+}
