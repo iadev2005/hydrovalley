@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 960" width="1600" height="960">
+<style>
+text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2937; }
+.b { font-weight: 700; }
+.s { fill: #4b5563; }
+.h { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+</style>
+<rect width="1600" height="960" fill="#ffffff"/>
+<defs><marker id="arr-grpc" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e3a8a"/></marker><marker id="arr-http" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9a3412"/></marker><marker id="arr-gray" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker><marker id="arr-sql" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker></defs>
+<text x="40" y="60.0" font-size="26" text-anchor="start" class="b">HydroValley</text>
+<text x="40" y="84.0" font-size="15" text-anchor="start" class="s">Una gota de punta a punta</text>
+<line x1="170" y1="165" x2="170" y2="925" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="470" y1="165" x2="470" y2="925" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="800" y1="165" x2="800" y2="925" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="1130" y1="165" x2="1130" y2="925" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<line x1="1430" y1="165" x2="1430" y2="925" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6 5"/>
+<rect x="60" y="105" width="220" height="60" rx="7" fill="#dbe8f7" stroke="#3b6ea8" stroke-width="1.8"/>
+<text x="170.0" y="129.0" font-size="15" text-anchor="middle" class="b">Navegador</text>
+<text x="170.0" y="150.0" font-size="12.5" text-anchor="middle" class="s">React + Phaser</text>
+<rect x="360" y="105" width="220" height="60" rx="7" fill="#e8eaed" stroke="#5b6470" stroke-width="1.8"/>
+<text x="470.0" y="129.0" font-size="15" text-anchor="middle" class="b">nginx</text>
+<text x="470.0" y="150.0" font-size="12.5" text-anchor="middle" class="s">proxy de entrada</text>
+<rect x="690" y="105" width="220" height="60" rx="7" fill="#d8eee3" stroke="#3a8062" stroke-width="1.8"/>
+<text x="800.0" y="129.0" font-size="15" text-anchor="middle" class="b">Hub</text>
+<text x="800.0" y="150.0" font-size="12.5" text-anchor="middle" class="s">Go</text>
+<rect x="1020" y="105" width="220" height="60" rx="7" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="1130.0" y="129.0" font-size="15" text-anchor="middle" class="b">Simulador del valle</text>
+<text x="1130.0" y="150.0" font-size="12.5" text-anchor="middle" class="s">Rust</text>
+<rect x="1320" y="105" width="220" height="60" rx="7" fill="#fbf0c8" stroke="#a07a12" stroke-width="1.8"/>
+<text x="1430.0" y="129.0" font-size="15" text-anchor="middle" class="b">Persistencia</text>
+<text x="1430.0" y="150.0" font-size="12.5" text-anchor="middle" class="s">Python</text>
+<polyline points="170,215 470,215" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arr-http)"/>
+<text x="320.0" y="207.0" font-size="13" text-anchor="middle" class="h">1 · WSS /play: drop {x, y, action_id}</text>
+<polyline points="470,272 800,272" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arr-http)"/>
+<text x="635.0" y="264.0" font-size="13" text-anchor="middle" class="h">2 · reenvía el mensaje (TLS termina en nginx)</text>
+<rect x="655" y="295" width="290" height="100" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="667" y="315.0" font-size="13" text-anchor="start" class="b">3 · Filtro del hub</text>
+<text x="667" y="335.0" font-size="12.5" text-anchor="start">sesión válida (token firmado)</text>
+<text x="667" y="352.0" font-size="12.5" text-anchor="start">action_id nuevo (no repetido)</text>
+<text x="667" y="369.0" font-size="12.5" text-anchor="start">no más de 15 gotas por segundo</text>
+<text x="667" y="386.0" font-size="12.5" text-anchor="start">→ admitida: queda pendiente y en la cola</text>
+<text x="955" y="318.0" font-size="12" text-anchor="start" class="s">Gatekeeper</text>
+<text x="955" y="333.0" font-size="12" text-anchor="start" class="s">Rate Limiting</text>
+<text x="955" y="348.0" font-size="12" text-anchor="start" class="s">Queue-Based</text>
+<text x="955" y="363.0" font-size="12" text-anchor="start" class="s">Load Leveling</text>
+<rect x="640" y="425" width="670" height="215" fill="none" stroke="#6b7280" stroke-width="1.5"/>
+<path d="M640,425 h258 v18 l-8,8 h-250 z" fill="#e8eaed" stroke="#6b7280" stroke-width="1.5"/>
+<text x="650" y="442.0" font-size="12.5" text-anchor="start" class="b">cada 100 ms (aunque nadie juegue)</text>
+<polyline points="800,485 1130,485" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arr-grpc)"/>
+<text x="965.0" y="477.0" font-size="13" text-anchor="middle" class="h">4 · Step(comandos del tick) · gRPC, plazo 200 ms</text>
+<rect x="960" y="505" width="330" height="56" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="972" y="525.0" font-size="12.5" text-anchor="start">aplica los comandos en orden</text>
+<text x="972" y="542.0" font-size="12.5" text-anchor="start">y avanza el valle un paso</text>
+<polyline points="1130,612 800,612" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#arr-grpc)"/>
+<text x="965.0" y="604.0" font-size="13" text-anchor="middle" class="h">5 · resultado por comando: applied + estado nuevo</text>
+<polyline points="800,705 170,705" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#arr-http)"/>
+<text x="485.0" y="697.0" font-size="13" text-anchor="middle" class="h">6 · result: {"status": "applied"} (acción confirmada)</text>
+<rect x="150" y="735" width="1050" height="75" fill="none" stroke="#6b7280" stroke-width="1.5"/>
+<path d="M150,735 h243 v18 l-8,8 h-235 z" fill="#e8eaed" stroke="#6b7280" stroke-width="1.5"/>
+<text x="160" y="752.0" font-size="12.5" text-anchor="start" class="b">cada 1 s · Publisher-Subscriber</text>
+<polyline points="800,790 170,790" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arr-http)"/>
+<text x="485.0" y="782.0" font-size="13" text-anchor="middle" class="h">7 · state: estado del valle y del jugador</text>
+<polyline points="1130,870 1430,870" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arr-grpc)"/>
+<text x="1280.0" y="862.0" font-size="13" text-anchor="middle" class="h">8 · SaveSnapshot cada 50 ticks (gRPC)</text>
+<rect x="1000" y="888" width="430" height="34" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="1012" y="908.0" font-size="12.5" text-anchor="start">en segundo plano: Step nunca espera a la persistencia</text>
+<polyline points="1110,44 1146,44" fill="none" stroke="#9a3412" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arr-http)"/>
+<text x="1156" y="48.0" font-size="12.5" text-anchor="start">HTTP / WebSocket</text>
+<polyline points="1110,68 1146,68" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#arr-grpc)"/>
+<text x="1156" y="72.0" font-size="12.5" text-anchor="start">gRPC</text>
+<polyline points="1310,44 1346,44" fill="none" stroke="#374151" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 4" marker-end="url(#arr-sql)"/>
+<text x="1356" y="48.0" font-size="12.5" text-anchor="start">respuesta</text>
+</svg>
