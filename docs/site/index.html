@@ -62,20 +62,44 @@
 
   <h2>Diagramas rediseñados</h2>
   <figure>
-    <a class="card" href="diagrams/componentes.svg"><img src="diagrams/componentes.svg" alt="Diagrama de componentes de HydroValley en notación lollipop"></a>
+    <a class="card" href="diagrams/casos-de-uso.svg"><img src="diagrams/casos-de-uso.svg" alt="Diagrama de casos de uso con los actores jugador, bot, administrador y tick" loading="lazy"></a>
+    <figcaption>Casos de uso: qué hace cada actor, con sus requisitos (RF) y las extensiones de nivel 2.</figcaption>
+  </figure>
+  <figure>
+    <a class="card" href="diagrams/componentes.svg"><img src="diagrams/componentes.svg" alt="Diagrama de componentes de HydroValley en notación lollipop" loading="lazy"></a>
     <figcaption>Componentes: servicios, interfaces gRPC y patrones de la nube donde viven.</figcaption>
   </figure>
   <figure>
-    <a class="card" href="diagrams/despliegue.svg"><img src="diagrams/despliegue.svg" alt="Diagrama de despliegue del plan A en el laboratorio"></a>
+    <a class="card" href="diagrams/despliegue.svg"><img src="diagrams/despliegue.svg" alt="Diagrama de despliegue del plan A en el laboratorio" loading="lazy"></a>
     <figcaption>Despliegue: un nodo Docker por servicio en el laboratorio, más el nodo de respaldo.</figcaption>
   </figure>
   <figure>
-    <a class="card" href="diagrams/secuencia-gota.svg"><img src="diagrams/secuencia-gota.svg" alt="Secuencia de una gota de punta a punta"></a>
+    <a class="card" href="diagrams/secuencia-gota.svg"><img src="diagrams/secuencia-gota.svg" alt="Secuencia de una gota de punta a punta" loading="lazy"></a>
     <figcaption>Secuencia: el recorrido de una gota, del clic al resultado y la instantánea.</figcaption>
   </figure>
+  <figure>
+    <a class="card" href="diagrams/reinicio-simulador.svg"><img src="diagrams/reinicio-simulador.svg" alt="Secuencia del reinicio del simulador y la recuperación desde la instantánea" loading="lazy"></a>
+    <figcaption>Reinicio del simulador: pausa, Circuit Breaker, relevo a world-go y recuperación con boot_id y restored_tick.</figcaption>
+  </figure>
+  <figure>
+    <a class="card" href="diagrams/estados-casilla.svg"><img src="diagrams/estados-casilla.svg" alt="Máquina de estados de una casilla con sus regiones ortogonales" loading="lazy"></a>
+    <figcaption>Estados de la casilla: crecimiento, fuego, basura y terreno natural, con las condiciones de cada transición.</figcaption>
+  </figure>
+  <figure>
+    <a class="card" href="diagrams/dominio-simulador.svg"><img src="diagrams/dominio-simulador.svg" alt="Modelo de dominio del simulador en Rust" loading="lazy"></a>
+    <figcaption>Dominio del simulador: los datos que viajan en la instantánea y cómo se relacionan.</figcaption>
+  </figure>
+  <figure>
+    <a class="card" href="diagrams/entidad-relacion.svg"><img src="diagrams/entidad-relacion.svg" alt="Diagrama entidad-relación de PostgreSQL" loading="lazy"></a>
+    <figcaption>Entidad-relación: las tablas que guarda la persistencia, con sus claves y notas de diseño.</figcaption>
+  </figure>
+  <figure>
+    <a class="card" href="diagrams/acceso.svg"><img src="diagrams/acceso.svg" alt="Secuencia de registro, acceso y apertura del canal en vivo" loading="lazy"></a>
+    <figcaption>Acceso: registro, hash Argon2id, token Ed25519 firmado por la API y verificado por el hub en /play.</figcaption>
+  </figure>
 
-  <h2>Los nueve diagramas UML</h2>
-  <p>Generados con PlantUML; el <code>.puml</code> es la fuente de verdad.</p>
+  <h2>Fuentes en PlantUML</h2>
+  <p>Los nueve diagramas originales, generados con PlantUML; el <code>.puml</code> sigue siendo la fuente de verdad y los de arriba son su versión rediseñada.</p>
   <ul class="gallery">
     <li><a href="diagrams/01-casos-de-uso.svg">01 · Casos de uso</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/01-casos-de-uso.puml">.puml</a></li>
     <li><a href="diagrams/02-componentes.svg">02 · Componentes</a><a class="src" href="https://github.com/iadev2005/hydrovalley/blob/main/docs/diagrams/02-componentes.puml">.puml</a></li>
