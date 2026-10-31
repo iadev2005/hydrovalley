@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1424" width="1600" height="1424">
+<style>
+text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2937; }
+.b { font-weight: 700; }
+.s { fill: #4b5563; }
+.i { font-style: italic; }
+.h { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+</style>
+<rect width="1600" height="1424" fill="#ffffff"/>
+<defs><marker id="m0" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10" fill="none" stroke="#374151" stroke-width="1.6"/></marker></defs>
+<text x="40" y="60" font-size="26" text-anchor="start" class="b">HydroValley</text>
+<text x="40" y="84" font-size="15" text-anchor="start" class="s">Modelo de dominio del simulador (memoria de Rust)</text>
+<rect x="640" y="110" width="330" height="176" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="640" y="110" width="330" height="30" rx="4" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="805" y="129" font-size="14.5" text-anchor="middle" class="b">Valle</text>
+<text x="651" y="157" font-size="12.5" text-anchor="start">width: u32 = 32</text>
+<text x="651" y="174" font-size="12.5" text-anchor="start">height: u32 = 32</text>
+<text x="651" y="191" font-size="12.5" text-anchor="start">tick: u64</text>
+<text x="651" y="208" font-size="12.5" text-anchor="start">epoch: u32</text>
+<text x="651" y="225" font-size="12.5" text-anchor="start">catalog_version: String</text>
+<text x="651" y="242" font-size="12.5" text-anchor="start">rng_state</text>
+<text x="651" y="259" font-size="12.5" text-anchor="start">humidity_contributed: u64</text>
+<text x="651" y="276" font-size="12.5" text-anchor="start">demo_mode: bool</text>
+<rect x="110" y="380" width="300" height="159" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="110" y="380" width="300" height="30" rx="4" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="260" y="399" font-size="14.5" text-anchor="middle" class="b">Casilla</text>
+<text x="121" y="427" font-size="12.5" text-anchor="start">x: u32</text>
+<text x="121" y="444" font-size="12.5" text-anchor="start">y: u32</text>
+<text x="121" y="461" font-size="12.5" text-anchor="start">humidity: u64</text>
+<text x="121" y="478" font-size="12.5" text-anchor="start">stage: Etapa</text>
+<text x="121" y="495" font-size="12.5" text-anchor="start">dry_ticks: u32</text>
+<text x="121" y="512" font-size="12.5" text-anchor="start">has_building: bool</text>
+<text x="400" y="512" font-size="11" text-anchor="end" class="s i">«nivel 2»</text>
+<text x="121" y="529" font-size="12.5" text-anchor="start">trash_level: u32 (0 a 3)</text>
+<text x="400" y="529" font-size="11" text-anchor="end" class="s i">«nivel 2»</text>
+<rect x="900" y="380" width="320" height="329" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="900" y="380" width="320" height="30" rx="4" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="1060" y="399" font-size="14.5" text-anchor="middle" class="b">Jugador</text>
+<text x="911" y="427" font-size="12.5" text-anchor="start">player_id: Uuid</text>
+<text x="911" y="444" font-size="12.5" text-anchor="start">water: u64</text>
+<text x="911" y="461" font-size="12.5" text-anchor="start">tank_capacity: u64</text>
+<text x="911" y="478" font-size="12.5" text-anchor="start">leaves: u64</text>
+<text x="911" y="495" font-size="12.5" text-anchor="start">water_refilled: u64</text>
+<text x="911" y="512" font-size="12.5" text-anchor="start">water_spent: u64</text>
+<text x="911" y="529" font-size="12.5" text-anchor="start">leaves_earned: u64</text>
+<text x="911" y="546" font-size="12.5" text-anchor="start">leaves_spent: u64</text>
+<text x="911" y="563" font-size="12.5" text-anchor="start">purchases_by_kind: map&lt;TipoInstalacion, u32&gt;</text>
+<text x="911" y="580" font-size="12.5" text-anchor="start">upgrades: Mejora[0..2]</text>
+<text x="911" y="597" font-size="12.5" text-anchor="start">water_reduced: u64</text>
+<text x="911" y="614" font-size="12.5" text-anchor="start">water_reused: u64</text>
+<text x="911" y="631" font-size="12.5" text-anchor="start">water_recycled: u64</text>
+<text x="911" y="648" font-size="12.5" text-anchor="start">fires_extinguished: u64</text>
+<text x="911" y="665" font-size="12.5" text-anchor="start">tiles_grown: u64</text>
+<text x="911" y="682" font-size="12.5" text-anchor="start">last_action_tick: u64</text>
+<text x="911" y="699" font-size="12.5" text-anchor="start">recent_actions: (action_id, tick)[]</text>
+<rect x="110" y="640" width="190" height="173" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="110" y="640" width="190" height="44" rx="4" fill="#fdf1e7" stroke="#b8601f" stroke-width="1.8"/>
+<text x="205" y="657" font-size="11.5" text-anchor="middle" class="i s">«enumeration»</text>
+<text x="205" y="674" font-size="14.5" text-anchor="middle" class="b">Etapa</text>
+<text x="121" y="701" font-size="12.5" text-anchor="start">DrySoil</text>
+<text x="121" y="718" font-size="12.5" text-anchor="start">Grass</text>
+<text x="121" y="735" font-size="12.5" text-anchor="start">Shrub</text>
+<text x="121" y="752" font-size="12.5" text-anchor="start">Flowers</text>
+<text x="121" y="769" font-size="12.5" text-anchor="start">Tree</text>
+<text x="121" y="786" font-size="12.5" text-anchor="start">Water</text>
+<text x="290" y="786" font-size="11" text-anchor="end" class="s i">«nivel 2»</text>
+<text x="121" y="803" font-size="12.5" text-anchor="start">Rock</text>
+<text x="290" y="803" font-size="11" text-anchor="end" class="s i">«nivel 2»</text>
+<rect x="330" y="640" width="210" height="74" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="330" y="640" width="210" height="30" rx="4" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="435" y="659" font-size="14.5" text-anchor="middle" class="b">Incendio</text>
+<text x="341" y="687" font-size="12.5" text-anchor="start">drops_received: u32</text>
+<text x="341" y="704" font-size="12.5" text-anchor="start">burning_ticks: u32</text>
+<rect x="560" y="640" width="230" height="91" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="560" y="640" width="230" height="30" rx="4" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="675" y="659" font-size="14.5" text-anchor="middle" class="b">Instalacion</text>
+<text x="571" y="687" font-size="12.5" text-anchor="start">owner_id: Uuid</text>
+<text x="571" y="704" font-size="12.5" text-anchor="start">kind: TipoInstalacion</text>
+<text x="571" y="721" font-size="12.5" text-anchor="start">remaining_durability: u32</text>
+<text x="780" y="721" font-size="11" text-anchor="end" class="s i">«nivel 2»</text>
+<rect x="560" y="800" width="230" height="122" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="560" y="800" width="230" height="44" rx="4" fill="#fdf1e7" stroke="#b8601f" stroke-width="1.8"/>
+<text x="675" y="817" font-size="11.5" text-anchor="middle" class="i s">«enumeration»</text>
+<text x="675" y="834" font-size="14.5" text-anchor="middle" class="b">TipoInstalacion</text>
+<text x="571" y="861" font-size="12.5" text-anchor="start">Sprinkler</text>
+<text x="571" y="878" font-size="12.5" text-anchor="start">Drip</text>
+<text x="571" y="895" font-size="12.5" text-anchor="start">TreatmentPlant</text>
+<text x="571" y="912" font-size="12.5" text-anchor="start">TrashBin</text>
+<text x="780" y="912" font-size="11" text-anchor="end" class="s i">«nivel 2»</text>
+<rect x="1370" y="450" width="210" height="108" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="1370" y="450" width="210" height="30" rx="4" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="1475" y="469" font-size="14.5" text-anchor="middle" class="b">ResumenOffline</text>
+<text x="1381" y="497" font-size="12.5" text-anchor="start">leaves_earned: u64</text>
+<text x="1381" y="514" font-size="12.5" text-anchor="start">water_reused: u64</text>
+<text x="1381" y="531" font-size="12.5" text-anchor="start">fires_extinguished: u64</text>
+<text x="1381" y="548" font-size="12.5" text-anchor="start">tiles_grown: u64</text>
+<rect x="1370" y="640" width="210" height="88" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="1370" y="640" width="210" height="44" rx="4" fill="#fdf1e7" stroke="#b8601f" stroke-width="1.8"/>
+<text x="1475" y="657" font-size="11.5" text-anchor="middle" class="i s">«enumeration»</text>
+<text x="1475" y="674" font-size="14.5" text-anchor="middle" class="b">Mejora</text>
+<text x="1381" y="701" font-size="12.5" text-anchor="start">BiggerDrop</text>
+<text x="1381" y="718" font-size="12.5" text-anchor="start">BiggerTank</text>
+<rect x="110" y="980" width="430" height="125" rx="4" fill="#fff" stroke="#b8601f" stroke-width="1.8"/>
+<rect x="110" y="980" width="430" height="30" rx="4" fill="#fbe3d1" stroke="#b8601f" stroke-width="1.8"/>
+<text x="325" y="999" font-size="14.5" text-anchor="middle" class="b">Comando</text>
+<text x="121" y="1027" font-size="12.5" text-anchor="start">action_id: Uuid</text>
+<text x="121" y="1044" font-size="12.5" text-anchor="start">player_id: Uuid</text>
+<text x="121" y="1061" font-size="12.5" text-anchor="start">kind: Drop | PlaceInstallation | BuyUpgrade | CleanTrash |</text>
+<text x="121" y="1078" font-size="12.5" text-anchor="start">   SetDemoMode | ResetValley</text>
+<text x="121" y="1095" font-size="12.5" text-anchor="start">x, y: u32 (en Drop, PlaceInstallation y CleanTrash)</text>
+<polygon points="700,286 694,295 700,304 706,295" fill="#374151" stroke="#374151" stroke-width="1.5"/>
+<polyline points="700,304 700,330 360,330 360,380" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round"/>
+<text x="708" y="320" font-size="12" text-anchor="start" class="h b">1</text>
+<text x="368" y="360" font-size="12" text-anchor="start" class="h b">1024</text>
+<text x="530" y="322" font-size="11.5" text-anchor="middle" class="h i">32 × 32</text>
+<polygon points="920,286 914,295 920,304 926,295" fill="#374151" stroke="#374151" stroke-width="1.5"/>
+<polyline points="920,304 920,380" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round"/>
+<text x="928" y="320" font-size="12" text-anchor="start" class="h b">1</text>
+<text x="928" y="360" font-size="12" text-anchor="start" class="h b">*</text>
+<polyline points="200,539 200,640" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="208" y="620" font-size="12" text-anchor="start" class="h b">1</text>
+<polygon points="370,539 364,548 370,557 376,548" fill="#374151" stroke="#374151" stroke-width="1.5"/>
+<polyline points="370,557 370,640" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round"/>
+<text x="378" y="573" font-size="12" text-anchor="start" class="h b">1</text>
+<text x="378" y="620" font-size="12" text-anchor="start" class="h b">0..1</text>
+<text x="382" y="596" font-size="11.5" text-anchor="start" class="h i">está ardiendo</text>
+<polygon points="410,470 419,476 428,470 419,464" fill="#374151" stroke="#374151" stroke-width="1.5"/>
+<polyline points="428,470 675,470 675,640" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round"/>
+<text x="440" y="462" font-size="12" text-anchor="middle" class="h b">1</text>
+<text x="683" y="620" font-size="12" text-anchor="start" class="h b">0..1</text>
+<text x="545" y="434" font-size="11.5" text-anchor="middle" class="h i">colocada en ella</text>
+<text x="545" y="448" font-size="11.5" text-anchor="middle" class="h i">(como mucho una por casilla)</text>
+<polyline points="900,690 790,690" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#m0)"/>
+<text x="878" y="682" font-size="12" text-anchor="middle" class="h b">1</text>
+<text x="814" y="682" font-size="12" text-anchor="middle" class="h b">*</text>
+<text x="845" y="716" font-size="11.5" text-anchor="middle" class="h i">es dueño</text>
+<text x="845" y="730" font-size="11.5" text-anchor="middle" class="h i">(owner_id)</text>
+<polyline points="675,731 675,800" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="683" y="780" font-size="12" text-anchor="start" class="h b">1</text>
+<polygon points="1220,500 1229,506 1238,500 1229,494" fill="#374151" stroke="#374151" stroke-width="1.5"/>
+<polyline points="1238,500 1370,500" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round"/>
+<text x="1250" y="492" font-size="12" text-anchor="middle" class="h b">1</text>
+<text x="1346" y="492" font-size="12" text-anchor="middle" class="h b">1</text>
+<text x="1295" y="528" font-size="11.5" text-anchor="middle" class="h i">desde su última</text>
+<text x="1295" y="542" font-size="11.5" text-anchor="middle" class="h i">acción aplicada</text>
+<polyline points="1220,680 1370,680" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1242" y="672" font-size="12" text-anchor="middle" class="h b">1</text>
+<text x="1346" y="672" font-size="12" text-anchor="middle" class="h b">0..2</text>
+<polyline points="540,1040 1060,1040 1060,709" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="562" y="1032" font-size="12" text-anchor="middle" class="h b">*</text>
+<text x="1068" y="737" font-size="12" text-anchor="start" class="h b">1</text>
+<text x="800" y="1030" font-size="11.5" text-anchor="middle" class="h i">emitido por</text>
+<polyline points="110,1040 40,1040 40,460 110,460" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#m0)"/>
+<text x="88" y="1032" font-size="12" text-anchor="middle" class="h b">*</text>
+<text x="86" y="452" font-size="12" text-anchor="middle" class="h b">0..1</text>
+<text x="48" y="900" font-size="11.5" text-anchor="start" class="h i">apunta a</text>
+<rect x="30" y="1140" width="510" height="118" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="42" y="1159" font-size="12.5" text-anchor="start" class="b">Nota general</text>
+<text x="42" y="1176" font-size="12.5" text-anchor="start">En Rust esto son structs y enums, no clases: el diagrama muestra datos y</text>
+<text x="42" y="1193" font-size="12.5" text-anchor="start">relaciones, no métodos. Todo esto viaja en la instantánea, que Rust copia y envía</text>
+<text x="42" y="1210" font-size="12.5" text-anchor="start">en segundo plano cuando tick % 50 == 0 (cada 50 ticks, 5 s), incluido el estado del</text>
+<text x="42" y="1227" font-size="12.5" text-anchor="start">generador de azar y los action_id recientes por jugador (últimos 600 ticks).</text>
+<text x="42" y="1244" font-size="12.5" text-anchor="start">Agua, hojas y humedad: enteros de 64 bits sin signo.</text>
+<rect x="30" y="1272" width="510" height="67" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="42" y="1291" font-size="12.5" text-anchor="start" class="b">Comando</text>
+<text x="42" y="1308" font-size="12.5" text-anchor="start">Llega en WorldService.Step. No se guarda: solo su action_id queda en</text>
+<text x="42" y="1325" font-size="12.5" text-anchor="start">recent_actions.</text>
+<rect x="545" y="1140" width="510" height="118" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="557" y="1159" font-size="12.5" text-anchor="start" class="b">Jugador</text>
+<text x="557" y="1176" font-size="12.5" text-anchor="start">RF-27: water = water_refilled − water_spent y leaves = leaves_earned −</text>
+<text x="557" y="1193" font-size="12.5" text-anchor="start">leaves_spent. Ranking (RF-10): leaves_earned. purchases_by_kind fija el precio</text>
+<text x="557" y="1210" font-size="12.5" text-anchor="start">(+5 % por compra). 3R acumuladas (reportes): water_reduced (goteo),</text>
+<text x="557" y="1227" font-size="12.5" text-anchor="start">water_reused (aspersores), water_recycled (planta). Si una instalación hace</text>
+<text x="557" y="1244" font-size="12.5" text-anchor="start">crecer una casilla, las hojas son para su dueño (owner_id).</text>
+<rect x="545" y="1272" width="510" height="118" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="557" y="1291" font-size="12.5" text-anchor="start" class="b">ResumenOffline</text>
+<text x="557" y="1308" font-size="12.5" text-anchor="start">Resumen al volver (RF-25, nivel 2): lo que hicieron los aspersores del jugador</text>
+<text x="557" y="1325" font-size="12.5" text-anchor="start">desde su última acción aplicada. Se borra con su siguiente acción aplicada; el</text>
+<text x="557" y="1342" font-size="12.5" text-anchor="start">goteo y la planta no aportan. Va en la instantánea solo si no está vacío.</text>
+<text x="557" y="1359" font-size="12.5" text-anchor="start">fires_extinguished y tiles_grown de Jugador son el acumulado de la época</text>
+<text x="557" y="1376" font-size="12.5" text-anchor="start">(reportes).</text>
+<rect x="1060" y="1140" width="510" height="135" rx="6" fill="#fffbe6" stroke="#b9a44c" stroke-width="1.4"/>
+<text x="1072" y="1159" font-size="12.5" text-anchor="start" class="b">Casilla (nivel 2)</text>
+<text x="1072" y="1176" font-size="12.5" text-anchor="start">Expansión de jugabilidad: Water y Rock son terreno natural que el simulador</text>
+<text x="1072" y="1193" font-size="12.5" text-anchor="start">sortea con el generador con semilla al crear el valle (el reinicio lo conserva);</text>
+<text x="1072" y="1210" font-size="12.5" text-anchor="start">no crecen, no admiten gotas ni instalaciones. has_building y trash_level van en la</text>
+<text x="1072" y="1227" font-size="12.5" text-anchor="start">instantánea solo si no son los valores por defecto. Una casilla con edificio o</text>
+<text x="1072" y="1244" font-size="12.5" text-anchor="start">basura no crece ni arde. Cada instalación lleva su durabilidad restante (30 al</text>
+<text x="1072" y="1261" font-size="12.5" text-anchor="start">colocarla) y se destruye al llegar a cero.</text>
+<rect x="1010" y="22" width="560" height="64" rx="7" fill="#fff" stroke="#c7cbd1" stroke-width="1"/>
+<polygon points="1024,42 1033,48 1042,42 1033,36" fill="#374151" stroke="#374151" stroke-width="1.5"/>
+<polyline points="1042,42 1080,42" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round"/>
+<text x="1090" y="46" font-size="12" text-anchor="start">composición (contiene)</text>
+<polyline points="1024,66 1080,66" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m0)"/>
+<text x="1090" y="70" font-size="12" text-anchor="start">asociación</text>
+<polyline points="1300,42 1356,42" fill="none" stroke="#374151" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#m0)"/>
+<text x="1366" y="46" font-size="12" text-anchor="start">dependencia</text>
+<text x="1300" y="70" font-size="12" text-anchor="start" class="s i">«nivel 2»  expansión de jugabilidad</text>
+</svg>

@@ -31,7 +31,6 @@
 % Citas APA en texto (referencias manuales al final)
 \newcommand{\citekey}[2]{\expandafter\def\csname cite@#1\endcsname{#2}}
 \citekey{gambetta}{Gambetta, s.~f.}
-\citekey{repo}{Aliendres et al., 2026}
 \citekey{unesco2024}{UNESCO, 2024}
 \citekey{onu2015}{Naciones Unidas, 2015}
 \citekey{dropgrow}{Shane Staller Games, 2026}
@@ -90,7 +89,22 @@ Los sistemas que atienden a muchos usuarios a la vez sobre un estado compartido 
 
 En este trabajo se desarrolló \textit{HydroValley}, un juego incremental cooperativo sobre el cuidado del agua. Los jugadores sueltan gotas sobre un valle isométrico de $32 \times 32$ casillas, compartido por todos y simulado en el servidor; con las hojas que obtienen compran instalaciones de las 3R (reducir, reutilizar y reciclar) que riegan solas. Por dentro, el juego es un conjunto de cinco servicios propios escritos en cuatro lenguajes (TypeScript, Go, Rust y Python), más PostgreSQL, que se comunican por gRPC y se despliegan en contenedores repartidos entre las máquinas del laboratorio.
 
-El informe se organiza en siete secciones. En la sección 2 se plantean el problema, su relación con los Objetivos de Desarrollo Sostenible y los objetivos del proyecto; la sección 3 analiza el problema y deriva los requerimientos; la sección 4 presenta el diseño de la solución y los patrones de la nube aplicados; la sección 5 describe la implementación, la documentación de la API y el pipeline de CI/CD; la sección 6 reporta las pruebas ejecutadas con sus cifras, y la sección 7 recoge las conclusiones. El código fuente y el registro de decisiones están en el repositorio del proyecto \parencite{repo}, y los diagramas y la documentación de la API se publicaron en \url{\site}.
+El informe se organiza en siete secciones. En la sección 2 se plantean el problema, su relación con los Objetivos de Desarrollo Sostenible y los objetivos del proyecto; la sección 3 analiza el problema y deriva los requerimientos; la sección 4 presenta el diseño de la solución y los patrones de la nube aplicados; la sección 5 describe la implementación, la documentación de la API y el pipeline de CI/CD; la sección 6 reporta las pruebas ejecutadas con sus cifras, y la sección 7 recoge las conclusiones. Los recursos del proyecto pueden consultarse en línea (ver Tabla~\ref{tab:recursos}).
+
+\begin{table}[H]
+\centering\small
+\caption{Recursos del proyecto}
+\label{tab:recursos}
+\begin{tabularx}{\textwidth}{@{}lY@{}}
+\toprule
+Recurso & Dirección \\
+\midrule
+Documentación de la API (Swagger) & \url{https://iadev2005.github.io/hydrovalley/api.html} \\
+Página del proyecto y diagramas & \url{https://iadev2005.github.io/hydrovalley/} \\
+Código fuente & \url{https://github.com/iadev2005/hydrovalley} \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 % ---------------------------------------------------------------- 2
 \section{El problema y la propuesta}
@@ -196,7 +210,7 @@ RES-07 & Despliegue repartido en las máquinas del laboratorio. \\
 \end{tabularx}
 \end{table}
 
-Los casos de uso que originan estos requerimientos están en el \diag{01-casos-de-uso.svg}{diagrama de casos de uso}, con tres actores: jugador, bot y administrador.
+Los casos de uso que originan estos requerimientos están en el \diag{casos-de-uso.svg}{diagrama de casos de uso}, con tres actores: jugador, bot y administrador.
 
 % ---------------------------------------------------------------- 4
 \section{Diseño de la solución}
@@ -225,7 +239,7 @@ Para cumplir RF-08 y RF-09 se diseñaron cinco capas complementarias:
 \item \textbf{Instantáneas.} Cada 50 ticks (5 s) el simulador envía una copia del mundo a la persistencia desde una tarea en segundo plano. Si ya existe una fila para ese tick, la persistencia compara época y huella SHA-256 para distinguir un reintento de un conflicto.
 \end{enumerate}
 
-El azar también es determinista: solo el simulador lo decide, con un generador con semilla cuyo estado viaja en la instantánea, de modo que la misma semilla y los mismos comandos producen el mismo valle. Agua, hojas y humedad son enteros de 64 bits sin signo, nunca decimales. El flujo completo de una gota se muestra en el \diag{secuencia-gota.svg}{diagrama de secuencia de la gota}, y los estados de una casilla en el \diag{05-estados-casilla.svg}{diagrama de estados}.
+El azar también es determinista: solo el simulador lo decide, con un generador con semilla cuyo estado viaja en la instantánea, de modo que la misma semilla y los mismos comandos producen el mismo valle. Agua, hojas y humedad son enteros de 64 bits sin signo, nunca decimales. El flujo completo de una gota se muestra en el \diag{secuencia-gota.svg}{diagrama de secuencia de la gota}, y los estados de una casilla en el \diag{estados-casilla.svg}{diagrama de estados}.
 
 \subsection{Patrones de diseño en la nube}
 
@@ -256,7 +270,7 @@ Idempotent Consumer & Hub y simulador & El \texttt{action\_id} evita aplicar dos
 
 El sistema se diseñó para dos topologías con las mismas imágenes. En el \textbf{plan B} todo corre en una máquina con Docker Compose; en el \textbf{plan A} cada máquina del laboratorio levanta su propio archivo Compose (base de datos, persistencia, simulador, hub con chat y proxy con la API). Pasar de uno a otro es solo configuración: ninguna dirección está en el código y cada servicio lee de variables de entorno a quién llama. Se descartaron Kubernetes y Docker Swarm porque el NAT de WSL~2 y los puertos cerrados los hacían frágiles en el laboratorio. La topología real se muestra en el \diag{despliegue.svg}{diagrama de despliegue}.
 
-Para tolerar la caída de una máquina se añadió un nodo de respaldo con \texttt{world-go}, una versión en Go del simulador. El respaldo arranca en modo \textit{standby} y solo carga la última instantánea cuando recibe el primer paso. Para que nunca escriban dos simuladores a la vez, cada llamada \texttt{Step} lleva la generación del hub: el simulador rechaza con \texttt{FAILED\_PRECONDITION} a cualquier hub de generación menor, que queda retirado. Además, si un simulador despierta con un tick menor al esperado, invalida su memoria y recarga la instantánea, de modo que el tick nunca retrocede. El objetivo fijado fue recuperarse en 10 s como máximo, perdiendo a lo sumo 50 ticks (5 s). El relevo se ilustra en la \diag{04-secuencia-reinicio-rust.svg}{secuencia de reinicio del simulador}.
+Para tolerar la caída de una máquina se añadió un nodo de respaldo con \texttt{world-go}, una versión en Go del simulador. El respaldo arranca en modo \textit{standby} y solo carga la última instantánea cuando recibe el primer paso. Para que nunca escriban dos simuladores a la vez, cada llamada \texttt{Step} lleva la generación del hub: el simulador rechaza con \texttt{FAILED\_PRECONDITION} a cualquier hub de generación menor, que queda retirado. Además, si un simulador despierta con un tick menor al esperado, invalida su memoria y recarga la instantánea, de modo que el tick nunca retrocede. El objetivo fijado fue recuperarse en 10 s como máximo, perdiendo a lo sumo 50 ticks (5 s). El relevo se ilustra en la \diag{reinicio-simulador.svg}{secuencia de reinicio del simulador}.
 
 % ---------------------------------------------------------------- 5
 \section{Implementación}
@@ -288,7 +302,7 @@ Base de datos y proxy & PostgreSQL 16, nginx 1.30 & Imagen sin privilegios; TLS 
 
 Los contratos se escribieron antes que el código, en archivos \texttt{.proto} bajo el paquete \texttt{hydrovalley.<servicio>.v1} \parencite{grpc}. Se definieron \texttt{WorldService} (\texttt{Step}, \texttt{GetRanking}), \texttt{PersistenceService} (\texttt{SaveSnapshot}, \texttt{LoadSnapshot}), \texttt{AccountService}, \texttt{CatalogService}, \texttt{ReportService} y \texttt{ChatService}. No se usaron \textit{streams}: todas las llamadas son de pregunta y respuesta con plazo, y solo las idempotentes se reintentan. La herramienta \texttt{buf} valida el estilo y detecta cambios incompatibles en cada pull request.
 {\sloppy \par}
-La API REST se documentó con OpenAPI 3.1 \parencite{openapi}. La interfaz de Swagger se sirve en \texttt{/api/docs} de cada despliegue, y una copia de solo consulta está publicada en \url{\site/api.html}. La especificación describe el registro, el acceso, el catálogo, el ranking, los reportes y el estado del sistema. Las contraseñas se guardan con Argon2id, el token se firma con Ed25519 y dura 12 h, y TLS termina en nginx.
+La API REST se documentó con OpenAPI 3.1 \parencite{openapi}. La interfaz de Swagger se sirve en \texttt{/api/docs} de cada despliegue. \textbf{La documentación completa de la API puede consultarse en \url{\site/api.html}}, con cada ruta, sus parámetros, sus respuestas y sus códigos de error. La especificación describe el registro, el acceso, el catálogo, el ranking, los reportes y el estado del sistema. Las contraseñas se guardan con Argon2id, el token se firma con Ed25519 y dura 12 h, y TLS termina en nginx.
 
 \subsection{Integración y entrega continuas}
 
@@ -410,8 +424,6 @@ Con base en estas conclusiones se recomienda: extender la comparativa Go vs.\ Ru
 \begingroup
 \small
 \setlength{\parindent}{-1.27cm}\setlength{\leftskip}{1.27cm}\setlength{\parskip}{0.35em}
-
-Aliendres, I., Baczek, C., Palma, A. y Pérez, F. (2026). \textit{HydroValley} [Repositorio de código fuente]. GitHub. \url{https://github.com/iadev2005/hydrovalley}
 
 Driessen, V. (2010). \textit{A successful Git branching model}. \url{https://nvie.com/posts/a-successful-git-branching-model/}
 

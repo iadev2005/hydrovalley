@@ -28,8 +28,8 @@ El informe tiene un máximo de 12 páginas, así que remite a los diagramas por 
 
 - [x] T1 · Página del proyecto y diagramas rediseñados (`docs/site/`, `pages.yml`, `docs/api/openapi.json`). Ruta: delegada (escritor), varios archivos no triviales. Commits: f1a299c, bad1913.
 - [x] T2 · Informe en `docs/informe/` con las correcciones del usuario: tablas en su sitio, enlaces explícitos, Swagger, sin «pendiente» ni obras comunitarias. Ruta: inline. Commit: 707d086.
-- [ ] T3 · Repositorio público y GitHub Pages activado.
-- [ ] T4 · PR `dev` → `main`, fusión y etiqueta `v1.0`.
+- [x] T3 · Repositorio público y GitHub Pages activado. Hecho el 31 oct 2026 con la cuenta propietaria.
+- [x] T4 · PR `dev` → `main`, fusión y etiqueta `v1.0`. PR #87 (bbd5a2b), etiqueta v1.0, imágenes y página publicadas.
 
 ## TDD
 
