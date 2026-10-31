@@ -1,0 +1,51 @@
+# Direcciones y puertos del plan A (una máquina por nodo, diagrama 08).
+#
+# Copiar a lab-addresses.local (ignorado por git), sustituir cada
+# [DATO: …] por la IP real y dejar el archivo igual en las cinco máquinas:
+#
+#   cp lab-addresses.example lab-addresses.local
+#
+# Las máquinas conocidas son LABBD-01 (10.68.17.1) y LABBD-02 (10.68.17.2);
+# qué nodo va en cuál lo decide el equipo el día del ensayo. Una máquina puede
+# alojar más de un nodo (misma IP en varias líneas) si los puertos no chocan:
+# world y persistence usan ambos el 50051, así que no pueden compartir máquina
+# sin cambiar uno de los dos puertos.
+#
+# Estas variables no son secretas. Los secretos van en secrets.local.
+# Los valores con espacios van entre comillas dobles.
+
+# Direcciones IP de cada nodo.
+LAB_DB_HOST="[DATO: IP de la máquina del nodo db]"
+LAB_PERSISTENCE_HOST="[DATO: IP de la máquina del nodo persistence]"
+LAB_WORLD_HOST="[DATO: IP de la máquina del nodo world]"
+LAB_HUB_HOST="[DATO: IP de la máquina del nodo hub]"
+LAB_PROXY_HOST="[DATO: IP de la máquina del nodo proxy]"
+LAB_STANDBY_HOST="[DATO: IP de la 6.ª máquina del nodo standby (opcional)]"
+
+# Puertos publicados por cada nodo en su máquina (CLAUDE.md, «Entorno de
+# despliegue»). El mismo valor sirve para publicar y para llamar al nodo.
+HV_DB_PORT=5433
+HV_PERSISTENCE_PORT=50051
+HV_WORLD_PORT=50051
+HV_HUB_PORT=8081
+HV_PROXY_PORT=8080
+# Puertos para el nodo standby cuando se despliega en una máquina dedicada o
+# en puertos alternativos.
+HV_STANDBY_WORLD_PORT=50051
+HV_STANDBY_HUB_PORT=8081
+HV_STANDBY_PROXY_PORT=8080
+# Chat (nivel 2, puerto 8082).
+HV_CHAT_PORT=8082
+HV_CHAT_GRPC_PORT=50051
+
+# Imágenes: las publica el pipeline (dev al fusionar en dev; vX.Y al etiquetar
+# main). Nada se construye en el laboratorio.
+HV_REGISTRY=ghcr.io/iadev2005
+HV_TAG=dev
+# Plan B del simulador (D-03): imagen de world-go en lugar de la de Rust en el
+# nodo world. Con los valores escritos (este archivo no interpola variables).
+# HV_WORLD_IMAGE=ghcr.io/iadev2005/hydrovalley-world-go:dev
+
+# Nombres o IP adicionales para el certificado autofirmado del proxy (separados
+# por comas). La IP del nodo proxy ya se añade sola.
+TLS_EXTRA_SANS=

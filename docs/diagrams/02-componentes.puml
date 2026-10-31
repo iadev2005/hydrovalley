@@ -6,19 +6,22 @@ skinparam nodesep 60
 skinparam ranksep 70
 
 ' --- Clientes ---
-component "Navegador\n(React + Phaser)" as Browser <<TypeScript>>
+component "Navegador\n(React + Phaser)\njuego y panel del sistema" as Browser <<TypeScript>>
 component "Bots" as Bots <<Go>>
 
 ' --- Borde: HTTP y WebSocket ---
 component "Proxy de entrada\n(nginx)" as Proxy
-() "Entrada única\n(HTTPS / WSS)" as I_Entry
+() "Entrada única\nHTTPS / WSS :8080\n(HTTP se redirige con 308)" as I_Entry
 
 component "API" as Api <<TypeScript>>
 component "Hub en tiempo real" as Hub <<Go>>
 component "Chat" as Chat <<Go>>
-() "HTTP /api" as I_Api
+() "HTTP /api\nPOST /api/auth/register, /api/auth/login\nGET /api/ranking, /api/report, /api/system, /api/catalog\nPOST /api/admin/bot-accounts" as I_Api
 () "WebSocket /play" as I_Play
-() "WebSocket /chat" as I_Chat
+() "WebSocket /chat\n(nivel 2: hoy nginx responde 503)" as I_Chat
+() "HTTP interno\nGET /stats\n(nginx no lo reenvía)" as I_Stats
+() "grpc.health.v1\nHealth.Check" as I_HealthWorld
+() "grpc.health.v1\nHealth.Check" as I_HealthPersistence
 
 ' --- Interior: gRPC (pregunta y respuesta, sin streams) ---
 component "Simulador del valle" as World <<Rust>>
@@ -46,23 +49,29 @@ Proxy -down-( I_Chat
 
 ' Chat por gRPC
 Chat -down- I_ChatSvc
-Hub -right-( I_ChatSvc : SendMessage\n(avisos del sistema)
+Hub .right.( I_ChatSvc : SendMessage\n(avisos del sistema,\nnivel 2)
 
 ' Simulador
 World -up- I_World
 Hub -down-( I_World : Step\n(cada 100 ms)
 Api -down-( I_World : GetRanking
+World -right- I_HealthWorld
+Api -down-( I_HealthWorld : Check
+Hub -left- I_Stats
+Api -right-( I_Stats : GET /stats\n(GET /api/system)
 
 ' Persistencia
 Persistence -up--- I_Persistence
 Persistence -left- I_Account
 Persistence -up- I_Catalog
 Persistence -right- I_Report
+Persistence -down- I_HealthPersistence
+Api -down-( I_HealthPersistence : Check
 World -down-( I_Persistence : SaveSnapshot (cada 50 ticks)\nLoadSnapshot (al arrancar)
 World -down-( I_Catalog : GetCatalog (al arrancar\ny al reiniciar el valle)
-Api -down-( I_Account
-Api -down-( I_Catalog
-Api -down-( I_Report
+Api -down-( I_Account : Register, GetAccount,\nGetUsernames
+Api -down-( I_Catalog : GetCatalog
+Api -down-( I_Report : GetReport
 
 Persistence -down-> Db : SQL\n(único con credenciales)
 
@@ -95,7 +104,26 @@ note right of Chat
   mensaje, con su número de secuencia,
   a todos los conectados a /chat.
   Historial en memoria (últimos 200).
-  Nivel 2.
+  Nivel 2: aún sin código; el proxy
+  responde 503 en /chat.
 end note
+
+note right of Api
+  <b>Health Endpoint Monitoring</b> (RNF-08):
+  GET /api/system junta el /stats del hub y el
+  Health.Check de world y persistence (cada
+  uno con su plazo; una caída solo marca en
+  rojo ese servicio). /stats lleva boot_id y
+  restored_tick. Lo consume sistema.html.
+end note
+
+note as N_Trace
+  <b>Identificador de petición</b> (RNF-07): nginx fija X-Request-Id
+  (el del cliente si es válido) y la API lo envía como metadato gRPC
+  x-request-id a persistence y world. El hub llama a Step con
+  tick-&lt;n&gt;; world usa world-&lt;uuid&gt; en sus llamadas a persistence.
+  En /play, el id de cada acción es su action_id.
+end note
+Proxy -[hidden]down- N_Trace
 
 @enduml

@@ -142,4 +142,48 @@ describe("hub stats source", () => {
       detail: "unavailable",
     });
   });
+
+  it("fails over across a comma-separated list of hub addresses and stays sticky", async () => {
+    let primaryOk = false;
+    const primary = createServer((_req, res) => {
+      if (primaryOk) {
+        send(res, 200, JSON.stringify(VALID_STATS));
+      } else {
+        send(res, 503, "{}");
+      }
+    });
+    const standby = createServer((_req, res) => {
+      send(res, 200, JSON.stringify({ ...VALID_STATS, tick: "77" }));
+    });
+    await new Promise<void>((resolve) => primary.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => standby.listen(0, "127.0.0.1", resolve));
+    try {
+      const pAddr = `127.0.0.1:${String((primary.address() as AddressInfo).port)}`;
+      const sAddr = `127.0.0.1:${String((standby.address() as AddressInfo).port)}`;
+      const source = createHubStatsSource({ address: `${pAddr}, ${sAddr}` });
+
+      const first = await source();
+      expect(first).toEqual({ ok: true, stats: { ...VALID_STATS, tick: "77" } });
+
+      // Sticky al standby aunque el primario vuelva.
+      primaryOk = true;
+      const second = await source();
+      expect(second).toEqual({ ok: true, stats: { ...VALID_STATS, tick: "77" } });
+    } finally {
+      primary.closeAllConnections();
+      standby.closeAllConnections();
+      await Promise.all([
+        new Promise<void>((r) => {
+          primary.close(() => {
+            r();
+          });
+        }),
+        new Promise<void>((r) => {
+          standby.close(() => {
+            r();
+          });
+        }),
+      ]);
+    }
+  });
 });

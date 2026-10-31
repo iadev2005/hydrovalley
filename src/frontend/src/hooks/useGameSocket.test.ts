@@ -148,4 +148,207 @@ describe("useGameSocket", () => {
 
     expect(onSessionExpired).toHaveBeenCalledWith("la sesión caducó, vuelve a entrar");
   });
+
+  it("shows resent actions as 'resultado desconocido' on reconnect until final result", () => {
+    vi.useFakeTimers();
+    let now = 100_000;
+    const getNow = () => now;
+    const { result } = renderHook(() => useGameSocket({ session, now: getNow }));
+    const ws1 = MockWebSocket.instances[0];
+    expect(ws1).toBeDefined();
+    if (!ws1) return;
+
+    act(() => {
+      ws1.emit("open");
+    });
+
+    let sent = false;
+    act(() => {
+      sent = result.current.sendDrop(2, 3);
+    });
+
+    expect(sent).toBe(true);
+    expect(result.current.pendingCount).toBe(1);
+    expect(result.current.actionMessage?.text).toContain("pendiente");
+
+    const sentActionId = (JSON.parse(ws1.sent[0] ?? "{}") as { action_id: string }).action_id;
+
+    // Disconnect
+    act(() => {
+      ws1.close(1006); // Abnormal closure triggering reconnect
+    });
+
+    // Advance clock within 30s expiry limit and run reconnect timer
+    now += 2_000;
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    // A second WebSocket instance is created for reconnect
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws2 = MockWebSocket.instances[1];
+    expect(ws2).toBeDefined();
+    if (!ws2) return;
+
+    act(() => {
+      ws2.emit("open");
+    });
+
+    // Action was resent over ws2
+    expect(ws2.sent.length).toBe(1);
+    expect(ws2.sent[0]).toContain(sentActionId);
+
+    // Displays "resultado desconocido"
+    expect(result.current.actionMessage?.text).toContain("resultado desconocido");
+    expect(result.current.actionMessage?.ok).toBe(false);
+
+    // Final result arrives from server
+    act(() => {
+      ws2.emit("message", {
+        data: JSON.stringify({
+          type: "result",
+          action_id: sentActionId,
+          status: "applied",
+        }),
+      });
+    });
+
+    // Updates to final result
+    expect(result.current.actionMessage?.text).toContain("aplicada");
+    expect(result.current.actionMessage?.ok).toBe(true);
+    expect(result.current.pendingCount).toBe(0);
+
+    vi.useRealTimers();
+  });
+
+  describe("offline summary", () => {
+    const stateWith = (summary?: Record<string, string>) =>
+      JSON.stringify({
+        type: "state",
+        tick: "10",
+        player: { water: "5", ...(summary ? { offline_summary: summary } : {}) },
+      });
+
+    it("keeps the summary of the first state until it is dismissed", () => {
+      const { result } = renderHook(() => useGameSocket({ session }));
+      const ws = MockWebSocket.instances[0];
+      if (!ws) throw new Error("no socket");
+      expect(result.current.offlineSummary).toBeNull();
+
+      act(() => {
+        ws.emit("open");
+        ws.emit("message", { data: stateWith({ tiles_grown: "38", fires_extinguished: "1" }) });
+      });
+      expect(result.current.offlineSummary?.tiles_grown).toBe(38n);
+
+      // Los estados siguientes ya no lo traen y no lo borran.
+      act(() => {
+        ws.emit("message", { data: stateWith() });
+      });
+      expect(result.current.offlineSummary?.tiles_grown).toBe(38n);
+
+      act(() => {
+        result.current.dismissOfflineSummary();
+      });
+      expect(result.current.offlineSummary).toBeNull();
+      act(() => {
+        ws.emit("message", { data: stateWith() });
+      });
+      expect(result.current.offlineSummary).toBeNull();
+    });
+
+    it("shows the summary again when a reconnection brings a new one", () => {
+      const { result } = renderHook(() => useGameSocket({ session }));
+      const ws = MockWebSocket.instances[0];
+      if (!ws) throw new Error("no socket");
+      act(() => {
+        ws.emit("open");
+        ws.emit("message", { data: stateWith({ tiles_grown: "1" }) });
+      });
+      act(() => {
+        result.current.dismissOfflineSummary();
+      });
+      act(() => {
+        ws.emit("message", { data: stateWith({ tiles_grown: "4" }) });
+      });
+      expect(result.current.offlineSummary?.tiles_grown).toBe(4n);
+    });
+
+    it("clears the offline duration when the summary is dismissed", () => {
+      vi.useFakeTimers();
+      let now = 100_000;
+      const getNow = () => now;
+      const { result } = renderHook(() => useGameSocket({ session, now: getNow }));
+      const ws1 = MockWebSocket.instances[0];
+      if (!ws1) throw new Error("no socket");
+      act(() => {
+        ws1.emit("open");
+        ws1.close(1006);
+      });
+      now += 7_000;
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+      const ws2 = MockWebSocket.instances[1];
+      if (!ws2) throw new Error("no reconnect socket");
+      act(() => {
+        ws2.emit("open");
+        ws2.emit("message", { data: stateWith({ tiles_grown: "2" }) });
+      });
+      expect(result.current.offlineDurationMs).toBe(7_000);
+
+      act(() => {
+        result.current.dismissOfflineSummary();
+      });
+      expect(result.current.offlineSummary).toBeNull();
+      expect(result.current.offlineDurationMs).toBeNull();
+      vi.useRealTimers();
+    });
+
+    it("has no summary without a session", () => {
+      const { result } = renderHook(() => useGameSocket({ session: null }));
+      expect(result.current.offlineSummary).toBeNull();
+    });
+  });
+
+  it("closes the socket and rotates to the backup host when no state arrives within STATE_SILENCE_MS", () => {
+    vi.useFakeTimers();
+    let now = 100_000;
+    const getNow = () => now;
+    renderHook(() =>
+      useGameSocket({
+        session,
+        now: getNow,
+        location: { protocol: "https:", host: "10.68.17.80:8080" },
+        backupHosts: ["10.68.17.99:8080"],
+      }),
+    );
+
+    const ws1 = MockWebSocket.instances[0];
+    expect(ws1?.url).toBe("wss://10.68.17.80:8080/play?token=tok&map=true");
+    if (!ws1) return;
+
+    act(() => {
+      ws1.emit("open");
+    });
+
+    // Advance 3.5s without any state frame -> watchdog closes ws1 and triggers reconnect
+    now += 3_500;
+    act(() => {
+      vi.advanceTimersByTime(3_500);
+    });
+    expect(ws1.readyState).toBe(MockWebSocket.CLOSED);
+
+    // Run reconnect backoff timer
+    now += 1_000;
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws2 = MockWebSocket.instances[1];
+    expect(ws2?.url).toBe("wss://10.68.17.99:8080/play?token=tok&map=true");
+
+    vi.useRealTimers();
+  });
 });

@@ -45,9 +45,27 @@ struct FakePersistence {
     catalog_calls: AtomicUsize,
     load_calls: AtomicUsize,
     saved: Mutex<Vec<persistence_pb::Snapshot>>,
+    /// Metadato `x-request-id` de cada llamada recibida, en orden.
+    request_ids: Mutex<Vec<(&'static str, Option<String>)>>,
 }
 
 impl FakePersistence {
+    fn record(&self, method: &'static str, metadata: &tonic::metadata::MetadataMap) {
+        let id = metadata
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        self.request_ids.lock().unwrap().push((method, id));
+    }
+
+    fn ids_of(&self, method: &str) -> Vec<Option<String>> {
+        let all = self.request_ids.lock().unwrap();
+        all.iter()
+            .filter(|(m, _)| *m == method)
+            .map(|(_, id)| id.clone())
+            .collect()
+    }
+
     fn new(mode: LoadMode) -> Arc<Self> {
         Arc::new(Self {
             mode: Mutex::new(mode),
@@ -55,6 +73,7 @@ impl FakePersistence {
             catalog_calls: AtomicUsize::new(0),
             load_calls: AtomicUsize::new(0),
             saved: Mutex::new(Vec::new()),
+            request_ids: Mutex::new(Vec::new()),
         })
     }
 
@@ -72,6 +91,7 @@ impl PersistenceService for FakeService {
         &self,
         request: Request<persistence_pb::SaveSnapshotRequest>,
     ) -> Result<Response<persistence_pb::SaveSnapshotResponse>, Status> {
+        self.0.record("SaveSnapshot", request.metadata());
         let snapshot = request
             .into_inner()
             .snapshot
@@ -82,8 +102,9 @@ impl PersistenceService for FakeService {
 
     async fn load_snapshot(
         &self,
-        _: Request<persistence_pb::LoadSnapshotRequest>,
+        request: Request<persistence_pb::LoadSnapshotRequest>,
     ) -> Result<Response<persistence_pb::LoadSnapshotResponse>, Status> {
+        self.0.record("LoadSnapshot", request.metadata());
         self.0.load_calls.fetch_add(1, Ordering::SeqCst);
         let mode = self.0.mode.lock().unwrap().clone();
         match mode {
@@ -100,8 +121,9 @@ impl PersistenceService for FakeService {
 impl CatalogService for FakeService {
     async fn get_catalog(
         &self,
-        _: Request<persistence_pb::GetCatalogRequest>,
+        request: Request<persistence_pb::GetCatalogRequest>,
     ) -> Result<Response<persistence_pb::GetCatalogResponse>, Status> {
+        self.0.record("GetCatalog", request.metadata());
         self.0.catalog_calls.fetch_add(1, Ordering::SeqCst);
         if !self.0.catalog_available.load(Ordering::SeqCst) {
             return Err(Status::unavailable("sin base de datos"));
@@ -161,6 +183,7 @@ async fn start_with(persistence: Arc<FakePersistence>) -> Harness {
         },
         shutdown_timeout: Duration::from_secs(5),
         seed: 7,
+        mode: world::config::WorldMode::Active,
     };
     let server = tokio::spawn(async move {
         serve(settings, world_listener, async {
@@ -194,8 +217,20 @@ impl Harness {
     }
 
     async fn step(&mut self, commands: Vec<pb::Command>) -> Result<pb::StepResponse, Status> {
+        self.step_with_min_tick(commands, 0).await
+    }
+
+    async fn step_with_min_tick(
+        &mut self,
+        commands: Vec<pb::Command>,
+        min_expected_tick: u64,
+    ) -> Result<pb::StepResponse, Status> {
         self.world
-            .step(pb::StepRequest { commands })
+            .step(pb::StepRequest {
+                commands,
+                hub_generation: 0,
+                min_expected_tick,
+            })
             .await
             .map(Response::into_inner)
     }
@@ -328,6 +363,44 @@ async fn boot_id_is_a_uuid_and_stable_across_steps() {
     assert!(uuid::Uuid::parse_str(&first.boot_id).is_ok());
     assert_eq!(first.boot_id, second.boot_id);
     assert_eq!(second.restored_tick, first.restored_tick);
+}
+
+/// RNF-07: cada llamada del simulador a la persistencia lleva su propio
+/// `x-request-id` (`world-<uuid>`), para correlacionar los dos registros.
+#[tokio::test]
+async fn every_persistence_call_carries_its_own_request_id() {
+    let mut h = start(LoadMode::NotFound).await;
+    h.first_step().await;
+    h.step(vec![drop_command(1, 0, 0)]).await.unwrap();
+    for _ in 3..=50 {
+        h.step(Vec::new()).await.unwrap();
+    }
+    let persistence = h.persistence.clone();
+    eventually("SaveSnapshot del tick 50", || {
+        !persistence.ids_of("SaveSnapshot").is_empty()
+    })
+    .await;
+
+    let mut seen = Vec::new();
+    for method in ["GetCatalog", "LoadSnapshot", "SaveSnapshot"] {
+        let ids = persistence.ids_of(method);
+        assert!(!ids.is_empty(), "{method} no llegó");
+        for id in ids {
+            let id = id.unwrap_or_else(|| panic!("{method} sin x-request-id"));
+            assert!(id.starts_with("world-"), "{method}: {id}");
+            assert!(world::request_id::is_safe(&id), "{method}: {id}");
+            seen.push(id);
+        }
+    }
+    let mut unique = seen.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        seen.len(),
+        "los ids deben ser distintos por llamada"
+    );
+    h.stop().await;
 }
 
 #[tokio::test]

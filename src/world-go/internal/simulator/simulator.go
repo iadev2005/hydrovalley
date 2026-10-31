@@ -1,0 +1,524 @@
+// Package simulator es el servicio de aplicación: guarda el mundo, decide
+// cuándo está listo y envía las instantáneas en segundo plano. Es el espejo de
+// src/world/src/simulator.rs.
+//
+// No conoce gRPC más allá del puerto store.Store (instantáneas y catálogo): la
+// capa de red (internal/server) traduce las peticiones y llama aquí.
+package simulator
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/iadev2005/hydrovalley/src/world-go/internal/codec"
+	"github.com/iadev2005/hydrovalley/src/world-go/internal/domain"
+	"github.com/iadev2005/hydrovalley/src/world-go/internal/store"
+	"github.com/iadev2005/hydrovalley/src/world-go/internal/uuid"
+)
+
+// ErrNotReady: el mundo todavía no se ha cargado; Step responde UNAVAILABLE.
+var ErrNotReady = errors.New("el simulador todavía está cargando el mundo")
+
+// ErrFenced: Step trae un hub_generation menor que el máximo visto por el
+// simulador (D-B8-1); Step responde FAILED_PRECONDITION sin tocar el mundo.
+var ErrFenced = errors.New("hub desplazado por una generación superior")
+
+// Backoff son las esperas entre intentos de GetCatalog y LoadSnapshot al
+// arrancar: 1 s, 2 s, 4 s y luego 5 s indefinidamente.
+type Backoff struct {
+	Initial time.Duration
+	Max     time.Duration
+}
+
+// DefaultBackoff es el de CLAUDE.md (regla 8): de 1 s a 5 s.
+func DefaultBackoff() Backoff { return Backoff{Initial: time.Second, Max: 5 * time.Second} }
+
+// Next es la espera que sigue a current.
+func (b Backoff) Next(current time.Duration) time.Duration { return min(current*2, b.Max) }
+
+// defaultResetCatalogTimeout es el plazo para volver a pedir el catálogo al
+// reiniciar el valle. Es la mitad del plazo de Step (200 ms): si la
+// persistencia no contesta a tiempo, el reinicio se aplica con el catálogo
+// vigente en vez de hacer fallar el tick.
+const defaultResetCatalogTimeout = 100 * time.Millisecond
+
+// promotionWaitTimeout es el plazo máximo que WaitActiveAndFresh espera dentro
+// de un Step cuando dispara una promoción de standby o una recarga tras
+// despausado. Permite completar la promoción en el primer intento (sin reabrir
+// el Circuit Breaker del hub otro segundo entero) cuando PostgreSQL responde
+// rápido, sin exceder el presupuesto de 200 ms del RPC Step.
+const promotionWaitTimeout = 120 * time.Millisecond
+
+// Options configura el simulador.
+type Options struct {
+	// Seed es la semilla del generador de azar cuando el valle empieza de
+	// cero. Si hay instantánea manda el estado guardado en ella, no esta
+	// semilla.
+	Seed uint64
+	// Standby arranca el simulador en modo de espera (WORLD_MODE=standby): no
+	// carga la instantánea hasta recibir su primer Step de promoción.
+	Standby bool
+	// Backoff son las esperas de la carga inicial; cero usa DefaultBackoff.
+	Backoff Backoff
+	// ResetCatalogTimeout es el plazo del catálogo del reinicio; cero usa
+	// 100 ms.
+	ResetCatalogTimeout time.Duration
+	// Log puede ser nil.
+	Log *slog.Logger
+}
+
+// Report es lo que devuelve un paso.
+type Report struct {
+	Outcome domain.StepOutcome
+	// RestoredTick es el tick del que se recuperó este arranque (0 si empezó
+	// vacío).
+	RestoredTick uint64
+	// BootID es el identificador de la época de carga vigente del simulador.
+	BootID string
+}
+
+// Simulator guarda el mundo y serializa sus pasos (regla 1: escritor único).
+type Simulator struct {
+	initialBootID string
+	seed          uint64
+	store         store.Store
+	backoff       Backoff
+	resetTimeout  time.Duration
+	log           *slog.Logger
+
+	// mu protege world, restoredTick, bootID, maxHubGeneration,
+	// acknowledgedMinTick y standby/loading, y serializa los pasos: dos Step
+	// nunca se solapan.
+	mu                  sync.Mutex
+	standby             bool
+	loading             bool
+	readyCh             chan struct{}
+	world               *domain.World // nil mientras carga o está en standby
+	restoredTick        uint64
+	bootID              string
+	maxHubGeneration    uint64
+	acknowledgedMinTick uint64
+
+	// turn tiene un elemento mientras hay un guardado en curso (como mucho
+	// uno).
+	turn chan struct{}
+	// savedTick es el tick de la última instantánea que está en la
+	// persistencia (la cargada al arrancar o la última guardada con éxito).
+	savedTick atomic.Uint64
+	// epoch invalida cualquier guardado en vuelo previo a una recarga por
+	// despausado (min_expected_tick).
+	epoch atomic.Uint64
+
+	// runCtx es el contexto de los guardados en segundo plano; Shutdown lo
+	// cancela al terminar.
+	runCtx context.Context
+	cancel context.CancelFunc
+}
+
+// New crea un simulador sin mundo: Load lo deja listo (o EnsureActiveAndFresh
+// cuando Options.Standby es verdadero).
+func New(st store.Store, opts Options) *Simulator {
+	if opts.Backoff == (Backoff{}) {
+		opts.Backoff = DefaultBackoff()
+	}
+	if opts.ResetCatalogTimeout <= 0 {
+		opts.ResetCatalogTimeout = defaultResetCatalogTimeout
+	}
+	if opts.Log == nil {
+		opts.Log = slog.New(slog.DiscardHandler)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	id := uuid.New()
+	s := &Simulator{
+		initialBootID: id,
+		bootID:        id,
+		seed:          opts.Seed,
+		standby:       opts.Standby,
+		readyCh:       make(chan struct{}),
+		store:         st,
+		backoff:       opts.Backoff,
+		resetTimeout:  opts.ResetCatalogTimeout,
+		log:           opts.Log,
+		turn:          make(chan struct{}, 1),
+		runCtx:        ctx,
+		cancel:        cancel,
+	}
+	s.epoch.Store(1)
+	return s
+}
+
+// BootID es el UUID v4 actual del simulador; se rota si el contenedor estuvo
+// pausado y recarga desde persistencia al despausarse (D-B8-1 / D-B8-2).
+func (s *Simulator) BootID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bootID
+}
+
+// IsReady dice si el mundo ya está cargado.
+func (s *Simulator) IsReady() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.world != nil
+}
+
+// IsStandby dice si el simulador sigue en modo de espera sin haber recibido
+// aún su primer Step de promoción.
+func (s *Simulator) IsStandby() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.standby
+}
+
+// CheckHubGeneration valida y actualiza la generación máxima de hub vista por
+// el simulador (D-B8-1). Si hubGeneration > 0 y es menor que la máxima vista,
+// devuelve ErrFenced sin tocar el mundo.
+func (s *Simulator) CheckHubGeneration(hubGeneration uint64) error {
+	if hubGeneration == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if hubGeneration < s.maxHubGeneration {
+		s.log.Warn("Step rechazado por fencing de hub_generation",
+			"hub_generation", hubGeneration, "max_hub_generation", s.maxHubGeneration)
+		return ErrFenced
+	}
+	if hubGeneration > s.maxHubGeneration {
+		s.log.Info("nueva generación de hub registrada",
+			"previous_generation", s.maxHubGeneration, "hub_generation", hubGeneration)
+		s.maxHubGeneration = hubGeneration
+	}
+	return nil
+}
+
+// EnsureActiveAndFresh comprueba bajo candado si el simulador está en Standby
+// o si su tick en memoria quedó por debajo de minExpectedTick (contenedor
+// despausado tras un relevo). En cualquiera de los dos casos pasa a estado de
+// carga, lanza la recarga de la última instantánea en segundo plano con un
+// nuevo boot_id y devuelve ErrNotReady para que Step responda UNAVAILABLE
+// hasta terminar la carga.
+func (s *Simulator) EnsureActiveAndFresh(minExpectedTick uint64) error {
+	_, err := s.ensureActiveAndFresh(minExpectedTick)
+	return err
+}
+
+func (s *Simulator) ensureActiveAndFresh(minExpectedTick uint64) (<-chan struct{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.standby {
+		s.log.Info("promoción de simulador standby: iniciando carga de instantánea", "min_expected_tick", minExpectedTick)
+		if minExpectedTick > s.acknowledgedMinTick {
+			s.acknowledgedMinTick = minExpectedTick
+		}
+		s.standby = false
+		s.loading = true
+		s.readyCh = make(chan struct{})
+		ch := s.readyCh
+		go func() { _ = s.loadInner(s.runCtx, true) }()
+		return ch, ErrNotReady
+	}
+	if s.world == nil {
+		return s.readyCh, ErrNotReady
+	}
+	// Si este simulador acaba de arrancar (world.Tick() == restoredTick) tras
+	// una caída abrupta (SIGKILL) antes del siguiente múltiplo de 50, la última
+	// instantánea en PostgreSQL puede estar hasta SnapshotIntervalTicks - 1
+	// por detrás de minExpectedTick. Tampoco se debe repetir la recarga en
+	// bucle si ya atendimos este minExpectedTick en una promoción o recarga
+	// previa (mientras el hub aún no ha observado el nuevo boot_id).
+	justLoadedSameWindow := s.world.Tick() == s.restoredTick &&
+		minExpectedTick < s.restoredTick+domain.SnapshotIntervalTicks
+	if minExpectedTick > s.world.Tick() && minExpectedTick > s.acknowledgedMinTick && !justLoadedSameWindow {
+		s.log.Warn("estado en memoria desfasado tras pausa o relevo: descartando mundo y recargando instantánea",
+			"local_tick", s.world.Tick(), "min_expected_tick", minExpectedTick)
+		s.acknowledgedMinTick = minExpectedTick
+		s.epoch.Add(1)
+		s.world = nil
+		s.loading = true
+		s.readyCh = make(chan struct{})
+		ch := s.readyCh
+		go func() { _ = s.loadInner(s.runCtx, true) }()
+		return ch, ErrNotReady
+	}
+	return nil, nil
+}
+
+// WaitActiveAndFresh es como EnsureActiveAndFresh, pero si el simulador está
+// cargando (por promoción desde Standby o recarga por minExpectedTick), espera
+// hasta promotionWaitTimeout (o hasta que ctx termine) a que concluya la carga.
+// Así el primer Step del hub tras un relevo puede responder directamente sin
+// reabrir el Circuit Breaker 1 s entero.
+func (s *Simulator) WaitActiveAndFresh(ctx context.Context, minExpectedTick uint64) error {
+	ch, err := s.ensureActiveAndFresh(minExpectedTick)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ErrNotReady) || ch == nil {
+		return err
+	}
+	timer := time.NewTimer(promotionWaitTimeout)
+	defer timer.Stop()
+	select {
+	case <-ch:
+		if s.IsReady() {
+			return nil
+		}
+		return ErrNotReady
+	case <-timer.C:
+		return ErrNotReady
+	case <-ctx.Done():
+		return ErrNotReady
+	}
+}
+
+// saving dice si hay un guardado en curso.
+func (s *Simulator) saving() bool { return len(s.turn) == 1 }
+
+// sleep espera d o hasta que ctx termine; devuelve false en ese caso.
+func sleep(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// fetchCatalog pide el catálogo a la persistencia y reintenta sin fin hasta
+// obtenerlo: sin cifras no se puede simular.
+func (s *Simulator) fetchCatalog(ctx context.Context) (domain.Catalog, error) {
+	delay := s.backoff.Initial
+	for {
+		catalog, err := s.store.GetCatalog(ctx)
+		if err == nil {
+			s.log.Info("catálogo cargado", "catalog_version", catalog.Version)
+			return catalog, nil
+		}
+		s.log.Warn("GetCatalog falló; se reintenta", "err", err, "delay", delay)
+		if !sleep(ctx, delay) {
+			return domain.Catalog{}, ctx.Err()
+		}
+		delay = s.backoff.Next(delay)
+	}
+}
+
+// Load carga el catálogo y la última instantánea, y deja el mundo listo.
+// Solo con NOT_FOUND empieza vacío en el tick 0; ante cualquier otro fallo
+// (del catálogo o de la instantánea) reintenta sin fin, así el tick nunca
+// retrocede. El mundo aplica el catálogo vigente, también si la instantánea se
+// tomó con otra versión. Devuelve un error solo si ctx termina antes.
+func (s *Simulator) Load(ctx context.Context) error {
+	return s.loadInner(ctx, false)
+}
+
+func (s *Simulator) loadInner(ctx context.Context, rotateBootID bool) error {
+	catalog, err := s.fetchCatalog(ctx)
+	if err != nil {
+		return err
+	}
+	delay := s.backoff.Initial
+	var (
+		world        *domain.World
+		restoredTick uint64
+	)
+	for world == nil {
+		snapshot, err := s.store.Load(ctx)
+		switch {
+		case err != nil:
+			s.log.Warn("LoadSnapshot falló; se reintenta", "err", err, "delay", delay)
+		case snapshot == nil:
+			s.log.Info("no hay instantáneas: el valle empieza en el tick 0 (con esta semilla se repite la partida)", "seed", s.seed)
+			world = domain.NewWorld(catalog, s.seed)
+		default:
+			tick := snapshot.GetTick()
+			decoded, decodeErr := codec.DecodeSnapshot(snapshot, catalog)
+			if decodeErr != nil {
+				s.log.Error("instantánea ilegible; se reintenta", "tick", tick, "err", decodeErr, "delay", delay)
+				break
+			}
+			if saved := snapshot.GetCatalogVersion(); saved != catalog.Version {
+				s.log.Info("la instantánea es de otra versión del catálogo: se aplica la vigente",
+					"tick", tick, "saved", saved, "current", catalog.Version)
+			}
+			s.log.Info("instantánea cargada", "tick", tick)
+			world, restoredTick = decoded, tick
+		}
+		if world == nil {
+			if !sleep(ctx, delay) {
+				return ctx.Err()
+			}
+			delay = s.backoff.Next(delay)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.world == nil {
+		s.savedTick.Store(restoredTick)
+		if rotateBootID {
+			s.bootID = uuid.New()
+		} else {
+			s.bootID = s.initialBootID
+		}
+		s.standby = false
+		s.loading = false
+		s.world, s.restoredTick = world, restoredTick
+		if s.readyCh != nil {
+			select {
+			case <-s.readyCh:
+			default:
+				close(s.readyCh)
+			}
+		}
+	}
+	return nil
+}
+
+// CatalogFor devuelve un catálogo fresco para un tick que trae un
+// ResetValley (RF-31): el reinicio vuelve a pedirlo para que un cambio de
+// cifras en catalog/ surta efecto sin reiniciar el simulador. Hace un solo
+// intento, con plazo, antes de tomar el bloqueo del mundo: si la persistencia
+// falla o tarda, devuelve nil y el reinicio se aplica con el catálogo vigente
+// (se registra el aviso). Sin reinicio (o con el mundo sin cargar) no llama a
+// la persistencia.
+func (s *Simulator) CatalogFor(ctx context.Context, commands []domain.Command) *domain.Catalog {
+	resets := false
+	for _, command := range commands {
+		if _, ok := command.Kind.(domain.ResetValleyCommand); ok {
+			resets = true
+			break
+		}
+	}
+	if !resets || !s.IsReady() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.resetTimeout)
+	defer cancel()
+	catalog, err := s.store.GetCatalog(ctx)
+	if err != nil {
+		s.log.Warn("GetCatalog falló al reiniciar: se usa el catálogo vigente", "err", err, "timeout", s.resetTimeout)
+		return nil
+	}
+	s.log.Info("catálogo recargado para el reinicio", "catalog_version", catalog.Version)
+	return &catalog
+}
+
+// Step aplica un tick. catalog (lo devuelve CatalogFor) se ofrece al reinicio
+// del tick: el mundo lo adopta solo si el ResetValley se aplica. view, si no
+// es nil, lee el mundo resultante con el bloqueo tomado; debe ser breve (copiar
+// lo que necesite).
+func (s *Simulator) Step(commands []domain.Command, catalog *domain.Catalog, view func(*domain.World)) (Report, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.world == nil {
+		return Report{}, ErrNotReady
+	}
+	outcome := s.world.StepWithResetCatalog(commands, catalog)
+	if domain.IsSnapshotTick(outcome.Tick) {
+		s.scheduleSnapshot(s.world)
+	}
+	if view != nil {
+		view(s.world)
+	}
+	return Report{Outcome: outcome, RestoredTick: s.restoredTick, BootID: s.bootID}, nil
+}
+
+// Read ejecuta view sobre el mundo con el bloqueo tomado, sin modificarlo.
+// view debe ser breve: copia lo que necesite y hace el trabajo pesado después,
+// ya sin el bloqueo, para no retrasar Step.
+func (s *Simulator) Read(view func(*domain.World)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.world == nil {
+		return ErrNotReady
+	}
+	view(s.world)
+	return nil
+}
+
+// scheduleSnapshot copia el mundo y lo guarda desde una goroutine: Step nunca
+// espera a la persistencia. Si el guardado anterior sigue en curso, esta
+// instantánea se salta y el siguiente tick de instantánea lo vuelve a
+// intentar. Se llama con s.mu tomado.
+func (s *Simulator) scheduleSnapshot(world *domain.World) {
+	tick := world.Tick()
+	select {
+	case s.turn <- struct{}{}:
+	default:
+		s.log.Warn("guardado anterior en curso: se salta la instantánea", "tick", tick)
+		return
+	}
+	parts := world.Parts()
+	expectedEpoch := s.epoch.Load()
+	go func() {
+		defer func() { <-s.turn }()
+		if s.epoch.Load() != expectedEpoch {
+			return
+		}
+		s.save(s.runCtx, parts)
+	}()
+}
+
+// save codifica la copia del mundo, la guarda y, si sale bien, anota su tick.
+func (s *Simulator) save(ctx context.Context, parts domain.WorldParts) {
+	snapshot, err := codec.EncodeParts(parts)
+	if err != nil {
+		s.log.Error("no se pudo codificar la instantánea", "tick", parts.Tick, "err", err)
+		return
+	}
+	if err := s.store.Save(ctx, snapshot); err != nil {
+		s.log.Error("SaveSnapshot falló", "tick", parts.Tick, "err", err)
+		return
+	}
+	for {
+		saved := s.savedTick.Load()
+		if parts.Tick <= saved || s.savedTick.CompareAndSwap(saved, parts.Tick) {
+			break
+		}
+	}
+	s.log.Debug("instantánea guardada", "tick", parts.Tick)
+}
+
+// Shutdown es la parada ordenada, cuando el servidor ya no acepta
+// peticiones: espera al guardado en curso y, si el mundo está cargado y el
+// tick avanzó desde la última instantánea guardada, envía una instantánea
+// final del tick actual (aunque no sea múltiplo de 50). Todo con un plazo
+// total de timeout; devuelve false si se agotó.
+func (s *Simulator) Shutdown(timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	defer s.cancel()
+
+	// Espera a que quede libre el turno de guardado y lo toma.
+	select {
+	case s.turn <- struct{}{}:
+	case <-ctx.Done():
+		s.log.Error("la instantánea final no terminó a tiempo", "timeout", timeout)
+		return false
+	}
+	defer func() { <-s.turn }()
+
+	s.mu.Lock()
+	var parts domain.WorldParts
+	pending := s.world != nil && s.world.Tick() > s.savedTick.Load()
+	if pending {
+		parts = s.world.Parts()
+	}
+	s.mu.Unlock()
+	if !pending {
+		return true
+	}
+	s.log.Info("instantánea final antes de parar", "tick", parts.Tick)
+	s.save(ctx, parts)
+	if ctx.Err() != nil {
+		s.log.Error("la instantánea final no terminó a tiempo", "timeout", timeout)
+		return false
+	}
+	return true
+}

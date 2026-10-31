@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/iadev2005/hydrovalley/src/bots/internal/client"
+	"github.com/iadev2005/hydrovalley/src/bots/internal/config"
 )
 
 // valley simula el hub y el mundo: /play con token "admin" o "bot", estado
@@ -264,5 +266,106 @@ func TestRunFailsWhenTheAdminNeverConnects(t *testing.T) {
 	cfg.ConnectTimeout = 200 * time.Millisecond
 	if _, err := run(t, srv, cfg, 1); err == nil {
 		t.Fatal("want an error when the admin session cannot connect")
+	}
+}
+
+type fakeRankingClient struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *fakeRankingClient) GetRanking(_ context.Context, _ string, _ int) (client.RankingResponse, time.Duration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return client.RankingResponse{Tick: "10"}, 5 * time.Millisecond, nil
+}
+
+func TestRunWithRankingClient(t *testing.T) {
+	_, srv := newValley(t)
+	cfg := fastConfig()
+	fakeRC := &fakeRankingClient{}
+	cfg.RankingClient = fakeRC
+	cfg.RankingToken = "test-token"
+	// Con 10 ms salen unas 30 consultas en 300 ms: de sobra para el mínimo de RNF-03.
+	cfg.RankingInterval = 10 * time.Millisecond
+	cfg.BaselineP95 = 50 * time.Millisecond
+
+	rep, err := run(t, srv, cfg, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Ranking == nil {
+		t.Fatal("expected rep.Ranking to be non-nil")
+	}
+	if rep.Ranking.QueriesSent == 0 || rep.Ranking.QueriesOK == 0 {
+		t.Errorf("expected ranking queries to be executed: %+v", rep.Ranking)
+	}
+	if !rep.Ranking.RNF03OK {
+		t.Errorf("expected RNF03OK to be true: %+v", rep.Ranking)
+	}
+}
+
+// blockingRankingClient responde bien las dos primeras consultas y deja la
+// tercera esperando hasta que se cancele el contexto, como una petición en
+// vuelo cuando termina la ventana de envío.
+type blockingRankingClient struct {
+	mu    sync.Mutex
+	calls int
+	// started avisa de que la consulta en vuelo ya espera.
+	started chan struct{}
+}
+
+func (b *blockingRankingClient) GetRanking(ctx context.Context, _ string, _ int) (client.RankingResponse, time.Duration, error) {
+	b.mu.Lock()
+	b.calls++
+	n := b.calls
+	b.mu.Unlock()
+	if n <= 2 {
+		return client.RankingResponse{}, 5 * time.Millisecond, nil
+	}
+	close(b.started)
+	<-ctx.Done()
+	return client.RankingResponse{}, 0, fmt.Errorf("get ranking: %w", ctx.Err())
+}
+
+func TestRankingLoopDoesNotCountTheQueryCancelledByTheEndOfTheWindowAsAnError(t *testing.T) {
+	bc := &blockingRankingClient{started: make(chan struct{})}
+	cfg := Config{RankingClient: bc, RankingToken: "t", RankingInterval: 5 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *RankingMeasurement)
+	go func() { done <- runRankingLoop(ctx, cfg, slog.New(slog.DiscardHandler)) }()
+	<-bc.started
+	cancel()
+	rm := <-done
+	if rm.Errors != 0 {
+		t.Errorf("la consulta cancelada por el fin de la ventana no es un error: %+v", rm)
+	}
+	if rm.Sent != 2 || rm.Success != 2 || len(rm.Latencies) != 2 {
+		t.Errorf("solo cuentan las consultas completadas (2): %+v", rm)
+	}
+}
+
+type failingRankingClient struct{}
+
+func (failingRankingClient) GetRanking(context.Context, string, int) (client.RankingResponse, time.Duration, error) {
+	return client.RankingResponse{}, time.Millisecond, &client.HTTPError{Status: http.StatusTooManyRequests, Message: "slow down"}
+}
+
+func TestRankingLoopCountsRealFailuresAsErrors(t *testing.T) {
+	cfg := Config{RankingClient: failingRankingClient{}, RankingToken: "t", RankingInterval: 5 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	rm := runRankingLoop(ctx, cfg, slog.New(slog.DiscardHandler))
+	if rm.Errors == 0 || rm.Success != 0 || rm.Errors != rm.Sent {
+		t.Errorf("los fallos reales (429) cuentan como errores: %+v", rm)
+	}
+}
+
+// El intervalo del ranking tiene una sola fuente: el valor por defecto de la
+// configuración (BOTS_LOAD_RANKING_INTERVAL).
+func TestRankingIntervalDefaultIsTheConfigDefault(t *testing.T) {
+	if got := (Config{}).withDefaults().RankingInterval; got != config.DefaultLoadRankingInterval {
+		t.Errorf("RankingInterval = %v, want %v", got, config.DefaultLoadRankingInterval)
 	}
 }

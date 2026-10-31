@@ -10,7 +10,7 @@ import {
   FileDescriptorProtoSchema,
 } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { createGrpcTransport } from "@connectrpc/connect-node";
+import { createGrpcTransportFor } from "./request-id.js";
 
 /** Valores de `HealthCheckResponse.ServingStatus`. */
 export const ServingStatus = {
@@ -120,20 +120,33 @@ const DEFAULT_TIMEOUT_MS = 1000;
  */
 export function createGrpcHealthProbe(options: GrpcHealthOptions): () => Promise<ProbeResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const client = createClient(
-    Health,
-    createGrpcTransport({ baseUrl: `http://${options.address}` }),
+  const addresses = options.address
+    .split(",")
+    .map((a) => a.trim())
+    .filter((a) => a !== "");
+  const clients = (addresses.length > 0 ? addresses : [options.address]).map((addr) =>
+    createClient(Health, createGrpcTransportFor(addr)),
   );
+  let active = 0;
 
   return async () => {
-    try {
-      const res = await client.check({ service: options.service }, { timeoutMs });
-      return res.status === ServingStatus.SERVING
-        ? { status: "up" }
-        : { status: "down", detail: "not_serving" };
-    } catch (err) {
-      return { status: "down", detail: failureDetail(err) };
+    let lastDown: ProbeResult = { status: "down", detail: "unavailable" };
+    for (let i = 0; i < clients.length; i++) {
+      const idx = (active + i) % clients.length;
+      const client = clients[idx];
+      if (!client) continue;
+      try {
+        const res = await client.check({ service: options.service }, { timeoutMs });
+        if (res.status === ServingStatus.SERVING) {
+          active = idx;
+          return { status: "up" };
+        }
+        lastDown = { status: "down", detail: "not_serving" };
+      } catch (err) {
+        lastDown = { status: "down", detail: failureDetail(err) };
+      }
     }
+    return lastDown;
   };
 }
 

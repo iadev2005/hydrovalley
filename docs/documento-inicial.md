@@ -164,13 +164,15 @@ Propuesta mínima, suficiente para cumplir todo lo exigido:
 | Crecer | Cuando una casilla acumula suficiente humedad, sube de etapa y gasta esa humedad. Quien soltó la gota que la hizo crecer gana hojas: más cuanto más alta la etapa. Si la hizo crecer una instalación, las hojas son para su dueño |
 | Hojas | La moneda: se gastan en instalaciones y mejoras |
 | Evaporación | Cada tick las casillas pierden un poco de humedad. Si una se queda seca (humedad 0) demasiado tiempo, su planta se marchita y baja una etapa |
-| Instalaciones (las 3R) | **Reutilizar**: aspersor de agua gris, que riega solo las casillas de alrededor sin gastar tu depósito. **Reducir**: riego por goteo, que hace que las casillas de su zona se evaporen a la mitad. **Reciclar**: planta de tratamiento, que recarga tu depósito más rápido. Cada una cuesta un 15 % más que la anterior del mismo tipo. Como mucho una instalación por casilla |
+| Instalaciones (las 3R) | **Reutilizar**: aspersor de agua gris, que riega solo las casillas de alrededor sin gastar tu depósito. **Reducir**: riego por goteo, que hace que las casillas de su zona se evaporen a la mitad. **Reciclar**: planta de tratamiento, que recarga tu depósito más rápido. Cada una cuesta un 5 % más que la anterior del mismo tipo (valor elegido por el equipo tras la predefensa; el original era 15 %). Como mucho una instalación por casilla |
 | Mejoras | Dos para empezar: gota más grande y depósito mayor |
 | Incendios | Aparecen al azar en casillas secas con planta y la queman poco a poco. Se apagan con tres gotas, de uno o de varios jugadores; quien suelta la tercera gana un bono. Un aspersor apaga los que caen en su zona. Si nadie lo apaga a tiempo, el fuego se consume y la casilla vuelve a tierra seca |
 | Límite de gotas | 15 gotas por segundo por jugador. Lo que pase de ahí se rechaza |
 | Competencia | Ranking de quién más ha hecho crecer el valle, medido en hojas ganadas |
 | Modo demo | Sin evaporación ni incendios; la gota es gratis, de una sola casilla y suma 1 de humedad, para que el total se pueda verificar a ojo |
-| **Si da tiempo** | Que el fuego salte a las casillas vecinas. Las obras comunitarias. El resumen al volver. El árbol de mejoras completo. Nuevos biomas. Todo está en el nivel 2 del plan de trabajo |
+| Resumen al volver (nivel 2) | Lo que hicieron los **aspersores** de un jugador desde su última acción aplicada: casillas que crecieron, hojas ganadas con ellas, humedad entregada (agua reutilizada) y fuegos que apagaron. Lo calcula Rust, va en la instantánea del jugador solo si no está vacío y el hub lo manda en el primer estado de cada conexión; el cliente lo muestra como «Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio». Lo borra su siguiente acción aplicada, no la conexión: si vuelve y no actúa, lo vuelve a ver. El goteo y la planta de tratamiento no cuentan: no hacen crecer casillas ni apagan fuegos, y su efecto ya está en los contadores de las 3R del reporte |
+| Expansión de jugabilidad (nivel 2) | Para que pasen más cosas en el valle (`docs/plan-expansion-mecanicas.md`). **Terreno natural:** río, lago y rocas que no admiten gotas ni instalaciones; la orilla del agua evita incendios y retiene humedad. **Durabilidad:** toda instalación se desgasta con su trabajo y desaparece al llegar a cero. **Efectos mejorados:** el goteo, además de frenar la evaporación, evita marchitamiento e ignición en su zona y duplica la humedad de las gotas; la planta de tratamiento recarga 3 L y emite un pulso que sube una etapa a sus vecinas. **Presión urbana:** aparecen edificios en el borde del valle que ensucian la casilla vecina; la basura (niveles 1 a 3) destruye plantas e instalaciones crece sola y, desde el nivel 2, se propaga (con un tope de 60 casillas sucias). Se limpia a mano con el comando `clean_trash` (quien deja una casilla limpia gana hojas) o con el **cesto de reciclaje** (instalación de limpieza que limpia y protege su zona). Todo el azar sale del generador con semilla |
+| **Si da tiempo** | Que el fuego salte a las casillas vecinas. Las obras comunitarias. El resumen al volver. El árbol de mejoras completo. Más biomas (el agua y la roca ya entraron con la expansión de jugabilidad). Todo está en el nivel 2 del plan de trabajo |
 
 Estas reglas generan concurrencia real, estado compartido y necesidad de consistencia: las tres cosas que se evalúan. **Una vez acordadas, se congelan.** Cada cambio posterior arrastra requisitos, contratos y código de cuatro personas.
 
@@ -199,16 +201,46 @@ Cifras de arranque, para empezar a probar. Todas son valores iniciales: viven en
 
 | Qué | Precio inicial | Efecto |
 | --- | --- | --- |
-| Gota | 1 L del depósito | +25 de humedad en su casilla |
-| Depósito | — | 20 L; se recarga 1 L cada 2 s |
-| Crecer | — | Cada etapa pide 100 de humedad, que se gastan al subir, y da 1, 2, 4 u 8 hojas (pasto, arbusto, flores, árbol). En árbol, la humedad no pasa de 100 |
-| Evaporación | — | −2 de humedad por segundo en cada casilla. Con humedad 0 durante 100 ticks (10 s), la casilla se marchita y baja una etapa |
+| Gota | 1 L del depósito | +100 de humedad en su casilla, una etapa de crecimiento (valor elegido por el equipo; el valor original de D-01 era +25) |
+| Depósito | — | 10 L (valor elegido por el equipo; el original era 20 L); se recarga 1 L cada 2 s |
+| Crecer | — | Cada etapa pide 100 de humedad, que se gastan al subir, y da 1, 2, 3 o 5 hojas (pasto, arbusto, flores, árbol; valores elegidos por el equipo, los originales eran 1, 2, 4 y 8). En árbol, la humedad no pasa de 100 |
+| Evaporación | — | −2 de humedad por segundo en cada casilla. Con humedad 0 durante 140 ticks (14 s; valor elegido por el equipo, el original eran 100 ticks), la casilla se marchita y baja una etapa |
 | Aspersor de agua gris (Reutilizar) | 10 hojas | +25 de humedad a 3 × 3 casillas cada 2 s |
-| Riego por goteo (Reducir) | 25 hojas | Evaporación a la mitad en 5 × 5 casillas |
-| Planta de tratamiento (Reciclar) | 40 hojas | +1 L extra de recarga cada 2 s |
+| Riego por goteo (Reducir) | 25 hojas | Evaporación a la mitad en 5 × 5 casillas. En esa zona la planta no se marchita, no se enciende y las gotas suman el doble de humedad (excepto en modo demo) |
+| Planta de tratamiento (Reciclar) | 40 hojas | +3 L extra de recarga cada 2 s (valor elegido por el equipo; el original era +1 L) y, cada 2 s, un pulso que sube una etapa a sus 8 casillas vecinas con planta y paga las hojas a su dueño |
+| Cesto de reciclaje (limpieza, nivel 2) | 15 hojas | Cada 2 s quita un nivel de basura a las casillas de su zona de 3 × 3 y la protege de que la basura se propague hasta ella |
+| Durabilidad (nivel 2) | — | Aspersor, goteo, planta y cesto empiezan con 30 puntos y pierden uno por cada ciclo de trabajo (2 s); al llegar a cero la instalación se destruye. Solo cuenta mientras trabaja (RF-25) |
+| Terreno natural (nivel 2) | — | Al crear el valle (el reinicio lo conserva tal cual; si el valle no tiene terreno, como uno restaurado de una instantánea anterior a la expansión, el reinicio lo genera): un río de 2 casillas de ancho que serpentea alrededor de la columna 24, con un lago más ancho entre las filas 12 y 16, una laguna de 3 × 3 casillas al sur (columnas 17 a 19, filas 26 a 28) y 12 rocas sueltas en tierra seca desde la columna 17 (la mitad izquierda del valle queda libre). La orilla del agua evapora a la mitad y no se enciende |
+| Presión urbana (nivel 2) | — | Con 2 árboles en el valle o 500 de humedad aportada aparece un edificio en el borde, hasta 2. Cada 15 s cada edificio suma un nivel de basura a su primera casilla vecina libre con menos de 3 niveles (y borra su planta, humedad, fuego e instalación). Cada 20 s toda casilla con basura sube un nivel y, si ya tenía nivel 2 o más, suma un nivel a sus 4 vecinas; con 60 casillas sucias la propagación se detiene hasta que se limpie. Limpiar el último nivel da 1 hoja |
 | Gota más grande (mejora) | 30 hojas | La gota humedece 3 × 3 casillas |
 | Depósito mayor (mejora) | 20 hojas | +10 L de capacidad del depósito |
-| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 50 por millón por tick (valor inicial elegido por el equipo; unos 1 cada 20 s con 100 casillas así). Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 5 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
+| Incendio | — | Aparece en cada casilla seca con planta con una probabilidad de 400 por millón por tick (valor elegido por el equipo; el inicial era 50 por millón; unos 0,4 por segundo con 100 casillas así). Se propaga a casillas vecinas ortogonales elegibles (secas y con planta) con una probabilidad de 3.000 por millón por tick (0,3 % por tick, unos 3 % por segundo; valor elegido por el equipo, de nivel 2; el inicial era 2.000 por millón). Cada casilla elegible con al menos una vecina ardiendo hace un solo sorteo por tick, sin importar cuántas vecinas ardan; no hay propagación en modo demo. Se apaga con 3 gotas de cualquier jugador, contadas mientras arde, o con un aspersor cuya zona lo cubra; quien suelta la tercera gana 3 hojas. Mientras arde, la casilla no crece ni se seca. Si no se apaga en 300 ticks (30 s), se consume y la casilla vuelve a tierra seca |
+
+#### Valores elegidos por el equipo para la jugabilidad
+
+Estas cifras no estaban en la primera versión de D-01: las eligieron Cristian y FonsoP al hacer la expansión de jugabilidad, para que el juego avance más deprisa (el plan es `docs/plan-expansion-mecanicas.md`). Se mantienen mientras se evalúan jugando; todas viven en `catalog/catalog.json`:
+
+| Cifra | Valor original de D-01 | Valor elegido |
+| --- | --- | --- |
+| `drop.humidity_points` | 25 | 100 (una gota hace subir una etapa) |
+| `treatment_plant.refill_liters` | 1 | 3 |
+| `*.durability` (aspersor, goteo, planta, cesto) | no existía | 30 |
+| `drip.wear_interval_seconds` | no existía | 2 |
+| `trash_bin.price_leaves`, `area_side_tiles`, `interval_seconds` | no existía | 15, 3, 2 |
+| `terrain.river_width_tiles`, `terrain.rock_count` | no existía | 2, 12 |
+| `urban.building_tree_threshold`, `building_humidity_points_threshold`, `max_buildings` | no existía | 2, 500, 2 |
+| `urban.trash_interval_seconds`, `trash_spread_interval_seconds`, `clean_reward_leaves` | no existía | 15, 20, 1 (antes de la predefensa: 6, 8, 1) |
+| `tank.capacity_liters` | 20 | 10 |
+| `growth.leaves_flowers`, `growth.leaves_tree` | 4, 8 | 3, 5 |
+| `evaporation.wither_after_ticks` | 100 | 140 |
+| `fire.extinguish_bonus_leaves` | 5 | 3 |
+| `fire.ignition_chance_ppm` | 50 | 400 (antes de la predefensa: 1.250) |
+| `fire.propagation_chance_ppm` | 2.000 | 3.000 (antes de la predefensa: 10.000) |
+| `installation_price_increase_percent` | 15 | 5 |
+
+Las seis últimas filas (depósito, hojas, marchitamiento, bono por apagar, ignición y propagación) las ajustó Cristian Baczek para acelerar el juego (`12042fb`, `ad737ed`). El tope de 60 casillas sucias de la propagación de la basura, el pulso de la planta (2 s, 3 × 3 casillas), la orilla de agua (evaporación a la mitad) y el doble de humedad del goteo son reglas del código, no cifras del catálogo. `[DATO: confirmar con el equipo si estos valores se congelan tras la evaluación]`.
+
+Tras la predefensa del 29 de octubre se bajaron la basura, el fuego y la subida de precios, porque en la partida aparecían demasiado deprisa y las instalaciones se encarecían demasiado: basura cada 15 s y propagación cada 20 s (antes 6 y 8), ignición 400 y propagación del fuego 3.000 por millón por tick (antes 1.250 y 10.000) y subida de precio del 5 % (antes 15 %). Son valores elegidos por el equipo para jugar, no medidos.
 
 #### Los estados de una casilla
 
@@ -224,25 +256,27 @@ stateDiagram-v2
         Pasto --> Arbusto: humedad llega a 100 (se gastan 100) [sin fuego]
         Arbusto --> Flores: humedad llega a 100 (se gastan 100) [sin fuego]
         Flores --> Arbol: humedad llega a 100 (se gastan 100) [sin fuego]
-        Arbol --> Flores: humedad 0 durante 100 ticks [sin fuego]
-        Flores --> Arbusto: humedad 0 durante 100 ticks [sin fuego]
-        Arbusto --> Pasto: humedad 0 durante 100 ticks [sin fuego]
-        Pasto --> Seca: humedad 0 durante 100 ticks [sin fuego]
+        Arbol --> Flores: humedad 0 durante 140 ticks [sin fuego]
+        Flores --> Arbusto: humedad 0 durante 140 ticks [sin fuego]
+        Arbusto --> Pasto: humedad 0 durante 140 ticks [sin fuego]
+        Pasto --> Seca: humedad 0 durante 140 ticks [sin fuego]
         --
         state "Sin fuego" as SinFuego
         [*] --> SinFuego
-        SinFuego --> Ardiendo: azar, si está seca y tiene planta
+        SinFuego --> Ardiendo: azar o propagación vecina, si está seca y con planta
         Ardiendo --> SinFuego: tercera gota
         Ardiendo --> SinFuego: aspersor en su zona
         Ardiendo --> SinFuego: se consume (300 ticks) / crecimiento pasa a Tierra seca
     }
 ```
 
+La expansión de jugabilidad (nivel 2) añade dos etapas que no avanzan (agua y roca) y dos datos por casilla (edificio y nivel de basura de 0 a 3); la casilla con basura o edificio no crece ni arde. Están en el diagrama 05 (`docs/diagrams/05-estados-casilla.puml`).
+
 Es la idea de las regiones ortogonales de los statecharts de Harel: las dos partes cambian por su cuenta, pero se tocan en dos puntos. Mientras la casilla arde, la región de crecimiento queda congelada: no sube ni baja de etapa, y el contador de ticks con humedad 0 (`dry_ticks`) no avanza. La evaporación sigue bajando la humedad; solo la etapa queda fija. Las gotas que caen sobre ella siguen sumando a la humedad aportada y cuentan para apagarla. Y el fuego siempre se resuelve: con la tercera gota, con un aspersor o consumiéndose a los 300 ticks; en este último caso la región de crecimiento vuelve a tierra seca, esté en la etapa que esté. En árbol la humedad no pasa de 100.
 
 #### Una partida de ejemplo
 
-**Ana, el primer minuto.** Entra y ve el valle casi entero seco. Hay manchas verdes donde otros ya regaron, y una columna de humo al noreste. Su depósito tiene 20 litros. Suelta una gota sobre una casilla junto al río y la tierra se oscurece; a la cuarta gota brota pasto y gana 1 hoja. Con el depósito lleno le alcanza para cinco casillas de pasto. Espera a que se recargue y sigue. Al minuto tiene 12 hojas y compra su primer aspersor, que coloca en medio de su pasto. Desde ahí esas nueve casillas se riegan solas: al rato son arbustos, y cada una que crece le da hojas.
+**Ana, el primer minuto.** Entra y ve el valle casi entero seco. Hay manchas verdes donde otros ya regaron, y una columna de humo al noreste. Su depósito tiene 10 litros. Suelta una gota sobre una casilla junto al río y la tierra se oscurece; con la primera gota brota pasto y gana 1 hoja (con las cifras iniciales de D-01 hacían falta cuatro; ver «Valores elegidos por el equipo para la jugabilidad»). Con el depósito lleno le alcanza para diez casillas de pasto. Espera a que se recargue y sigue. Al minuto tiene 12 hojas y compra su primer aspersor, que coloca en medio de su pasto. Desde ahí esas nueve casillas se riegan solas: al rato son arbustos, y cada una que crece le da hojas.
 
 **Minuto 6: fuego.** Aparece un aviso: «¡Fuego al noreste!». Un arbusto seco a pocas casillas de su zona está ardiendo. Beto y Caro, que acaban de entrar, también lo ven. Los tres sueltan gotas sobre esa casilla en el mismo segundo. Rust las aplica en orden de llegada, y la tercera, la que apaga el fuego, es de Caro: se lleva el bono. Las gotas de Ana y Beto no se pierden, porque humedecieron la casilla. Si nadie hubiera llegado, el arbusto habría ardido hasta quedar en tierra seca.
 
@@ -343,6 +377,29 @@ Versión mínima defendible: el valle de 32 × 32 casillas con gotas, evaporaci�
 
 Lo que no hay que hacer es dejar a Rust ordenando una lista.
 
+#### Resultados de la comparativa
+
+Medición del paso del dominio (`World::step` en Rust, `World.Step` en Go; sin gRPC ni red), con la misma carga, el mismo catálogo y la misma semilla en los dos lados; ambos terminaron cada ejecución en el mismo estado (misma huella de la instantánea final). Método, carga y cautelas: `tests/bench/README.md`. Datos: `tests/bench/results/2026-10-20-apple-m4.csv`.
+
+- **Máquina:** Apple M4 (10 núcleos, 16 GB), macOS 26.5.2, arm64 (no es la del laboratorio). Go 1.26.5; Rust 1.97.1 en `--release` con el perfil por defecto de Cargo.
+- **Método:** 400 ticks de calentamiento y luego 500 a 5.000 ticks medidos según el tamaño; 4 ejecuciones por configuración, alternando qué lenguaje corre primero; la tabla da la mediana de las ejecuciones. El orden de ejecución no cambió el resultado: la mediana de una misma configuración varió como mucho un 4,1 % entre ejecuciones (Rust en 32 × 32), mucho menos que la diferencia entre lenguajes. Tiempos en microsegundos por paso.
+
+| Valle | Casillas | Rust, mediana | Go, mediana | Rust / Go (mediana) | Rust, p95 | Go, p95 | Rust / Go (p95) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 32 × 32 (el del juego) | 1.024 | 11,5 | 8,6 | 1,33 | 17,0 | 12,2 | 1,39 |
+| 64 × 64 | 4.096 | 54,5 | 41,7 | 1,31 | 77,1 | 53,5 | 1,44 |
+| 128 × 128 | 16.384 | 248,8 | 196,7 | 1,26 | 351,3 | 256,6 | 1,37 |
+| 256 × 256 | 65.536 | 1.306,4 | 1.000,3 | 1,31 | 1.731,4 | 1.245,2 | 1,39 |
+| 512 × 512 | 262.144 | 6.331,4 | 4.589,6 | 1,38 | 8.396,2 | 5.588,4 | 1,50 |
+
+Lo que muestran los datos: en esta máquina y con esta carga, **el paso en Go tardó menos que el de Rust en todos los tamaños**; el cociente entre los dos fue de 1,26 a 1,38 en la mediana y de 1,37 a 1,50 en el p95, y casi no cambió con el tamaño. En el valle del juego (32 × 32) los dos están por debajo de 12 µs de mediana, y el tick dura 100 ms. Una comprobación puntual con `lto = "fat"` y `codegen-units = 1` en Rust (una ejecución, fuera del CSV) dio 10,3 µs en 32 × 32, 1.167 µs en 256 × 256 y 5.679 µs en 512 × 512 de mediana: más rápido que el perfil por defecto, aún por encima de Go. La frase «en esta carga concreta es N veces más rápido» de la sección anterior queda, por tanto, sin un N a favor de Rust con estos datos: lo que se puede afirmar es lo de la tabla. La respuesta a «¿por qué Rust?» sigue siendo la del reparto de papeles, no la de una ventaja de velocidad medida aquí.
+
+Qué no se ha probado: otros perfiles de compilación más allá de la comprobación anterior, otras cargas, el efecto del recolector de basura de Go aislado (no se discute, ver la advertencia de arriba) ni el sistema completo.
+
+Repetir en el laboratorio (x86-64, Windows 10 con Docker Desktop y WSL 2): `[DATO: resultados en x86 del laboratorio]`.
+
+Gráfico: [`docs/informe/comparativa-go-rust.svg`](informe/comparativa-go-rust.svg) (mediana y p95 por tamaño, ejes logarítmicos).
+
 ### D-04 · El chat
 
 **Entra.** El profesor no pone problema a funcionalidades extra, y esta es la mejor que podíamos añadir — no por el juego, sino por la materia.
@@ -363,11 +420,12 @@ Además encaja sin estorbar:
 
 | Opción | A favor | En contra |
 | --- | --- | --- |
-| **Docker Compose** | Se levanta con un comando, funciona siempre, no cuesta nada | Como “nativo en la nube” es defendible pero modesto |
-| Kubernetes local (k3s, kind) | Orquestación de verdad, se ve serio en la defensa | Curva de aprendizaje real; puede comerse una semana |
-| Nube pública gratuita | Es literalmente “nativo en la nube” | Límites, pagos y riesgo de que falle el día de la demo |
+| **Docker Compose repartido (Plan A, Elegida)** | Se levanta por nodo con Compose, reproduce la topología física del laboratorio (5 máquinas base + 1 máquina de respaldo con réplicas standby), sin depender de Kubernetes entre hosts Windows sin privilegios | Requiere configurar variables de red e IPs por nodo |
+| Docker Compose en una máquina (Plan B) | Todo en local en una sola máquina (`deploy/compose.yml`), ideal para desarrollo y contingencia rápida | No demuestra distribución física en máquinas distintas |
+| Kubernetes local (k3s, kind) multinodo | Orquestación nativa declarativa | Bloqueado entre hosts Windows por NAT de WSL 2 y puertos cerrados en el laboratorio (D-B8-5) |
+| Nube pública gratuita | Literalmente “nativo en la nube” | Límites, pagos y riesgo de que falle el día de la demo |
 
-**Propuesta: Docker Compose primero, y subir a Kubernetes solo si el sistema ya funciona.** El orden importa. Un Kubernetes precioso sin servicios que desplegar no vale nada, y el despliegue previsto es sobre las máquinas del laboratorio, no sobre una nube externa.
+**Decisión final:** Despliegue distribuido en el laboratorio con **Docker Compose repartido entre 6 máquinas físicas** (5 nodos principales del Plan A + 1 nodo `standby` que aloja `proxy-standby`, `hub-standby` y `world-standby` con `world-go`), con conmutación automática (*failover*) y blindaje de despausado (*failback* `world-go → Rust`), manteniendo `deploy/compose.yml` como Plan B en local. Detalle arquitectónico en [`docs/decisiones/b8-orquestacion.md`](decisiones/b8-orquestacion.md).
 
 ### D-06 · La base de datos
 
@@ -392,7 +450,7 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 | RF-04 | El jugador debe poder soltar gotas sobre cualquier casilla del valle, y comprar y colocar instalaciones de las tres familias de las 3R, siempre que le alcance el agua o las hojas | Fuera del modo demo, una gota gasta 1 L del depósito y suma humedad; al pasar el umbral, la casilla crece y el jugador gana hojas |
 | RF-05 | El sistema debe rechazar las gotas de un jugador que pasen de 15 por segundo | Un bot envía 50 gotas por segundo y solo se aceptan 15 |
 | RF-06 | El sistema debe rechazar con un error claro cualquier acción inválida, sin interrumpir el servicio | Se envía una acción inventada y responde con un error claro |
-| RF-07 | El jugador debe poder gastar hojas en instalaciones y mejoras, y el sistema debe subir un 15 % el precio de cada instalación tras cada compra del mismo tipo | Se compra un aspersor: bajan las hojas, y el siguiente cuesta un 15 % más |
+| RF-07 | El jugador debe poder gastar hojas en instalaciones y mejoras, y el sistema debe subir el precio de cada instalación un porcentaje del catálogo (5 %) tras cada compra del mismo tipo | Se compra un aspersor: bajan las hojas, y el siguiente cuesta un 5 % más, redondeado hacia arriba |
 | RF-08 | **El sistema debe aplicar todas las acciones simultáneas de un mismo jugador sin duplicar ni perder recursos** | Se lanzan 100 acciones a la vez y el total final es exacto |
 | RF-09 | El sistema debe aplicar una sola vez una acción que llegue repetida con el mismo identificador | Se repite la petición con el mismo identificador y el saldo no cambia |
 | RF-25 | El sistema debe mantener trabajando las instalaciones de un jugador aunque no esté conectado, hasta 2 horas después de su última acción | Se coloca un aspersor, se cierra la pestaña y al volver sus casillas crecieron; pasadas 2 horas, el aspersor está parado |
@@ -401,6 +459,9 @@ Cada requisito dice **qué** tiene que pasar, no **cómo** se programa, y trae l
 | RF-28 | El sistema debe hacer evolucionar el valle en cada tick, con evaporación, crecimiento y marchitamiento, aunque nadie juegue | Se riega una casilla y se deja: pierde humedad al ritmo del catálogo y, seca demasiado tiempo, se marchita |
 | RF-29 | **El sistema debe encender y apagar los incendios según reglas fijas, con un azar que decide solo el simulador a partir de una semilla** | Con la misma semilla y los mismos comandos, dos ejecuciones dan exactamente el mismo valle |
 | RF-30 | **El sistema debe aplicar las gotas de varios jugadores sobre una misma casilla en el mismo tick sin perder ninguna** | Veinte bots sueltan gotas sobre la misma casilla en modo demo: la humedad aportada sube exactamente lo de las gotas aceptadas |
+| RF-32 | El sistema debe desgastar las instalaciones con su trabajo y destruirlas al agotarse su durabilidad; el jugador debe poder ver la que les queda (nivel 2, expansión de jugabilidad) | Se coloca un aspersor, se deja trabajar 60 s y desaparece; al seleccionarlo se ve cuántos usos le quedan |
+| RF-33 | El sistema debe generar un terreno natural (agua y roca) con el azar del simulador, que no admita gotas ni instalaciones y quede en la instantánea (nivel 2, expansión de jugabilidad) | Con la misma semilla dos valles nuevos tienen el mismo río y las mismas rocas; una gota sobre ellos se rechaza |
+| RF-34 | El sistema debe hacer aparecer edificios que ensucian el valle con basura de tres niveles, y el jugador debe poder limpiarla (a mano con `clean_trash` o con el cesto de reciclaje) y ganar hojas por ello (nivel 2, expansión de jugabilidad) | Aparece un edificio en el borde, la casilla vecina acumula basura, se limpia a mano y se gana la recompensa del catálogo |
 
 ### Ranking y reportes
 
@@ -498,6 +559,7 @@ Cada requerimiento sale de una necesidad concreta, se resuelve en un componente 
 | Orden sin reloj compartido | RF-14, RNF-05 | Chat y tick como reloj lógico | CP-09 |
 | Azar reproducible | RF-29 | Simulador, con semilla en la instantánea | CP-10 |
 | Un mundo que vive solo | RF-25, RF-28 | Simulador (el autómata del valle) | Prueba de RF-28 |
+| Que pasen más cosas en el valle (nivel 2) | RF-32, RF-33, RF-34 | Simulador (Rust y world-go, mismos bytes) | Guion `10-expansion-jugabilidad` de la prueba de conformidad |
 | Una economía que cuadra | RF-07, RF-27 | Simulador | Comprobación de RF-27 tras CP-11 |
 | Operar la demo sin saltarse el escritor único | RF-31 | Hub (rol de administrador) y simulador (`Step`) | Prueba de RF-31 |
 | Acceso seguro | RF-01, RF-02, RNF-12, RNF-13 | API (TypeScript) y persistencia (Python) | Pruebas de RF-01 y RF-02 |
@@ -622,8 +684,7 @@ Medidos con las pruebas automáticas de `tests/e2e` (`faults*.test.mjs`) en el p
 | CP-07 | Persistencia parada, pausada o PostgreSQL parado, 10 s | Quien juega sigue jugando: p95 de 68–103 ms (< 200 ms). Un acceso nuevo recibe 503 con un aviso claro en 0,7–0,9 s (3,0 s con la máquina pausada). Sin fallos de `Step` |
 | CP-08 | Todo apagado y levantado en orden inverso, con 2 s entre servicios | Todo conectado 7,5 s después del último servicio (18,5 s desde el primero), sin reinicios de contenedores. En orden normal: 2,1 s y 13,4 s |
 | CP-12 | Persistencia parada sobre dos ticks de instantánea | El valle sigue a 10 ticks/s, sin pausa y con el *breaker* cerrado; la siguiente instantánea se guarda al volver la persistencia (comprobado matando Rust después) |
-
-Lo que estas pruebas **no** cubren: que el sistema siga jugando con Rust, el hub o nginx caídos. Con Rust caído el valle queda en pausa sin perder nada y se reanuda solo (escritor único, regla 1); con el hub o nginx caídos el juego se detiene hasta que vuelvan, y los jugadores se reconectan solos. Mantener un servicio en marcha cuando se apaga su máquina pide réplicas y un orquestador (D-05).
+| CP-B8 | Caída o pausa de máquina (`world`, `hub`, `proxy`) con conmutación al nodo de respaldo (B8) | Pausa breve ($\le 10\text{ s}$), RPO $\le 50\text{ ticks}$ ($5\text{ s}$). Si cae Rust, `world-standby` (`world-go`) toma el mando; al despausar Rust (`docker unpause`), el sistema regresa limpiamente a Rust sin retroceso de tick (*failback*). Si cae el hub primario, `hub-standby` toma el mando y el primario se retira automáticamente (*fencing* por `hub_generation`). Si cae el proxy, el frontend rota automáticamente sin perder la sesión JWT. Medido en local (Docker): RTO 1,31 s en world (detección 2,05 s), 0 ticks retrocedidos, hub fencing en 30 ms, reconexión por watchdog de silencio en 3,5 s (medición de desconexión física de cable pendiente para laboratorio) |
 
 ## El contrato: cómo se hablan los servicios
 
@@ -736,7 +797,7 @@ El modelo autoritativo trae dos preguntas que hay que responder y que el modelo 
 
 | Pregunta | Respuesta propuesta |
 | --- | --- |
-| ¿Qué pasa con el progreso de un jugador mientras está desconectado? | Sus aspersores siguen regando durante 2 horas, porque viven en el mundo y no en el navegador. Al volver ve el estado actual del valle (y, si da tiempo, un resumen de lo que pasó), y con su primera acción vuelven a arrancar |
+| ¿Qué pasa con el progreso de un jugador mientras está desconectado? | Sus aspersores siguen regando durante 2 horas, porque viven en el mundo y no en el navegador. Al volver ve el estado actual del valle y un resumen de lo que hicieron sus aspersores (D-01, nivel 2), y con su primera acción vuelven a arrancar |
 | ¿Cuántas veces por segundo avanza el mundo? | Diez pasos por segundo en el simulador; el cliente recibe actualizaciones agregadas cada segundo |
 
 Y trae una ventaja para la demo que vale la pena aprovechar: **se puede mostrar el mundo degradándose sin jugadores y recuperándose cuando entran.** Es la prueba visible de que el estado vive en el servidor y no en el navegador.
@@ -1264,7 +1325,7 @@ Regla que gobierna todo: **cada semana termina con algo que se puede levantar y 
 5. Comparativa medida Go vs. Rust
 6. El resumen al volver («mientras no estabas…»)
 7. Panel profesional con Prometheus y Grafana
-8. Más contenido: el árbol de mejoras completo, nuevos biomas como un humedal, logros, un ciclo visual de día y noche y, si sobra tiempo, prestigio. Es sobre todo catálogo y arte, así que cualquiera puede sumar
+8. Más contenido: el árbol de mejoras completo, nuevos biomas como un humedal (el agua y la roca ya entraron con la expansión de jugabilidad), logros, un ciclo visual de día y noche y, si sobra tiempo, prestigio. Es sobre todo catálogo y arte, así que cualquiera puede sumar
 
 **Fuera del proyecto:** enviar a cada jugador solo su parte del mundo, streams de gRPC, Kubernetes y Wails.
 

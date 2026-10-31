@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   buildBuyUpgradeFrame,
+  buildCleanTrashFrame,
   buildDropFrame,
   buildPlaceInstallationFrame,
   buildResetValleyFrame,
   buildSetDemoModeFrame,
   buildPlayUrl,
+  createEndpointRotator,
+  createFailoverFetch,
   createReconnectBackoff,
   describeFrame,
   GRID_SIZE,
@@ -13,11 +16,13 @@ import {
   decideOnClose,
   shouldReconnect,
   newUuid,
+  parseBackupHosts,
   parseFrame,
   RECONNECT_BASE_MS,
   RECONNECT_CAP_MS,
   RECONNECT_STABLE_MS,
   reconnectDelay,
+  STATE_SILENCE_MS,
   type StateFrame,
 } from "./play.ts";
 
@@ -110,6 +115,12 @@ describe("frame builders for the other commands", () => {
     expect(
       JSON.parse(buildPlaceInstallationFrame({ installation: "drip", x: 2, y: 3, actionId })),
     ).toEqual({ type: "place_installation", action_id: actionId, installation: "drip", x: 2, y: 3 });
+    expect(
+      JSON.parse(buildPlaceInstallationFrame({ installation: "trash_bin", x: 4, y: 5, actionId })),
+    ).toEqual({ type: "place_installation", action_id: actionId, installation: "trash_bin", x: 4, y: 5 });
+    expect(
+      JSON.parse(buildCleanTrashFrame({ x: 4, y: 5, actionId })),
+    ).toEqual({ type: "clean_trash", action_id: actionId, x: 4, y: 5 });
     expect(JSON.parse(buildBuyUpgradeFrame({ upgrade: "bigger_tank", actionId }))).toEqual({
       type: "buy_upgrade",
       action_id: actionId,
@@ -129,6 +140,7 @@ describe("frame builders for the other commands", () => {
   it("rejects unknown kinds and bad coordinates", () => {
     expect(() => buildPlaceInstallationFrame({ installation: "dam", x: 0, y: 0, actionId })).toThrow(RangeError);
     expect(() => buildPlaceInstallationFrame({ installation: "drip", x: -1, y: 0, actionId })).toThrow(RangeError);
+    expect(() => buildCleanTrashFrame({ x: -1, y: 0, actionId })).toThrow(RangeError);
     expect(() => buildBuyUpgradeFrame({ upgrade: "bigger_roof", actionId })).toThrow(RangeError);
     expect(() => buildSetDemoModeFrame({ enabled: "yes" as unknown as boolean, actionId })).toThrow(TypeError);
   });
@@ -146,7 +158,9 @@ describe("parseFrame of the full state", () => {
         stages: [1, 2],
         humidity: ["0", "75"],
         fires: [{ x: 1, y: 0, drops_received: 2 }],
-        installations: [{ x: 0, y: 0, installation: "drip", owner_id: "p1" }],
+        installations: [{ x: 0, y: 0, installation: "drip", owner_id: "p1", remaining_durability: 30 }],
+        buildings: [false, true],
+        trash: [0, 2],
         player: {
           water: "5",
           tank_capacity: "20",
@@ -155,6 +169,7 @@ describe("parseFrame of the full state", () => {
           next_sprinkler_price: "10",
           next_drip_price: "25",
           next_treatment_plant_price: "40",
+          next_trash_bin_price: "15",
         },
       }),
     ) as StateFrame;
@@ -164,10 +179,15 @@ describe("parseFrame of the full state", () => {
     expect(state.stages).toEqual([1, 2]);
     expect(state.humidity).toEqual([0n, 75n]);
     expect(state.fires).toEqual([{ x: 1, y: 0, drops_received: 2 }]);
-    expect(state.installations).toEqual([{ x: 0, y: 0, installation: "drip", owner_id: "p1" }]);
+    expect(state.installations).toEqual([
+      { x: 0, y: 0, installation: "drip", owner_id: "p1", remaining_durability: 30 },
+    ]);
+    expect(state.buildings).toEqual([false, true]);
+    expect(state.trash).toEqual([0, 2]);
     expect(state.player?.upgrades).toEqual(["bigger_drop"]);
     expect(state.player?.next_sprinkler_price).toBe(10n);
     expect(state.player?.next_treatment_plant_price).toBe(40n);
+    expect(state.player?.next_trash_bin_price).toBe(15n);
   });
 
   it("defaults the map fields to empty when they are absent (map=false)", () => {
@@ -177,6 +197,45 @@ describe("parseFrame of the full state", () => {
     expect(state.humidity).toEqual([]);
     expect(state.fires).toEqual([]);
     expect(state.installations).toEqual([]);
+  });
+});
+
+describe("parseFrame of the offline summary", () => {
+  it("reads the counts of the summary as BigInt from their text form", () => {
+    const state = parseFrame(
+      JSON.stringify({
+        type: "state",
+        player: {
+          water: "5",
+          offline_summary: {
+            leaves_earned: "12",
+            water_reused: "1099511627776",
+            fires_extinguished: "1",
+            tiles_grown: "38",
+          },
+        },
+      }),
+    ) as StateFrame;
+    expect(state.player?.offline_summary).toEqual({
+      leaves_earned: 12n,
+      water_reused: 1099511627776n,
+      fires_extinguished: 1n,
+      tiles_grown: 38n,
+    });
+  });
+
+  it("fills the counts that are absent with zero and ignores a summary that is not an object", () => {
+    const partial = parseFrame(
+      '{"type":"state","player":{"offline_summary":{"tiles_grown":"2"}}}',
+    ) as StateFrame;
+    expect(partial.player?.offline_summary).toEqual({
+      leaves_earned: 0n,
+      water_reused: 0n,
+      fires_extinguished: 0n,
+      tiles_grown: 2n,
+    });
+    const odd = parseFrame('{"type":"state","player":{"offline_summary":"x"}}') as StateFrame;
+    expect(odd.player?.offline_summary).toBeNull();
   });
 });
 
@@ -199,6 +258,8 @@ describe("parseFrame", () => {
       next_sprinkler_price: 0n,
       next_drip_price: 0n,
       next_treatment_plant_price: 0n,
+      next_trash_bin_price: 0n,
+      offline_summary: null,
     });
     expect(parseFrame('{"type":"error","code":"invalid_message"}')).toEqual({
       type: "error",
@@ -241,6 +302,8 @@ describe("describeFrame", () => {
         humidity: [],
         fires: [],
         installations: [],
+        buildings: [],
+        trash: [],
         player: {
           water: 19n,
           tank_capacity: 20n,
@@ -249,6 +312,8 @@ describe("describeFrame", () => {
           next_sprinkler_price: 0n,
           next_drip_price: 0n,
           next_treatment_plant_price: 0n,
+          next_trash_bin_price: 0n,
+          offline_summary: null,
         },
       }),
     ).toBe("state tick 57, agua 19/20");
@@ -264,6 +329,8 @@ describe("describeFrame", () => {
         humidity: [],
         fires: [],
         installations: [],
+        buildings: [],
+        trash: [],
         player: null,
       }),
     ).toBe("state tick 3 (en pausa)");
@@ -388,5 +455,66 @@ describe("decideOnClose", () => {
 
   it("prefers 4401 over expiry (same outcome for the user, one clear reason)", () => {
     expect(decideOnClose({ ...base, code: 4401, now: 20_000 })).toBe("show_access");
+  });
+});
+
+describe("STATE_SILENCE_MS and endpoint failover (B8 E2)", () => {
+  it("defines a 3.5 s silence watchdog for missing state frames", () => {
+    expect(STATE_SILENCE_MS).toBe(3_500);
+  });
+
+  it("parses backup hosts from comma-separated strings or full URLs and deduplicates", () => {
+    expect(
+      parseBackupHosts("10.68.17.80:8080", "https://10.68.17.99:8080, 10.68.17.80:8080, 10.68.17.100:8080/"),
+    ).toEqual(["10.68.17.80:8080", "10.68.17.99:8080", "10.68.17.100:8080"]);
+  });
+
+  it("rotates across hosts on advance and keeps sticky affinity while healthy", () => {
+    const rotator = createEndpointRotator("10.68.17.80:8080", ["10.68.17.99:8080"]);
+    expect(rotator.currentHost()).toBe("10.68.17.80:8080");
+    expect(rotator.hosts()).toEqual(["10.68.17.80:8080", "10.68.17.99:8080"]);
+    expect(rotator.advance()).toBe("10.68.17.99:8080");
+    expect(rotator.currentHost()).toBe("10.68.17.99:8080");
+    expect(rotator.advance()).toBe("10.68.17.80:8080");
+  });
+
+  it("allows adding discovered backup hosts dynamically without losing current affinity", () => {
+    const rotator = createEndpointRotator("10.68.17.80:8080");
+    rotator.addBackups("https://10.68.17.99:8080");
+    expect(rotator.hosts()).toEqual(["10.68.17.80:8080", "10.68.17.99:8080"]);
+    expect(rotator.advance()).toBe("10.68.17.99:8080");
+  });
+
+  it("creates a failover fetch that retries on the backup host when the primary throws or returns 502/504", async () => {
+    const rotator = createEndpointRotator("10.68.17.80:8080", ["10.68.17.99:8080"]);
+    const calledUrls: string[] = [];
+    const baseFetch = async (input: string | URL | Request) => {
+      const url = String(input);
+      calledUrls.push(url);
+      if (url.includes("10.68.17.80:8080")) {
+        throw new TypeError("Failed to fetch");
+      }
+      return new Response('{"ok":true}', {
+        status: 200,
+        headers: { "X-Proxy-Backups": "10.68.17.100:8080" },
+      });
+    };
+    const failoverFetch = createFailoverFetch({
+      baseFetch,
+      rotator,
+      protocol: "https:",
+    });
+    const res = await failoverFetch("/api/system");
+    expect(res.status).toBe(200);
+    expect(calledUrls).toEqual([
+      "https://10.68.17.80:8080/api/system",
+      "https://10.68.17.99:8080/api/system",
+    ]);
+    expect(rotator.currentHost()).toBe("10.68.17.99:8080");
+    expect(rotator.hosts()).toEqual([
+      "10.68.17.80:8080",
+      "10.68.17.99:8080",
+      "10.68.17.100:8080",
+    ]);
   });
 });

@@ -1,0 +1,118 @@
+# Workflow manual de prueba de carga (CP-11) y medición de RNF-03 (ranking bajo carga).
+# Solo se ejecuta a demanda mediante workflow_dispatch, nunca en cada pull request ni push.
+name: load-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Duración de cada ejecución (CP-11: 60s)'
+        required: false
+        default: '60s'
+      bots:
+        description: 'Cantidad de bots (CP-11: 30)'
+        required: false
+        default: '30'
+      variant:
+        description: 'Variante a ejecutar'
+        type: choice
+        options:
+          - both
+          - baseline
+          - ranking
+        default: 'both'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  load-test:
+    name: load-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      POSTGRES_USER: hydrovalley
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_DB: hydrovalley
+      LOAD_DURATION: ${{ github.event.inputs.duration || '60s' }}
+      LOAD_BOTS: ${{ github.event.inputs.bots || '30' }}
+      LOAD_VARIANT: ${{ github.event.inputs.variant || 'both' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Construir las imágenes
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        env:
+          TOKEN_PRIVATE_KEY: bake-only-placeholder
+          TOKEN_PUBLIC_KEY: bake-only-placeholder
+        with:
+          source: .
+          files: deploy/compose.yml
+          targets: default,bots
+          load: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=e2e
+            *.cache-to=type=gha,scope=e2e,mode=max
+
+      - name: Ejecutar pruebas de carga (tests/load/run.sh)
+        env:
+          LOAD_SKIP_BUILD: "1"
+        run: tests/load/run.sh
+
+      - name: Resumen en el job summary
+        if: always()
+        run: |
+          # Lee un campo de un informe JSON con jq; «n/d» si falta el archivo o el campo.
+          field() {
+            local file="$1" filter="$2"
+            if [[ -f "$file" ]]; then
+              jq -r "(${filter}) | if . == null then \"n/d\" else . end" "$file" 2>/dev/null || echo "n/d"
+            else
+              echo "n/d"
+            fi
+          }
+          verdict() { case "$1" in true) echo "Cumple" ;; false) echo "NO cumple" ;; *) echo "n/d" ;; esac; }
+
+          # RNF-03: «No evaluable» si faltó la línea base o las consultas de
+          # ranking no bastaron (claves ranking.rnf03_evaluated y rnf03_ok).
+          rnf03() {
+            if [[ "$(field "$1" '.ranking.rnf03_evaluated')" == "false" ]]; then echo "No evaluable"; else verdict "$(field "$1" '.ranking.rnf03_ok')"; fi
+          }
+
+          base="reports/load-baseline.json"
+          rank="reports/load-ranking.json"
+
+          {
+            echo "## Resultados de la prueba de carga (CP-11 y RNF-03)"
+            echo ""
+            echo "Máquina: GitHub Actions \`${RUNNER_NAME}\` · ${RUNNER_OS}/${RUNNER_ARCH} · imagen \`${ImageOS:-n/d}\` ${ImageVersion:-}"
+            echo "CPU: $(nproc) hilos · $(awk '/MemTotal/ {printf "%.1f GB", $2/1048576}' /proc/meminfo) de RAM · commit \`${GITHUB_SHA::7}\`"
+            echo "Carga: ${LOAD_BOTS} bots · ${LOAD_DURATION} · variante ${LOAD_VARIANT}"
+            echo ""
+            echo "| Métrica | Línea base (CP-11) | Con ranking (RNF-03) |"
+            echo "| --- | --- | --- |"
+            echo "| Gotas por segundo | $(field "$base" '.drops_per_second | . * 10 | round / 10') | $(field "$rank" '.drops_per_second | . * 10 | round / 10') |"
+            echo "| Latencia p50 (ms) | $(field "$base" '.latency_ms.p50 | . * 10 | round / 10') | $(field "$rank" '.latency_ms.p50 | . * 10 | round / 10') |"
+            echo "| Latencia p95 (ms) | $(field "$base" '.latency_ms.p95 | . * 10 | round / 10') | $(field "$rank" '.latency_ms.p95 | . * 10 | round / 10') |"
+            echo "| Invariante de humedad | $(verdict "$(field "$base" '.invariant_ok')") | $(verdict "$(field "$rank" '.invariant_ok')") |"
+            echo "| RNF-01 (>= 100 gotas/s) | $(verdict "$(field "$base" '.rnf01_ok')") | $(verdict "$(field "$rank" '.rnf01_ok')") |"
+            echo "| RNF-02 (p95 < 200 ms) | $(verdict "$(field "$base" '.rnf02_ok')") | $(verdict "$(field "$rank" '.rnf02_ok')") |"
+            echo "| RNF-03 (p95 con ranking <= 200 ms y <= línea base + 20 %) | — | $(rnf03 "$rank") |"
+            echo "| Consultas de ranking (errores) | — | $(field "$rank" '.ranking.queries_sent') ($(field "$rank" '.ranking.errors')) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar informes como artefactos
+        if: always()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: load-test-reports
+          path: reports/*.json
+          if-no-files-found: ignore

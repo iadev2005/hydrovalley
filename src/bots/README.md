@@ -20,12 +20,17 @@ Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos),
 
 | Variable | Obligatoria | Valor por defecto | Uso |
 | --- | --- | --- | --- |
-| `HV_BASE_URL` | Sí | — | Dirección del proxy, p. ej. `http://nginx:8080` (plan B) o `http://10.68.17.x:8080` (plan A). `https` usa `wss` para `/play` |
+| `HV_BASE_URL` | Sí | — | Dirección del proxy, p. ej. `https://nginx:8080` (plan B) o `https://10.68.17.x:8080` (plan A). `https` usa `wss` para `/play` |
+| `HV_CA_CERT` | No | — | Ruta de un certificado PEM en que confiar (además de los del sistema), p. ej. el autofirmado del laboratorio. Preferible a `HV_TLS_INSECURE`. Excluyente con ella |
+| `HV_TLS_INSECURE` | No | `false` | `true` omite la verificación del certificado del proxy, para el autofirmado del laboratorio. No usar fuera de pruebas. Con `true`, cada escenario registra un WARN al arrancar |
 | `HV_ADMIN_USERNAME`, `HV_ADMIN_PASSWORD` | Sí, para aprovisionar | — | Cuenta de administrador; solo sirve para crear las cuentas de bots. La contraseña nunca se registra |
 | `BOTS_COUNT` | No | `3` (`30` en `load`) | Número de bots. `cheater` usa siempre uno |
 | `BOTS_DURATION` | No | `0` (`60s` en `load`, `10s` en `cheater`, `120s` en `firefighter`) | Duración (`30s`, `5m`); en `neighbors`, `0` = hasta que se detenga. En `load` es el tiempo de envío; en `cheater`, el de la inundación. En esos tres, `0` cae al valor por defecto |
 | `BOTS_RESET` | No | `true` | Solo `load`: al terminar reinicia el valle con `reset_valley`. Con `false` se conserva el valle para inspeccionarlo, pero el modo demo se apaga igual |
 | `BOTS_REPORT_PATH` | No | — | Solo `load`, `cheater` y `firefighter`: archivo donde escribir el informe JSON |
+| `BOTS_LOAD_RANKING` | No | `false` | Solo `load`: durante el envío consulta `GET /api/ranking` en bucle (con el token del administrador) para medir RNF-03 |
+| `BOTS_LOAD_RANKING_INTERVAL` | No | `2s` | Solo `load` con `BOTS_LOAD_RANKING`: espera entre consultas de ranking (`1s`, `500ms`). Debe ser positiva. 2 s deja unas 30 lecturas por minuto, por debajo del límite de la API (60 por minuto y por IP, `src/api/src/limits.ts`): con menos de 1 s, las consultas recibirían 429 |
+| `BOTS_LOAD_BASELINE_REPORT` | No | — | Solo `load` con `BOTS_LOAD_RANKING`: ruta del informe JSON de una ejecución **sin** ranking, cuyo p95 es la línea base de RNF-03. Sin ella, RNF-03 se informa como «no se pudo evaluar» y la ejecución no cumple |
 | `BOTS_FIREFIGHTER_SEED_PLANTS` | No | `false` | Solo `firefighter`: al empezar, cada bot riega 3 casillas propias con 4 gotas cada una para que haya plantas que puedan arder |
 | `BOTS_FIREFIGHTER_BONUS` | No | `5` | Solo `firefighter`: hojas de la extinción que se esperan ver (`catalog.json`: `fire.extinguish_bonus_leaves`); solo sirve para reconocer la subida en las hojas del bot |
 | `BOTS_SEED` | No | aleatoria (se registra al arrancar) | Semilla de las decisiones: misma semilla, mismas elecciones de casilla y mismos tiempos de espera. El orden de llegada de los resultados sigue dependiendo de la red |
@@ -34,7 +39,7 @@ Estado: están el cliente común y los cuatro escenarios: `neighbors` (vecinos),
 ## Uso
 
 ```
-HV_BASE_URL=http://localhost:8080 HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
+HV_BASE_URL=https://localhost:8080 HV_TLS_INSECURE=true HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
 BOTS_COUNT=3 BOTS_DURATION=30s go run ./cmd/bots neighbors
 ```
 
@@ -43,7 +48,7 @@ Al terminar registra un resumen: acciones enviadas, resultados por estado (`appl
 Prueba de carga (CP-11), 30 bots durante 60 s y con informe:
 
 ```
-HV_BASE_URL=http://localhost:8080 HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
+HV_BASE_URL=https://localhost:8080 HV_TLS_INSECURE=true HV_ADMIN_USERNAME=admin HV_ADMIN_PASSWORD=... \
 BOTS_REPORT_PATH=load-report.json go run ./cmd/bots load
 ```
 
@@ -70,7 +75,21 @@ Mide lo que promete el documento inicial: al menos 100 gotas aceptadas por segun
 5. Compara por **diferencias** (final menos inicial) `humidity_contributed` y `accepted_drops`, los dos campos que el hub difunde en `state` desde esta tarea (texto en JSON, también con `map=false`). Las gotas que vieron aplicadas los propios bots (`bots_applied`) se informan, pero solo igualan a `accepted_drops` si nadie más juega, así que no hacen fallar la prueba. Un hub que no informe los contadores no puede pasar: el cero se omite en el JSON y se lee como 0, así que unas gotas aplicadas con 0 aceptadas se marcan como no comprobables.
 6. Apaga el modo demo y, con `BOTS_RESET=true`, ejecuta `reset_valley`. Esto ocurre también si la prueba falla o se interrumpe con Ctrl-C; si algún paso falla queda en `notes`.
 
-Cuenta como «aceptada» lo que el hub resolvió como `applied` o `duplicate`. Salida: el resumen en español por la salida estándar y, con `BOTS_REPORT_PATH`, el JSON con `bots`, `duration_s` (ventana real de envío), `sent`, `results`, `unresolved`, `drops_per_second` (aceptadas por los bots entre esa ventana), `latency_ms` (`p50`, `p95`, `max`), `latency_within_limit_ratio`, `humidity_contributed` y `accepted_drops` (diferencias), `invariant_ok`, `rnf01_ok` y `rnf02_ok`. Código de salida: 0 si pasan las tres comprobaciones, 1 si falla alguna o la prueba no pudo completarse.
+Cuenta como «aceptada» lo que el hub resolvió como `applied` o `duplicate`. Salida: el resumen en español por la salida estándar y, con `BOTS_REPORT_PATH`, el JSON con `bots`, `duration_s` (ventana real de envío), `sent`, `results`, `unresolved`, `drops_per_second` (aceptadas por los bots entre esa ventana), `latency_ms` (`p50`, `p95`, `max`), `latency_within_limit_ratio`, `humidity_contributed` y `accepted_drops` (diferencias), `invariant_ok`, `rnf01_ok` y `rnf02_ok` (y `ranking` con `BOTS_LOAD_RANKING`, ver abajo). Código de salida: 0 si pasan las tres comprobaciones (y RNF-03 con ranking), 1 si falla alguna o la prueba no pudo completarse.
+
+### RNF-03: el ranking no debe subir la latencia
+
+RNF-03 pide que el recálculo del ranking no haga pasar a las acciones de los 200 ms de RNF-02. Se mide comparando dos ejecuciones de la misma carga:
+
+1. **Línea base:** `load` sin `BOTS_LOAD_RANKING`, con `BOTS_REPORT_PATH` (su informe es la línea base).
+2. **Con ranking:** `load` con `BOTS_LOAD_RANKING=true` y `BOTS_LOAD_BASELINE_REPORT` apuntando al informe anterior. Mientras los bots sueltan gotas, un bucle pide `GET /api/ranking?limit=100` cada `BOTS_LOAD_RANKING_INTERVAL`.
+
+RNF-03 cumple si el **p95 de las acciones** con el ranking en bucle es **<= 200 ms** y **<= p95 de la línea base × (1 + `RNF03Margin`)**. `RNF03Margin` es 0,20 (`internal/scenario/load/report.go`). **Es un umbral elegido por el equipo, no del documento inicial** (que no fija cuánto empeorar es aceptable): queda como decisión por confirmar. Para que RNF-03 sea evaluable hacen falta además al menos `RNF03MinRankingQueries` (10) consultas de ranking exitosas y ninguna con error; si no, o si falta la línea base, se marca `rnf03_evaluated: false` y `rnf03_ok: false` (con una nota que dice el motivo) y la ejecución no cumple: no se da por cumplido lo que no se midió. Una consulta de ranking en vuelo cuando termina la ventana de envío la cancela la propia prueba y no cuenta (ni como enviada ni como error); los errores reales (por ejemplo, un 429) sí. El JSON añade `ranking` con `queries_sent`, `queries_ok`, `errors`, `latency_ms`, `baseline_p95_ms`, `rnf03_evaluated` y `rnf03_ok`. Todas las claves del informe van en snake_case; el resumen del workflow (`jq`) lee `ranking.rnf03_evaluated` y `ranking.rnf03_ok`.
+
+### Cómo correr la prueba de carga
+
+- **En local** (Docker y `openssl`): `tests/load/run.sh`. Levanta el stack por HTTPS con un certificado efímero (como `tests/e2e/run.sh`, comparten `tests/lib/stack.sh`), corre la línea base y después la variante con ranking (con la línea base que acaba de medir, escrita en un directorio propio de la ejecución: nunca un informe viejo de `reports/`; los informes de cada variante reemplazan a los `load-baseline.json` y `load-ranking.json` de una ejecución anterior), y deja `reports/load-baseline.json` y `reports/load-ranking.json` (`reports/` está en `.gitignore`: son artefactos, no resultados versionados). Variables: `LOAD_BOTS` (30), `LOAD_DURATION` (60s), `LOAD_VARIANT` (`both`, `baseline` o `ranking`; esta última necesita `LOAD_BASELINE_REPORT`, la ruta de un informe de línea base previo, y sin ella RNF-03 no se evalúa), `LOAD_RANKING_INTERVAL`, `REPORTS_DIR`, `HV_HTTP_PORT` (si el 8080 está ocupado), `LOAD_SKIP_BUILD=1`, `LOAD_KEEP=1`. Sale con 1 si alguna variante no cumple.
+- **En GitHub:** pestaña *Actions*, workflow `load-test`, *Run workflow* (solo a demanda, con `workflow_dispatch`; no corre en pull requests ni en push). Pide duración, número de bots y variante, y publica en el resumen del job las cifras junto con la máquina del *runner*, y los informes JSON como artefacto `load-test-reports`. Las cifras de un *runner* compartido no son las del laboratorio: al citarlas hay que decir dónde se midieron.
 
 Los bots de carga abren `/play` con `map=false`: solo necesitan el tamaño del valle y los contadores.
 
@@ -84,7 +103,7 @@ Un solo bot, una sola conexión y tres fases. Sale con 0 si pasan las tres y con
 
 Decisiones:
 
-- **Orden.** El documento describe primero la inundación; aquí va al final porque, fuera del modo demo, cada gota cuesta 1 L y el depósito (20 L) se vacía: sin agua, la fase de acción repetida no vería su `applied`. No se activa el modo demo.
+- **Orden.** El documento describe primero la inundación; aquí va al final porque, fuera del modo demo, cada gota cuesta 1 L y el depósito (10 L) se vacía: sin agua, la fase de acción repetida no vería su `applied`. No se activa el modo demo.
 - **Qué cuenta como admitida.** `applied`, `duplicate`, `rejected` (también `insufficient_water`: el límite la dejó pasar, y CP-03 prueba el límite, no la economía) y `expired`. Informa `accepted_per_second` (admitidas entre la ventana) y `rate_limited`.
 - **Tolerancia de +1.** El hub usa una ventana deslizante (`src/hub/internal/ratelimit`): nunca admite más de 15 en cualquier intervalo de 1 s con su propio reloj. El bot mide con su reloj de envío y en cubos fijos de 1 s, así que la red puede mover una gota al cubo vecino.
 - **Entre fases** espera 1,1 s para que la ventana del límite quede vacía.
@@ -94,7 +113,7 @@ Decisiones:
 `BOTS_COUNT` bomberos (3 por defecto) vigilan `state.fires` durante `BOTS_DURATION` (120 s). Cuando aparece un incendio, todos sueltan **a la vez** una gota sobre la misma casilla (una ronda; se coordinan en el proceso) y repiten con cada estado nuevo mientras el fuego siga en el estado. Si hay varios, atienden uno por vez (el de menor fila y columna). No usan cifras del catálogo para decidir: solo reaccionan al estado.
 
 - **Cómo terminó.** Con el mapa (`map=true`): si la casilla vuelve a tierra seca (etapa 1) el fuego se consumió (`burn_out_ticks`); si conserva su planta, se apagó.
-- **Bono (indicativo).** Cada bot solo ve sus hojas. Se cuenta cuántos subieron al menos el bono entre que apareció el incendio y que todos recibieron un estado posterior a su desaparición. Debe ser uno. Es una heurística, porque las hojas también suben por crecimiento: cero bots solo da una nota, y más de uno hace fallar.
+- **Bono (indicativo).** Cada bot solo ve sus hojas. Se cuenta cuántos subieron al menos el bono entre que apareció el incendio y que todos recibieron un estado posterior a su desaparición. Debe ser uno. Es una heurística, porque las hojas también suben por crecimiento: cero bots solo da una nota, y más de uno hace fallar. En `tests/e2e/cp04-firefighter.test.mjs` el valle es nuevo y las gotas caen en la casilla en llamas, así que las hojas solo suben por el bono y el caso exige **exactamente un** bot con la subida.
 - **Humedad.** Informa las diferencias de `humidity_contributed` y `accepted_drops`; fuera del modo demo son solo informativas (la igualdad exacta vale en demo).
 - **Código de salida.** 0 si no hubo incendios (lo dice: «no hubo incendios en la ventana») o si todos los vistos se apagaron. 1 si un incendio atacado se consumió o seguía ardiendo al terminar, o si el bono parece repetido. Un incendio que aparece al final sin tiempo para atacarlo no hace fallar.
 - **Incendios raros.** Solo arden casillas con planta y humedad 0 (50 ppm por tick, fuera del modo demo), así que en una ventana corta puede no haber ninguno. `BOTS_FIREFIGHTER_SEED_PLANTS=true` riega casillas al empezar para que existan plantas, sin garantizar un incendio.
@@ -118,7 +137,7 @@ El contexto es la raíz del repositorio:
 
 ```
 docker build -f src/bots/Dockerfile -t hydrovalley-bots .
-docker run --rm -e HV_BASE_URL=http://host:8080 -e HV_ADMIN_USERNAME=admin -e HV_ADMIN_PASSWORD=... hydrovalley-bots neighbors
+docker run --rm -e HV_BASE_URL=https://host:8080 -e HV_TLS_INSECURE=true -e HV_ADMIN_USERNAME=admin -e HV_ADMIN_PASSWORD=... hydrovalley-bots neighbors
 ```
 
 Binario estático en `golang:1.26` sobre `gcr.io/distroless/static-debian13:nonroot`. En Compose es el servicio `bots`, bajo el perfil del mismo nombre: `docker compose -f deploy/compose.yml --profile bots run --rm bots load-test` (`load-test` es alias de `load`).

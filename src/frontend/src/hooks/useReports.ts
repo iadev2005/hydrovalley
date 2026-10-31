@@ -25,6 +25,7 @@ export interface UseReportsReturn {
   setReportScope: (scope: ReportScope) => void;
   refresh: () => void;
   isLoading: boolean;
+  isRetryLocked: boolean;
 }
 
 export function useReports({
@@ -38,8 +39,10 @@ export function useReports({
   const [reportStatus, setReportStatus] = useState<string>("");
   const [reportScope, setReportScopeState] = useState<ReportScope>("me");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isRetryLocked, setIsRetryLocked] = useState<boolean>(false);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runIdRef = useRef<number>(0);
   const performFetchRef = useRef<(scope: ReportScope) => Promise<void>>(async () => {});
 
@@ -86,6 +89,15 @@ export function useReports({
           rankingRes.ok ? 0 : rankingRes.error.waitMs,
           reportRes.ok ? 0 : reportRes.error.waitMs,
         );
+
+        if (wait > 0) {
+          setIsRetryLocked(true);
+          if (retryLockTimerRef.current !== null) clearTimeout(retryLockTimerRef.current);
+          retryLockTimerRef.current = setTimeout(() => {
+            setIsRetryLocked(false);
+            retryLockTimerRef.current = null;
+          }, wait);
+        }
       } catch (err) {
         console.error("error al actualizar ranking y reporte", err);
       } finally {
@@ -111,9 +123,10 @@ export function useReports({
   }, [performFetch]);
 
   const refresh = useCallback(() => {
+    if (isRetryLocked) return;
     if (timerRef.current !== null) clearTimeout(timerRef.current);
     void performFetchRef.current(reportScope);
-  }, [reportScope]);
+  }, [reportScope, isRetryLocked]);
 
   const setReportScope = useCallback(
     (newScope: ReportScope) => {
@@ -152,6 +165,10 @@ export function useReports({
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      if (retryLockTimerRef.current !== null) {
+        clearTimeout(retryLockTimerRef.current);
+        retryLockTimerRef.current = null;
+      }
       runIdRef.current += 1;
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -173,5 +190,6 @@ export function useReports({
     setReportScope,
     refresh,
     isLoading,
+    isRetryLocked,
   };
 }

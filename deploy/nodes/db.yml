@@ -1,0 +1,31 @@
+# Nodo db (plan A): PostgreSQL. Solo la persistencia llega a él.
+#
+#   docker compose -p hv-db -f deploy/nodes/db.yml \
+#     --env-file lab-addresses.local --env-file secrets.local up -d
+#
+# Publica HV_DB_PORT (5433 en el laboratorio; el 5432 lo ocupa un PostgreSQL
+# nativo) hacia el 5432 del contenedor. Guía: deploy/nodes/README.md.
+
+name: hv-db
+
+services:
+  postgres:
+    restart: unless-stopped
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?definir POSTGRES_USER en secrets.local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD en secrets.local}
+      POSTGRES_DB: ${POSTGRES_DB:?definir POSTGRES_DB en secrets.local}
+    ports:
+      - "${HV_DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pgdata: {}

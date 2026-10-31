@@ -40,6 +40,17 @@ message StepRequest {
   // Comandos en orden de admisión (como mucho 500 mientras el hub vacía su
   // cola tras un reinicio). Puede ir vacío: el valle avanza igual (RF-28).
   repeated Command commands = 1;
+
+  // Generación del hub emisor (B8, D-B8-1): un hub con generación menor que
+  // la máxima vista por el simulador recibe FAILED_PRECONDITION y se retira
+  // (fencing). 0 omite la validación por compatibilidad hacia atrás.
+  uint64 hub_generation = 2;
+
+  // Último tick confirmado que conoce el hub emisor (B8, D-B8-1 / D-B8-2):
+  // si es mayor que el tick en memoria del simulador, este estuvo pausado
+  // mientras otro simulador avanzó el valle y debe descartar su memoria,
+  // rotar su boot_id y recargar la última instantánea antes de avanzar.
+  uint64 min_expected_tick = 3;
 }
 
 // Comando admitido por el hub. Go decide si es admisible (sesión, rol,
@@ -58,6 +69,8 @@ message Command {
     // role = admin.
     SetDemoModeCommand set_demo_mode = 6;
     ResetValleyCommand reset_valley = 7;
+    // Limpieza de basura (Fase 4).
+    CleanTrashCommand clean_trash = 8;
   }
 }
 
@@ -91,6 +104,12 @@ message SetDemoModeCommand {
 // 3R y de RF-27. Conserva las cuentas, NO reinicia el tick e incrementa la
 // época de las instantáneas (RF-31).
 message ResetValleyCommand {}
+
+// Limpia 1 nivel de basura de una casilla (Fase 4).
+message CleanTrashCommand {
+  uint32 x = 1;
+  uint32 y = 2;
+}
 
 message StepResponse {
   // Tick calculado por esta llamada. El tick solo crece (Capa 4).
@@ -189,6 +208,10 @@ message Tile {
   Fire fire = 4;
   // Presente cuando hay una instalación colocada en la casilla.
   Installation installation = 5;
+  // Presente cuando hay una estructura urbana (Fase 4).
+  bool has_building = 6;
+  // Nivel de basura urbana de 0 a 3 (Fase 4).
+  uint32 trash_level = 7;
 }
 
 enum TileStage {
@@ -198,6 +221,8 @@ enum TileStage {
   TILE_STAGE_SHRUB = 3;
   TILE_STAGE_FLOWERS = 4;
   TILE_STAGE_TREE = 5;
+  TILE_STAGE_WATER = 6;
+  TILE_STAGE_ROCK = 7;
 }
 
 message Fire {
@@ -211,6 +236,8 @@ message Installation {
   InstallationKind kind = 1;
   // Recibe las hojas cuando la instalación hace crecer una casilla.
   string owner_id = 2;
+  // Durabilidad restante; al llegar a cero se destruye y desaparece (Fase 2).
+  uint32 remaining_durability = 3;
 }
 
 enum InstallationKind {
@@ -221,6 +248,8 @@ enum InstallationKind {
   INSTALLATION_KIND_DRIP = 2;
   // Planta de tratamiento (Reciclar).
   INSTALLATION_KIND_TREATMENT_PLANT = 3;
+  // Cesto de basura / reciclaje (Fase 4).
+  INSTALLATION_KIND_TRASH_BIN = 4;
 }
 
 enum UpgradeKind {
@@ -238,6 +267,18 @@ message PlayerState {
   repeated UpgradeKind upgrades = 5;
   // Precio de la siguiente instalación de cada tipo (RF-07).
   repeated InstallationPrice next_prices = 6;
+  // Lo que hicieron sus aspersores desde su última acción aplicada (RF-25,
+  // nivel 2). Ausente si todavía no hay nada que contar.
+  OfflineSummary offline_summary = 7;
+}
+
+// Efecto de los aspersores de un jugador desde su última acción aplicada.
+// Se borra con su siguiente acción aplicada.
+message OfflineSummary {
+  uint64 leaves_earned = 1;
+  uint64 water_reused = 2;
+  uint64 fires_extinguished = 3;
+  uint64 tiles_grown = 4;
 }
 
 message InstallationPrice {
@@ -308,6 +349,12 @@ message PlayerRecord {
   uint64 last_action_tick = 14;
   // action_id aplicados en los últimos 600 ticks (Capa 3).
   repeated AppliedAction recent_actions = 15;
+  // Resumen offline pendiente; solo se escribe si no está vacío, así los
+  // mundos sin resumen conservan los mismos bytes de instantánea.
+  OfflineSummary offline_summary = 16;
+  // Acumulado de la época: fuegos apagados y casillas crecidas por sus aspersores.
+  uint64 fires_extinguished = 17;
+  uint64 tiles_grown = 18;
 }
 
 message InstallationCount {

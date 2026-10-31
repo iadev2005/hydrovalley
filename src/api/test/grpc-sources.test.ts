@@ -12,13 +12,14 @@ import {
 import { TestGrpcServer } from "./support/grpc-server.js";
 
 const server = new TestGrpcServer();
+const server2 = new TestGrpcServer();
 const sleeps: number[] = [];
 let clockOffset = 0;
 
 afterEach(async () => {
   sleeps.length = 0;
   clockOffset = 0;
-  await server.stop();
+  await Promise.all([server.stop(), server2.stop()]);
 });
 
 const callOptions = (address: string, timeoutMs = 2000) => ({
@@ -128,6 +129,99 @@ describe("gRPC ranking source", () => {
     await expect(createGrpcRankingSource(callOptions(slow)).getRanking(1)).rejects.toBeInstanceOf(
       SourceUnavailableError,
     );
+  });
+
+  it("selects the node with the highest advancing tick in a multi-address setup", async () => {
+    let calls1 = 0;
+    let calls2 = 0;
+    let tick1 = 100n;
+    let tick2 = 200n;
+
+    const addr1 = await server.start(WorldService, {
+      getRanking: () => {
+        calls1++;
+        return {
+          tick: tick1,
+          entries: [{ rank: 1, playerId: "p1", leavesEarned: 10n }],
+        };
+      },
+    });
+
+    const addr2 = await server2.start(WorldService, {
+      getRanking: () => {
+        calls2++;
+        return {
+          tick: tick2,
+          entries: [{ rank: 1, playerId: "p2", leavesEarned: 20n }],
+        };
+      },
+    });
+
+    const source = createGrpcRankingSource(callOptions(`${addr1},${addr2}`));
+
+    // First call: probes both because tick was unknown, discovers server2 has higher tick (200n > 100n)
+    const first = await source.getRanking(5);
+    expect(first.tick).toBe(200n);
+    expect(first.entries[0]?.playerId).toBe("p2");
+    expect(calls1).toBe(1);
+    expect(calls2).toBe(1);
+
+    // Second call: server2 is active and advancing, fast path taken without probing server1
+    tick2 = 250n;
+    const second = await source.getRanking(5);
+    expect(second.tick).toBe(250n);
+    expect(second.entries[0]?.playerId).toBe("p2");
+    expect(calls1).toBe(1); // server1 was not called!
+    expect(calls2).toBe(2);
+
+    // Failover: server2 freezes at 250n, server1 resumes and reaches 300n
+    tick1 = 300n;
+    const third = await source.getRanking(5);
+    expect(third.tick).toBe(300n);
+    expect(third.entries[0]?.playerId).toBe("p1");
+    expect(calls1).toBe(2);
+    expect(calls2).toBe(3);
+
+    // Fourth call: server1 is now active and advancing (350n > 300n), fast path taken
+    tick1 = 350n;
+    const fourth = await source.getRanking(5);
+    expect(fourth.tick).toBe(350n);
+    expect(fourth.entries[0]?.playerId).toBe("p1");
+    expect(calls1).toBe(3);
+    expect(calls2).toBe(3); // server2 was not called!
+  });
+
+  it("fails over to secondary node when active node is unavailable in multi-address setup", async () => {
+    let calls1 = 0;
+    let calls2 = 0;
+
+    const addr1 = await server.start(WorldService, {
+      getRanking: () => {
+        calls1++;
+        throw new ConnectError("down", Code.Unavailable);
+      },
+    });
+
+    const addr2 = await server2.start(WorldService, {
+      getRanking: () => {
+        calls2++;
+        return {
+          tick: 500n,
+          entries: [{ rank: 1, playerId: "p2", leavesEarned: 50n }],
+        };
+      },
+    });
+
+    const source = createGrpcRankingSource({
+      ...callOptions(`${addr1},${addr2}`),
+      retryDelaysMs: [],
+    });
+
+    const res = await source.getRanking(5);
+    expect(res.tick).toBe(500n);
+    expect(res.entries[0]?.playerId).toBe("p2");
+    expect(calls1).toBeGreaterThanOrEqual(1);
+    expect(calls2).toBe(1);
   });
 });
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/iadev2005/hydrovalley/src/bots/internal/client"
+	"github.com/iadev2005/hydrovalley/src/bots/internal/config"
 )
 
 // Config afina la prueba. Todo lo que valga cero toma el valor del
@@ -36,6 +37,12 @@ type Config struct {
 	Reset bool
 	// Seed fija las casillas y las esperas de los bots.
 	Seed uint64
+	// RankingClient y RankingToken activan la consulta en bucle de
+	// GET /api/ranking durante la carga para medir RNF-03.
+	RankingClient   RankingClient
+	RankingToken    string
+	RankingInterval time.Duration
+	BaselineP95     time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -51,7 +58,14 @@ func (c Config) withDefaults() Config {
 	def(&c.Settle, 1500*time.Millisecond)
 	def(&c.ConnectTimeout, 10*time.Second)
 	def(&c.StepTimeout, 10*time.Second)
+	def(&c.RankingInterval, config.DefaultLoadRankingInterval)
 	return c
+}
+
+// RankingClient es lo que la prueba de carga necesita del cliente API para
+// consultar GET /api/ranking y medir RNF-03.
+type RankingClient interface {
+	GetRanking(ctx context.Context, token string, limit int) (client.RankingResponse, time.Duration, error)
 }
 
 // Session es lo que la prueba necesita de client.Session; la interfaz vive
@@ -131,6 +145,17 @@ func Run(ctx context.Context, cfg Config, admin Session, bots []Session, log *sl
 	sendCtx, stopSend := context.WithTimeout(ctx, cfg.Duration)
 	defer stopSend()
 	start := time.Now()
+
+	var rankingMeasurement *RankingMeasurement
+	var rankingWg sync.WaitGroup
+	if cfg.RankingClient != nil && cfg.RankingToken != "" {
+		rankingWg.Add(1)
+		go func() {
+			defer rankingWg.Done()
+			rankingMeasurement = runRankingLoop(sendCtx, cfg, log)
+		}()
+	}
+
 	results := make([]botResult, len(bots))
 	var wg sync.WaitGroup
 	for i, b := range bots {
@@ -144,9 +169,17 @@ func Run(ctx context.Context, cfg Config, admin Session, bots []Session, log *sl
 	<-sendCtx.Done()
 	window := time.Since(start)
 	wg.Wait()
+	rankingWg.Wait()
 	log.Info("sending finished, results drained", "window", window.Round(time.Millisecond))
 
-	m := Measurement{Bots: len(bots), Window: window, Results: map[string]int{}, Baseline: baseline}
+	m := Measurement{
+		Bots:        len(bots),
+		Window:      window,
+		Results:     map[string]int{},
+		Baseline:    baseline,
+		Ranking:     rankingMeasurement,
+		BaselineP95: cfg.BaselineP95,
+	}
 	for _, r := range results {
 		m.Sent += r.sent
 		m.Unresolved += r.sent - r.resolved
@@ -329,4 +362,39 @@ send:
 		}
 	}
 	return res
+}
+
+// runRankingLoop ejecuta consultas a GET /api/ranking periódicamente mientras
+// ctx esté activo para medir RNF-03.
+func runRankingLoop(ctx context.Context, cfg Config, log *slog.Logger) *RankingMeasurement {
+	rm := &RankingMeasurement{}
+	ticker := time.NewTicker(cfg.RankingInterval)
+	defer ticker.Stop()
+
+	query := func() {
+		_, lat, err := cfg.RankingClient.GetRanking(ctx, cfg.RankingToken, 100)
+		if err != nil && ctx.Err() != nil {
+			// La ventana de envío terminó con la consulta en vuelo: la
+			// cancelamos nosotros, no es un fallo del ranking ni cuenta.
+			return
+		}
+		rm.Sent++
+		if err != nil {
+			rm.Errors++
+			log.Debug("ranking query error", "err", err)
+			return
+		}
+		rm.Success++
+		rm.Latencies = append(rm.Latencies, lat)
+	}
+
+	query()
+	for {
+		select {
+		case <-ctx.Done():
+			return rm
+		case <-ticker.C:
+			query()
+		}
+	}
 }

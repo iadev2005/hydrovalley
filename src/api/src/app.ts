@@ -5,7 +5,9 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { type AdminDeps, adminRoutes } from "./admin-routes.js";
 import { type AuthDeps, authRoutes } from "./auth-routes.js";
+import { type CatalogDeps, catalogRoutes } from "./catalog-routes.js";
 import { type ReadDeps, readRoutes } from "./read-routes.js";
+import { registerRequestId, requestIdOptions } from "./request-id.js";
 import { type SystemDeps, systemRoutes } from "./system-routes.js";
 
 const healthSchema = {
@@ -38,12 +40,15 @@ export async function buildApp(
   read?: ReadDeps,
   admin?: AdminDeps,
   system?: SystemDeps,
+  catalog?: CatalogDeps,
 ): Promise<FastifyInstance> {
   // Sin coerción de tipos: un número no se acepta como nombre de usuario.
   const app = Fastify({
     ajv: { customOptions: { coerceTypes: false } },
+    ...requestIdOptions,
     ...options,
   });
+  registerRequestId(app);
 
   await app.register(swagger, {
     openapi: {
@@ -51,13 +56,14 @@ export async function buildApp(
       info: {
         title: "hydrovalley API",
         description:
-          "Registro, acceso, catálogo, ranking y reportes. Por ahora expone la salud del servicio, el registro, el acceso, el ranking y el reporte de las 3R.",
+          "Registro, acceso, catálogo, ranking y reportes. Por ahora expone la salud del servicio, el registro, el acceso, el catálogo, el ranking y el reporte de las 3R.",
         version: "0.1.0",
       },
       tags: [
         { name: "system", description: "Operación del servicio" },
         { name: "auth", description: "Registro y acceso con token firmado" },
         { name: "ranking", description: "Ranking global por hojas ganadas" },
+        { name: "catalog", description: "Instalaciones, mejoras y cifras del juego" },
         { name: "admin", description: "Operación reservada a administradores" },
         {
           name: "reports",
@@ -82,6 +88,31 @@ export async function buildApp(
     status: "ok" as const,
   }));
 
+  app.get("/metrics", async (_req, reply) => {
+    reply.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    let out = "";
+    out += "# HELP hydrovalley_api_uptime_seconds API process uptime in seconds\n";
+    out += "# TYPE hydrovalley_api_uptime_seconds gauge\n";
+    out += `hydrovalley_api_uptime_seconds ${String(Math.floor(process.uptime()))}\n`;
+    out += "# HELP hydrovalley_api_memory_rss_bytes API process RSS memory in bytes\n";
+    out += "# TYPE hydrovalley_api_memory_rss_bytes gauge\n";
+    out += `hydrovalley_api_memory_rss_bytes ${String(process.memoryUsage().rss)}\n`;
+    out += "# HELP hydrovalley_api_memory_heap_used_bytes API process heap used memory in bytes\n";
+    out += "# TYPE hydrovalley_api_memory_heap_used_bytes gauge\n";
+    out += `hydrovalley_api_memory_heap_used_bytes ${String(process.memoryUsage().heapUsed)}\n`;
+
+    if (system) {
+      const status = await system.status.get();
+      out += "# HELP hydrovalley_service_status Status of system services according to API probes (1=up, 0=down)\n";
+      out += "# TYPE hydrovalley_service_status gauge\n";
+      for (const svc of status.services) {
+        const val = svc.status === "up" ? 1 : 0;
+        out += `hydrovalley_service_status{service="${svc.name}"} ${String(val)}\n`;
+      }
+    }
+    return reply.send(out);
+  });
+
   if (auth) {
     await app.register(authRoutes, auth);
   }
@@ -98,7 +129,9 @@ export async function buildApp(
     await app.register(systemRoutes, system);
   }
 
-  // TODO: catálogo.
+  if (catalog) {
+    await app.register(catalogRoutes, catalog);
+  }
 
   return app;
 }

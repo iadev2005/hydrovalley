@@ -4,7 +4,8 @@
 #   cp deploy/.env.example deploy/.env      # y cambiar la clave
 #   docker compose -f deploy/compose.yml up --build
 #
-# Solo nginx publica un puerto en el host (HV_HTTP_PORT, 8080 por defecto).
+# Solo nginx publica un puerto en el host (HV_HTTP_PORT, 8080 por defecto),
+# con HTTPS.
 # Los servicios se encuentran por su nombre en la red de Compose mediante
 # variables de entorno (world:50051…), nunca por localhost. El plan A usa
 # las mismas imágenes con deploy/nodes/<nodo>.yml.
@@ -81,6 +82,18 @@ services:
       # token de /play. Es la pareja de TOKEN_PRIVATE_KEY; va en deploy/.env.
       TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?define TOKEN_PUBLIC_KEY en deploy/.env}
 
+  chat:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-chat:${HV_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: src/chat/Dockerfile
+    environment:
+      CHAT_HTTP_LISTEN: :8082
+      CHAT_GRPC_LISTEN: :50051
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?define TOKEN_PUBLIC_KEY en deploy/.env}
+
   api:
     <<: *service
     image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}
@@ -113,7 +126,13 @@ services:
     environment:
       API_ADDR: api:3000
       HUB_ADDR: hub:8081
+      CHAT_ADDR: chat:8082
       NGINX_RESOLVER: 127.0.0.11
+      # TLS (RNF-12): sin certificado montado, nginx genera uno autofirmado al
+      # arrancar. Nombres o IP extra para su SAN (el laboratorio: 10.68.17.x);
+      # para usar uno propio, montar un volumen de solo lectura en
+      # /etc/nginx/tls con tls.crt y tls.key (deploy/README.md, «TLS»).
+      TLS_EXTRA_SANS: ${TLS_EXTRA_SANS:-}
     ports:
       - "${HV_HTTP_PORT:-8080}:8080"
 
@@ -131,8 +150,17 @@ services:
       context: ..
       dockerfile: src/bots/Dockerfile
     environment:
-      # Solo por nginx, dentro de la red de Compose (puerto interno 8080).
-      HV_BASE_URL: http://nginx:8080
+      # Solo por nginx, dentro de la red de Compose (puerto interno 8080,
+      # HTTPS). nginx usa un certificado autofirmado generado al arrancar, que
+      # el bot no puede conocer, así que aquí la verificación del certificado
+      # está DESACTIVADA por defecto (HV_TLS_INSECURE=true) y el bot lo avisa
+      # al arrancar. Solo es aceptable dentro de la red de Compose del plan B,
+      # donde el tráfico no sale de la máquina. En el laboratorio (plan A) hay
+      # que verificar: HV_TLS_INSECURE=false y HV_CA_CERT con la ruta, dentro
+      # del contenedor, del certificado en que confiar (montado con un volumen).
+      HV_BASE_URL: https://nginx:8080
+      HV_TLS_INSECURE: ${HV_TLS_INSECURE:-true}
+      HV_CA_CERT: ${HV_CA_CERT:-}
       # Cuenta de administrador (RF-31) para crear las cuentas de los bots; la
       # contraseña va en claro (no es el hash de ADMIN_PASSWORD_HASH). Sin
       # ellas el binario se detiene con un mensaje que las nombra.
@@ -143,7 +171,64 @@ services:
       BOTS_SEED: ${BOTS_SEED:-}
       BOTS_RESET: ${BOTS_RESET:-}
       BOTS_REPORT_PATH: ${BOTS_REPORT_PATH:-}
+      BOTS_LOAD_RANKING: ${BOTS_LOAD_RANKING:-}
+      BOTS_LOAD_RANKING_INTERVAL: ${BOTS_LOAD_RANKING_INTERVAL:-}
+      BOTS_LOAD_BASELINE_REPORT: ${BOTS_LOAD_BASELINE_REPORT:-}
+      BOTS_FIREFIGHTER_SEED_PLANTS: ${BOTS_FIREFIGHTER_SEED_PLANTS:-}
+      BOTS_FIREFIGHTER_BONUS: ${BOTS_FIREFIGHTER_BONUS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  # Monitorización profesional (nivel 2, B7): Prometheus y Grafana con
+  # aprovisionamiento automático y tablero versionado.
+  # No arrancan con `up`: viven bajo el perfil «monitoring» y se lanzan con:
+  #   docker compose --profile monitoring up -d
+  # Los scrapes salen de la plantilla `prometheus.yml.tmpl`: el arranque
+  # sustituye @HUB_METRICS_ADDR@ y @API_METRICS_ADDR@ con sed (la imagen es
+  # busybox y no trae envsubst). En el plan A se apuntan a las máquinas del
+  # laboratorio con HUB_METRICS_ADDR y API_METRICS_ADDR.
+  # Ambos puertos se publican solo en 127.0.0.1 (HV_PROMETHEUS_BIND y
+  # HV_GRAFANA_BIND los cambian); el plan B solo expone el 8080 al exterior.
+  prometheus:
+    profiles: ["monitoring"]
+    networks: [backend]
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    environment:
+      HUB_METRICS_ADDR: ${HUB_METRICS_ADDR:-hub:8081}
+      API_METRICS_ADDR: ${API_METRICS_ADDR:-api:3000}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        sed -e "s|@HUB_METRICS_ADDR@|$$HUB_METRICS_ADDR|g"
+        -e "s|@API_METRICS_ADDR@|$$API_METRICS_ADDR|g"
+        /etc/prometheus/prometheus.yml.tmpl > /tmp/prometheus.yml &&
+        exec /bin/prometheus --config.file=/tmp/prometheus.yml
+        --storage.tsdb.path=/prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml.tmpl:/etc/prometheus/prometheus.yml.tmpl:ro
+    ports:
+      - "${HV_PROMETHEUS_BIND:-127.0.0.1}:${HV_PROMETHEUS_PORT:-9090}:9090"
+
+  # Acceso anónimo solo de lectura (Viewer). La cuenta admin toma su
+  # contraseña de GRAFANA_ADMIN_PASSWORD (sin valor por defecto en el
+  # repositorio; un `:?` aquí rompería el `up` sin el perfil).
+  grafana:
+    profiles: ["monitoring"]
+    networks: [backend]
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${HV_GRAFANA_BIND:-127.0.0.1}:${HV_GRAFANA_PORT:-3001}:3000"
 
 networks:
   backend: {}

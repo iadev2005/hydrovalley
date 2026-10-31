@@ -26,10 +26,17 @@ La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada indepen
   - Deduplicación y traducción de respuestas del hub: `applied`, `duplicate` (se asume aplicada), `rejected` con motivo, `expired`, `rate_limited`, `paused` y `forbidden`.
 
 ### 3. Vista del Valle e Interacción
-- Componente `<ValleyCanvas />` que aloja un lienzo 2D de 32 × 32 casillas encapsulado con `useRef`, desacoplado y preparado para su sustitución por Phaser en la tarea A3.
-- Visualización de etapas de vegetación (tierra seca, pasto, arbusto, flores, árbol), fuego activo e instalaciones (A: Aspersor, G: Goteo, P: Planta de tratamiento).
-- Panel de recursos: agua disponible, capacidad del depósito, hojas ganadas y costos dinámicos de las siguientes instalaciones.
-- Botones de acción: **Soltar gota**, colocar instalaciones en la casilla seleccionada y adquirir mejoras de depósito/gota.
+- **Valle isométrico en Phaser (`<ValleyPhaser />`, tarea A3)**: renderizado 2.5D de 32 × 32 casillas con proyección de diamante, elevación visual por etapas de vegetación, cámara interactiva con paneo y zoom, y animación de gotas en vuelo.
+- **Salida de emergencia a vista cenital (`<ValleyCanvas />`, tarea A4)**: cuadrícula 2D interactiva sobre lienzo nativo (32 × 32 casillas) que garantiza que el juego se mantenga 100% jugable si Phaser no carga, va lento o si el dispositivo carece de aceleración gráfica / WebGL.
+- **Conmutación manual y persistencia**: botón de alternancia (`#btn-toggle-view`) que permite al jugador cambiar entre la vista isométrica y cenital en cualquier momento; la preferencia se guarda y recupera de `localStorage` (`hydrovalley.view_mode`).
+- **Degradación elegante automática (*Graceful Degradation*)**: si `new Phaser.Game(...)` lanza una excepción o el entorno carece de soporte Canvas2D/WebGL, la aplicación conmuta inmediatamente a la vista cenital de emergencia y muestra la insignia informativa `.view-emergency-badge`, sin interrumpir la partida.
+- **Paridad funcional total**: ambas vistas reflejan el mismo estado del mundo (`gameState`), sincronizan la casilla seleccionada (`selected`) y aceptan las mismas acciones (gotas, compra de mejoras, colocación de instalaciones).
+- Visualización de etapas de vegetación (tierra seca, pasto, arbusto, flores, árbol), fuego activo e instalaciones (A: Aspersor, G: Goteo, P: Planta de tratamiento, C: Cesto de reciclaje). Con la expansión de jugabilidad (nivel 2) también agua y roca, edificios y basura de tres niveles, el sombreado del área del goteo, el pulso de la planta y un destello al limpiar basura; la vista cenital los dibuja con su propio color (`STAGE_COLOURS`, `BUILDING_COLOUR`, `TRASH_COLOURS`).
+- **Pantalla compacta (correcciones de la predefensa)**: todo en una sola pantalla. Barra superior con agua y hojas (`<ResourceHud />`), estado de la conexión, botones de los paneles y menú de la cuenta (`<AccountMenu />`: salir, administración, registro y panel del sistema). Herramientas a la izquierda, valle al centro y paneles plegables a la derecha (Ranking, Chat y Mi aporte en pestañas).
+- **Clic contextual (`logic/tools.ts`)**: con la herramienta **Interactuar** el clic en una casilla hace la única acción posible: regar (`drop`) en tierra o planta, también sobre una instalación o un fuego; recoger (`clean_trash`) si hay basura; nada en río, roca o edificio, con un aviso que dice por qué. Con el depósito vacío (y fuera del modo demo) la gota no se envía y se avisa de esperar la recarga; si el estado va un segundo atrasado, el simulador sigue rechazando con `insufficient_water`. Las reglas imitan las de `world.rs` (`drop`, `clean_trash`, `place_installation`) solo para avisar antes de enviar; quien decide sigue siendo el simulador.
+- **Herramientas como en Paint (`<ToolPalette />`)**: al elegir aspersor, goteo, planta de tratamiento o papelera, la herramienta queda activa y cada clic coloca una más, con una vista previa semitransparente en la casilla bajo el ratón (solo donde cabe). Esc, el clic derecho o «Terminar» vuelven a Interactuar. Cada herramienta dice para qué sirve (al pasar el ratón o mientras está activa) y su precio siguiente; las descripciones no llevan cifras del catálogo porque cambian sin tocar código.
+- **Tooltip de casilla**: al pasar el ratón por el valle isométrico se ve qué hay en la casilla, su humedad, los usos que le quedan a una instalación y qué hará el clic. La vista cenital acepta los mismos clics, sin tooltip.
+- **Resumen al volver (RF-25, tarea B6; `<OfflineSummaryPanel />`)**: el hub manda lo que hicieron los aspersores del jugador desde su última acción aplicada (`player.offline_summary`) solo en el primer `state` de cada conexión y solo si no está vacío. El panel descartable dice, con las palabras del documento, «Mientras no estabas, tus aspersores hicieron crecer 38 casillas y apagaron un incendio», con las hojas ganadas y el agua reutilizada. El hook lo guarda hasta que el jugador lo cierra; la siguiente conexión lo vuelve a mostrar si el jugador no ha actuado. Los contadores son `u64` en texto (`BigInt`, nunca `Number`).
 - **Panel de administración (RF-31)**: visible solo para usuarios con rol `admin` (leído de la carga útil del JWT; validado autoritativamente por el hub), permitiendo activar/desactivar el modo demo y reiniciar el valle previa confirmación modal.
 
 ### 4. Ranking y Reportes 3R (RF-10, RF-11, RF-12)
@@ -56,20 +63,20 @@ La aplicación es multi-página (MPA) y cuenta con dos puntos de entrada indepen
 src/frontend/
 ├── index.html                  # Punto de entrada HTML del juego
 ├── sistema.html                # Punto de entrada HTML del panel del sistema
-├── styles.css                  # Estilos globales y paleta visual retro-pixel
+├── styles.css                  # Estilos globales, paleta retro-pixel y toolbar del valle
 ├── vite.config.ts              # Configuración multi-página, proxy y setup de tests
 ├── tsconfig.json               # Configuración base de TypeScript
 ├── tsconfig.app.json           # Configuración TS para la aplicación (strict)
 ├── tsconfig.node.json          # Configuración TS para scripts y Vite
 ├── eslint.config.js            # Reglas de ESLint para TypeScript y React Hooks
 ├── package.json                # Scripts y dependencias (pnpm)
-├── public/                     # Activos estáticos públicos (preparado para sprites A3)
+├── public/                     # Activos estáticos públicos (sprites isométricos y catálogo)
 └── src/
     ├── main.tsx                # Montaje de React para index.html (GameApp)
     ├── system.tsx              # Montaje de React para sistema.html (SystemApp)
     ├── test-setup.ts           # Configuración de cleanup para Vitest
     ├── containers/             # Contenedores con gestión de estado
-    │   ├── GameApp.tsx         # Contenedor principal del juego
+    │   ├── GameApp.tsx         # Contenedor principal del juego (integra Phaser y Canvas 2D)
     │   ├── GameApp.test.tsx
     │   ├── SystemApp.tsx       # Contenedor del panel del sistema
     │   └── SystemApp.test.tsx
@@ -77,25 +84,33 @@ src/frontend/
     │   ├── AdminPanel.tsx      # Controles de administración (modo demo / reinicio)
     │   ├── AuthPanel.tsx       # Formulario de registro y login
     │   ├── LogConsole.tsx      # Consola de eventos y avisos
+    │   ├── OfflineSummaryPanel.tsx # Resumen al volver (B6)
     │   ├── RankingTable.tsx    # Tabla del ranking de jugadores
     │   ├── ReportPanel.tsx     # Panel de reportes de sostenibilidad 3R
-    │   ├── SessionBar.tsx      # Barra de usuario activo y botón salir
+    │   ├── AccountMenu.tsx     # Menú de la cuenta: salir, administración y registro
+    │   ├── ResourceHud.tsx     # Agua y hojas en la barra superior
     │   ├── SystemDashboard.tsx # Métricas de servicios y componentes del sistema
-    │   ├── ValleyCanvas.tsx    # Canvas 2D interactivo (32x32) con useRef
-    │   ├── ValleyControls.tsx  # Botones de acciones del juego y costes
+    │   ├── ValleyCanvas.tsx    # Vista cenital 2D (salida de emergencia A4)
+    │   ├── ToolPalette.tsx     # Herramientas, descripciones y mejoras
+    │   ├── ValleyPhaser.tsx    # Valle isométrico en Phaser con cámara y animaciones (A3)
     │   └── *.test.tsx          # Pruebas unitarias de componentes
     ├── hooks/                  # Custom Hooks para ciclo de vida y red
     │   ├── useGameSocket.ts    # WebSocket /play, reconexión y cola de acciones
     │   ├── useReports.ts       # Sondeo de ranking y reportes
     │   ├── useSession.ts       # Estado de sesión y persistencia local
     │   ├── useSystemMetrics.ts # Sondeo y reintentos del panel del sistema
+    │   ├── useValleyView.ts    # Conmutación de vista isométrica/cenital y fallback de emergencia (A4)
     │   └── *.test.ts           # Pruebas unitarias de hooks
     └── logic/                  # Lógica de dominio pura sin dependencias de DOM
         ├── auth.ts             # Funciones de login, registro y parsing de JWT
+        ├── offlineSummary.ts   # Texto del resumen al volver (B6)
+        ├── isometric.ts        # Matemáticas de proyección isométrica 2.5D (pantalla ↔ cuadrícula)
         ├── play.ts             # Protocolo WebSocket, backoff, UUIDs y frames
         ├── reports.ts          # Procesamiento numérico seguro de reportes 3R
         ├── system.ts           # Normalización de métricas de salud de servicios
+        ├── tools.ts            # Herramientas y clic contextual (qué hace cada casilla)
         ├── valley.ts           # Renderizado de celdas del valle y costes
+        ├── viewMode.ts         # Resolución de modo de vista y persistencia (A4)
         └── *.test.ts           # Pruebas unitarias de lógica de negocio
 ```
 
@@ -141,3 +156,43 @@ El frontend se compila dentro de la imagen de Nginx mediante una construcción m
 2. **Etapa final de producción (`nginx`)**:
    - Copia los artefactos compilados desde `/build/dist/` hacia `/usr/share/nginx/html/`.
    - Nginx sirve los activos estáticos y actúa como proxy inverso hacia la API (`/api/`) y el Hub (`/play`).
+
+---
+
+## Verificación Manual de la Salida de Emergencia (A4)
+
+1. **Conmutación manual y persistencia:**
+   - Iniciar el servidor local (`pnpm run dev`) o navegar a `https://localhost:8080` (certificado autofirmado: aceptar el aviso del navegador).
+   - Pulsar el botón **🗺️ Vista cenital** en la barra inferior del valle: el renderizado cambia inmediatamente a la cuadrícula 2D nativa (`<ValleyCanvas />`).
+   - Interactuar seleccionando casillas o soltando gotas: el comportamiento y la actualización de recursos son idénticos a la vista isométrica.
+   - Recargar la página (`F5`): verificar que la vista cenital permanece seleccionada al leer `localStorage` (`hydrovalley.view_mode`).
+   - Pulsar **⛰️ Vista isométrica** y recargar: la vista isométrica de Phaser persiste.
+
+2. **Salida de emergencia automática ante fallo o bloqueo de Phaser:**
+   - Para simular un entorno sin soporte gráfico o con fallo en Phaser, abrir la consola de desarrollo del navegador (`F12`) y ejecutar:
+     ```js
+     localStorage.setItem("hydrovalley.view_mode", "isometric");
+     // Simular que el navegador no puede inicializar contextos gráficos para Phaser:
+     const origGetContext = HTMLCanvasElement.prototype.getContext;
+     HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+       if (type === "webgl" || type === "experimental-webgl") return null;
+       return origGetContext.apply(this, [type, ...args]);
+     };
+     ```
+   - Al recargar la página, si Phaser no puede instanciar el renderer, `ValleyPhaser` notifica el error y conmuta automáticamente a `<ValleyCanvas />`.
+   - La interfaz muestra la insignia `(Salida de emergencia activa)` y el valle continúa 100% jugable sin bloqueos ni pantallas en blanco.
+
+
+---
+
+## Tipografías (sin red)
+
+El laboratorio es una red cerrada, así que las páginas no piden nada a Google Fonts. Las fuentes se instalan como dependencias de `@fontsource` y Vite las empaqueta en `dist/assets/` (se importan en `src/fonts.ts`, desde `main.tsx` y `system.tsx`). Solo se incluyen los pesos que usa `styles.css`.
+
+| Fuente | Paquete | Pesos | Uso | Licencia |
+| --- | --- | --- | --- | --- |
+| Bungee | `@fontsource/bungee` | 400 | Títulos | SIL OFL 1.1 |
+| Outfit | `@fontsource/outfit` | 400, 600, 700 | Texto principal | SIL OFL 1.1 |
+| Inter | `@fontsource/inter` | 400, 500, 600, 700 | Texto de respaldo | SIL OFL 1.1 |
+
+Cada paquete incluye el texto de la licencia. Los nombres de familia (`"Bungee"`, `"Outfit"`, `"Inter"`) no cambian, así que el CSS sigue igual.

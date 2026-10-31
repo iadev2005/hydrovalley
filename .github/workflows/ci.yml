@@ -164,11 +164,14 @@ jobs:
             world:
               - 'src/world/**'
               - 'proto/**'
+              - 'catalog/**'
+              - 'tests/conformance/**'
+              - 'tests/bench/**'
               - '.github/workflows/ci.yml'
 
       - name: Sin cambios en el simulador
         if: steps.changes.outputs.world != 'true'
-        run: echo "Sin cambios en src/world, proto ni el workflow; no hay nada que probar."
+        run: echo "Sin cambios en src/world, proto, catalog, tests/conformance, tests/bench ni el workflow; no hay nada que probar."
 
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1 (sin versiones semánticas; mismo commit que master)
         if: steps.changes.outputs.world == 'true'
@@ -261,6 +264,151 @@ jobs:
         if: steps.changes.outputs.hub == 'true'
         working-directory: src/hub
         run: go test -race ./...
+
+  # Chat en tiempo real (Go). Mismo patrón que `hub`: el filtro de
+  # rutas va dentro del job, así que sin cambios termina en verde y puede
+  # ser una comprobación obligatoria. Usa el código generado en gen/go.
+  chat:
+    name: chat
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            chat:
+              - 'src/chat/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en el chat
+        if: steps.changes.outputs.chat != 'true'
+        run: echo "Sin cambios en src/chat, proto ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.chat == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El go.mod de gen/go sale de proto/go.mod.tmpl, la misma plantilla
+      # que usan scripts/gen-proto.sh y el Dockerfile del chat.
+      - name: buf generate
+        if: steps.changes.outputs.chat == 'true'
+        run: |
+          buf generate --template proto/buf.gen.yaml
+          cp proto/go.mod.tmpl gen/go/go.mod
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        if: steps.changes.outputs.chat == 'true'
+        with:
+          go-version-file: src/chat/go.mod
+          cache-dependency-path: src/chat/go.sum
+
+      - name: Formato
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: go vet ./...
+
+      - name: staticcheck
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Pruebas (con el detector de carreras)
+        if: steps.changes.outputs.chat == 'true'
+        working-directory: src/chat
+        run: go test -race ./...
+
+  # Tick en Go (world-go, plan B del simulador). Mismo patrón que `hub`: el
+  # filtro de rutas va dentro del job, así que sin cambios termina en verde y
+  # puede ser una comprobación obligatoria. Usa el código generado en gen/go
+  # (el codec) y la prueba de conformidad con Rust, que lee los guiones y los
+  # resultados esperados de tests/conformance y el catálogo de catalog/.
+  world-go:
+    name: world-go
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lee los archivos del pull request por la API.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: changes
+        with:
+          filters: |
+            world_go:
+              - 'src/world-go/**'
+              - 'proto/**'
+              - 'catalog/**'
+              - 'tests/conformance/**'
+              - 'tests/bench/**'
+              - 'deploy/compose.world-go.yml'
+              - '.github/workflows/ci.yml'
+
+      - name: Sin cambios en world-go
+        if: steps.changes.outputs.world_go != 'true'
+        run: echo "Sin cambios en src/world-go, proto, catalog, tests/conformance, tests/bench, su override de Compose ni el workflow; no hay nada que probar."
+
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        if: steps.changes.outputs.world_go == 'true'
+        with:
+          version: 1.73.0
+          setup_only: true
+
+      # El go.mod de gen/go sale de proto/go.mod.tmpl, la misma plantilla
+      # que usan scripts/gen-proto.sh y el Dockerfile del hub.
+      - name: buf generate
+        if: steps.changes.outputs.world_go == 'true'
+        run: |
+          buf generate --template proto/buf.gen.yaml
+          cp proto/go.mod.tmpl gen/go/go.mod
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        if: steps.changes.outputs.world_go == 'true'
+        with:
+          go-version-file: src/world-go/go.mod
+          cache-dependency-path: src/world-go/go.sum
+
+      - name: Formato
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: go vet ./...
+
+      - name: staticcheck
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Pruebas (con el detector de carreras)
+        if: steps.changes.outputs.world_go == 'true'
+        working-directory: src/world-go
+        run: go test -race ./...
+
+      # La imagen no está en el e2e por defecto (solo con E2E_WORLD_IMPL=go):
+      # sin este paso un error del Dockerfile no se vería hasta el `publish`
+      # tras fusionar. Solo construye; no se publica aquí.
+      - name: Construir la imagen
+        if: steps.changes.outputs.world_go == 'true'
+        run: docker build -f src/world-go/Dockerfile -t hydrovalley-world-go:ci .
 
   # Bots (Go). Mismo patrón que `hub`: el filtro de rutas va dentro del job,
   # así que sin cambios termina en verde y puede ser una comprobación
@@ -452,7 +600,7 @@ jobs:
 
       - name: Pruebas unitarias del arnés (tests/e2e)
         if: steps.changes.outputs.frontend == 'true'
-        run: node --test tests/e2e/play-session.test.mjs tests/e2e/faults.unit.test.mjs
+        run: node --test tests/e2e/play-session.test.mjs tests/e2e/chat-session.test.mjs tests/e2e/faults.unit.test.mjs
 
   # Prueba de humo de punta a punta (CP-01-lite) con el plan B: construye
   # todas las imágenes, levanta deploy/compose.yml y suelta una gota por
@@ -507,11 +655,12 @@ jobs:
 
   # Publicación de imágenes en GitHub Container Registry (ghcr.io).
   # Corre en push a la rama dev (tras fusionar) y en etiquetas de versión v* sobre main.
-  # Construye para linux/amd64 y publica las 6 imágenes: api, hub, world, persistence, proxy y bots.
+  # Construye para linux/amd64 y publica las imágenes: api, hub, chat, world, persistence, proxy y bots,
+  # más world-go (plan B del simulador; no está en deploy/compose.yml).
   publish:
     name: publish
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [proto, codegen, persistence, world, hub, bots, api, frontend]
+    needs: [proto, codegen, persistence, world, world-go, hub, chat, bots, api, frontend]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -568,3 +717,18 @@ jobs:
             *.platform=linux/amd64
             *.cache-from=type=gha,scope=e2e
             *.cache-to=type=gha,scope=e2e,mode=max
+
+      # world-go ocupa el lugar de `world` en deploy/compose.world-go.yml: va en
+      # su propia ejecución de bake (con compose.yml se pisaría la imagen de
+      # Rust) y se publica como hydrovalley-world-go.
+      - name: Construir y publicar la imagen de world-go
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        with:
+          source: .
+          files: deploy/compose.world-go.yml
+          push: true
+          set: |
+            *.context=.
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=world-go
+            *.cache-to=type=gha,scope=world-go,mode=max

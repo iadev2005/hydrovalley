@@ -84,6 +84,30 @@ function parseAddress(name: string, value: string): string {
 }
 
 /**
+ * Una o varias direcciones `host:puerto` separadas por comas (para B8:
+ * `WORLD_ADDR` y `HUB_STATS_ADDR` con primario y respaldo).
+ */
+export function parseAddressList(name: string, value: string): string[] {
+  const parts = value
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  if (parts.length === 0) {
+    throw new Error(`${name} must be host:port, got "${value}"`);
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of parts) {
+    parseAddress(name, part);
+    if (!seen.has(part)) {
+      seen.add(part);
+      out.push(part);
+    }
+  }
+  return out;
+}
+
+/**
  * Acepta el PEM PKCS#8 tal cual, con los saltos de línea escritos como `\n`
  * (como los dejan algunos cargadores de .env) o en base64 del PEM completo.
  * Los mensajes de error nunca incluyen el valor.
@@ -123,9 +147,9 @@ function required(env: Env, name: string): string {
 export function loadConfig(env: Env): Config {
   const listen = loadListenConfig(env);
   const persistenceAddr = parseAddress("PERSISTENCE_ADDR", required(env, "PERSISTENCE_ADDR"));
-  const worldAddr = parseAddress("WORLD_ADDR", required(env, "WORLD_ADDR"));
+  const worldAddr = parseAddressList("WORLD_ADDR", required(env, "WORLD_ADDR")).join(",");
   const tokenPrivateKey = parsePrivateKey("TOKEN_PRIVATE_KEY", required(env, "TOKEN_PRIVATE_KEY"));
-  const hubStatsAddr = parseAddress("HUB_STATS_ADDR", required(env, "HUB_STATS_ADDR"));
+  const hubStatsAddr = parseAddressList("HUB_STATS_ADDR", required(env, "HUB_STATS_ADDR")).join(",");
 
   const ttl = env.TOKEN_TTL_SECONDS;
   if (ttl !== undefined && !/^[1-9]\d*$/.test(ttl)) {

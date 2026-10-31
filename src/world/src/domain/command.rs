@@ -33,6 +33,10 @@ pub enum CommandKind {
         enabled: bool,
     },
     ResetValley,
+    CleanTrash {
+        x: u32,
+        y: u32,
+    },
 }
 
 /// Resultado final de un comando.

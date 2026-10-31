@@ -10,7 +10,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SnapshotPlayer:
     """Fila de `snapshot_players` (diagrama 07): contadores de un jugador en
-    una instantánea. Todos son u64."""
+    una instantánea. Todos son u64. `fires_extinguished` y `tiles_grown` son
+    lo que hicieron los aspersores del jugador en la época (RF-25)."""
 
     player_id: uuid.UUID
     water: int = 0
@@ -22,6 +23,8 @@ class SnapshotPlayer:
     water_reduced: int = 0
     water_reused: int = 0
     water_recycled: int = 0
+    fires_extinguished: int = 0
+    tiles_grown: int = 0
 
 
 @dataclass(frozen=True)
@@ -73,7 +76,9 @@ class ConcurrentSnapshotChangeError(Exception):
 
 @dataclass(frozen=True)
 class ReportTotals:
-    """Totales de un reporte: contadores acumulados de las 3R y saldos de RF-27."""
+    """Totales de un reporte: contadores acumulados de las 3R, saldos de
+    RF-27 y lo que hicieron los aspersores (fuegos apagados y casillas
+    crecidas, RF-25)."""
 
     water_reduced: int
     water_reused: int
@@ -82,6 +87,8 @@ class ReportTotals:
     water_spent: int
     leaves_earned: int
     leaves_spent: int
+    fires_extinguished: int = 0
+    tiles_grown: int = 0
 
     def minus(self, other: "ReportTotals") -> "ReportTotals":
         """Diferencia campo a campo, sin bajar de cero (los contadores solo

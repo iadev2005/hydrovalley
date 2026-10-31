@@ -5,6 +5,7 @@ export interface RankingTableProps {
   ranking: RankingView | null;
   statusText: string;
   onRefresh: () => void;
+  isRetryLocked?: boolean;
 }
 
 export function RankingTable({
@@ -12,13 +13,14 @@ export function RankingTable({
   ranking,
   statusText,
   onRefresh,
+  isRetryLocked = false,
 }: RankingTableProps) {
   return (
     <section id="ranking-panel" aria-labelledby="ranking-title" hidden={hidden}>
       <h2 id="ranking-title">Ranking</h2>
       <p className="meta">
         Los diez que más hojas han ganado.{" "}
-        <button id="refresh" type="button" onClick={onRefresh}>
+        <button id="refresh" type="button" onClick={onRefresh} disabled={isRetryLocked}>
           Actualizar
         </button>
       </p>

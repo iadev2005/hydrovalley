@@ -17,6 +17,8 @@ type StateBuilder struct {
 
 	stages        []uint32
 	humidity      []uint64
+	buildings     []bool
+	trash         []uint32
 	fires         []*playv1.FireView
 	installations []*playv1.InstallationView
 	players       map[string]*worldv1.PlayerState
@@ -34,9 +36,13 @@ func NewStateBuilder(tick uint64, paused bool, world *worldv1.WorldState, accept
 	tiles := world.GetTiles()
 	b.stages = make([]uint32, len(tiles))
 	b.humidity = make([]uint64, len(tiles))
+	b.buildings = make([]bool, len(tiles))
+	b.trash = make([]uint32, len(tiles))
 	for i, tile := range tiles {
 		b.stages[i] = uint32(tile.GetStage())
 		b.humidity[i] = tile.GetHumidity()
+		b.buildings[i] = tile.GetHasBuilding()
+		b.trash[i] = tile.GetTrashLevel()
 		if width == 0 {
 			continue
 		}
@@ -46,7 +52,11 @@ func NewStateBuilder(tick uint64, paused bool, world *worldv1.WorldState, accept
 		}
 		if inst := tile.GetInstallation(); inst != nil {
 			b.installations = append(b.installations, &playv1.InstallationView{
-				X: x, Y: y, Installation: installationName(inst.GetKind()), OwnerId: inst.GetOwnerId(),
+				X:                   x,
+				Y:                   y,
+				Installation:        installationName(inst.GetKind()),
+				OwnerId:             inst.GetOwnerId(),
+				RemainingDurability: inst.GetRemainingDurability(),
 			})
 		}
 	}
@@ -71,6 +81,8 @@ func (b *StateBuilder) For(playerID string, withMap bool) *playv1.StateMessage {
 	if withMap {
 		msg.Stages = b.stages
 		msg.Humidity = b.humidity
+		msg.Buildings = b.buildings
+		msg.Trash = b.trash
 		msg.Fires = b.fires
 		msg.Installations = b.installations
 	}
@@ -78,6 +90,29 @@ func (b *StateBuilder) For(playerID string, withMap bool) *playv1.StateMessage {
 		msg.Player = playerView(p)
 	}
 	return msg
+}
+
+// AttachOfflineSummary agrega a msg el resumen al volver del jugador (RF-25),
+// si el mundo lo trae y no está vacío, y dice si lo agregó. El hub lo pide
+// solo para el primer estado de cada conexión: el cliente lo guarda hasta que
+// el jugador lo cierre. msg tiene que ser de este mismo builder y jugador.
+func (b *StateBuilder) AttachOfflineSummary(msg *playv1.StateMessage, playerID string) bool {
+	p, ok := b.players[playerID]
+	summary := p.GetOfflineSummary()
+	if !ok || msg.GetPlayer() == nil || summary == nil {
+		return false
+	}
+	view := &playv1.OfflineSummaryView{
+		LeavesEarned:      summary.GetLeavesEarned(),
+		WaterReused:       summary.GetWaterReused(),
+		FiresExtinguished: summary.GetFiresExtinguished(),
+		TilesGrown:        summary.GetTilesGrown(),
+	}
+	if view.LeavesEarned == 0 && view.WaterReused == 0 && view.FiresExtinguished == 0 && view.TilesGrown == 0 {
+		return false
+	}
+	msg.Player.OfflineSummary = view
+	return true
 }
 
 func playerView(p *worldv1.PlayerState) *playv1.PlayerView {
@@ -95,6 +130,8 @@ func playerView(p *worldv1.PlayerState) *playv1.PlayerView {
 			view.NextDripPrice = price.GetLeaves()
 		case worldv1.InstallationKind_INSTALLATION_KIND_TREATMENT_PLANT:
 			view.NextTreatmentPlantPrice = price.GetLeaves()
+		case worldv1.InstallationKind_INSTALLATION_KIND_TRASH_BIN:
+			view.NextTrashBinPrice = price.GetLeaves()
 		}
 	}
 	return view

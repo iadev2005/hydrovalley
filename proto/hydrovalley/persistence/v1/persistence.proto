@@ -80,4 +80,8 @@ message SnapshotPlayer {
   uint64 water_reduced = 8;
   uint64 water_reused = 9;
   uint64 water_recycled = 10;
+  // Fuegos apagados y casillas que crecieron por los aspersores del jugador
+  // (acumulado de la época, como los contadores de las 3R; RF-25).
+  uint64 fires_extinguished = 11;
+  uint64 tiles_grown = 12;
 }

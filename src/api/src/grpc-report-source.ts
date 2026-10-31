@@ -1,17 +1,17 @@
 // Cliente gRPC de ReportService.GetReport (`PERSISTENCE_ADDR`). Idempotente:
 // usa la política de reintentos de grpc-retry.ts.
 import { createClient } from "@connectrpc/connect";
-import { createGrpcTransport } from "@connectrpc/connect-node";
 import { ReportService } from "./gen/hydrovalley/persistence/v1/report_pb.js";
 import { createGrpcCaller, type GrpcCallOptions } from "./grpc-retry.js";
 import type { ReportSource } from "./report-source.js";
 import { translateGrpcError } from "./source-errors.js";
+import { createGrpcTransportFor } from "./request-id.js";
 
 export function createGrpcReportSource(options: GrpcCallOptions): ReportSource {
   const { idempotent } = createGrpcCaller(options);
   const client = createClient(
     ReportService,
-    createGrpcTransport({ baseUrl: `http://${options.address}` }),
+    createGrpcTransportFor(options.address),
   );
 
   return {

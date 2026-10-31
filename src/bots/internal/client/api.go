@@ -6,13 +6,17 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,9 +55,26 @@ type Account struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
+// RankingEntry es una fila del ranking devuelta por GET /api/ranking.
+type RankingEntry struct {
+	Rank         uint32 `json:"rank"`
+	PlayerID     string `json:"player_id"`
+	Username     string `json:"username"`
+	LeavesEarned string `json:"leaves_earned"`
+}
+
+// RankingResponse es la respuesta de GET /api/ranking.
+type RankingResponse struct {
+	Tick    string         `json:"tick"`
+	Entries []RankingEntry `json:"entries"`
+}
+
 // API es el cliente REST de la API del juego.
 type API struct {
-	base *url.URL
+	mu     sync.Mutex
+	bases  []*url.URL
+	active int
+
 	HTTP *http.Client
 	// Sleep espera d o hasta que ctx termine; las pruebas lo sustituyen.
 	Sleep func(ctx context.Context, d time.Duration) error
@@ -61,20 +82,84 @@ type API struct {
 	MaxRetries int
 }
 
-// NewAPI crea el cliente. baseURL es la dirección del proxy, p. ej.
-// http://nginx:8080.
+// NewAPI crea el cliente. baseURL es la dirección del proxy (o una lista de
+// direcciones separadas por comas, p. ej.
+// https://10.68.17.80:8080,https://10.68.17.99:8080).
 func NewAPI(baseURL string) (*API, error) {
-	u, err := url.Parse(baseURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	var bases []*url.URL
+	seen := make(map[string]struct{})
+	for _, part := range strings.Split(baseURL, ",") {
+		raw := strings.TrimSpace(part)
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("invalid base URL %q: want http(s)://host[:port]", raw)
+		}
+		if _, ok := seen[u.String()]; !ok {
+			seen[u.String()] = struct{}{}
+			bases = append(bases, u)
+		}
+	}
+	if len(bases) == 0 {
 		return nil, fmt.Errorf("invalid base URL %q: want http(s)://host[:port]", baseURL)
 	}
 	return &API{
-		base: u,
+		bases: bases,
 		// 100 cuentas con Argon2id tardan varios segundos (src/api/README.md).
-		HTTP:       &http.Client{Timeout: 60 * time.Second},
+		// El transporte acota el marcado TCP y el handshake TLS a 3 s para que
+		// un proxy primario en docker pause o apagado conmute pronto al respaldo.
+		HTTP: &http.Client{
+			Timeout:   60 * time.Second,
+			Transport: newHTTPTransport(nil),
+		},
 		Sleep:      sleepCtx,
 		MaxRetries: 6,
 	}, nil
+}
+
+func newHTTPTransport(cfg *tls.Config) *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.DialContext = (&net.Dialer{
+		Timeout:   3 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	tr.TLSHandshakeTimeout = 3 * time.Second
+	if cfg != nil {
+		tr.TLSClientConfig = cfg
+	}
+	return tr
+}
+
+func (a *API) currentBase() *url.URL {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.bases[a.active%len(a.bases)]
+}
+
+func (a *API) advanceBase() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.bases) > 1 {
+		a.active = (a.active + 1) % len(a.bases)
+	}
+}
+
+func (a *API) baseCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.bases)
+}
+
+// UseTLS fija la configuración TLS del cliente (certificado de confianza
+// propio o, solo en pruebas, sin verificación). nil deja los valores del
+// sistema.
+func (a *API) UseTLS(cfg *tls.Config) {
+	if cfg == nil {
+		return
+	}
+	a.HTTP.Transport = newHTTPTransport(cfg)
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -153,22 +238,75 @@ func (a *API) post(ctx context.Context, path, token string, body, out any) (http
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base.JoinPath(path).String(), bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
+	hdr, _, err := a.doWithFailover(ctx, token, out, func(attemptCtx context.Context, base *url.URL) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, base.JoinPath(path).String(), bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	}, 0)
+	return hdr, err
+}
+
+func isGatewayDown(err error) bool {
+	if err == nil {
+		return false
 	}
-	req.Header.Set("Content-Type", "application/json")
+	var he *HTTPError
+	if errors.As(err, &he) {
+		return he.Status == http.StatusBadGateway || he.Status == http.StatusServiceUnavailable || he.Status == http.StatusGatewayTimeout
+	}
+	return true
+}
+
+func (a *API) doWithFailover(ctx context.Context, token string, out any, buildReq func(attemptCtx context.Context, base *url.URL) (*http.Request, error), perAttemptTimeout time.Duration) (http.Header, time.Duration, error) {
+	total := a.baseCount()
+	var lastHdr http.Header
+	var lastLat time.Duration
+	var lastErr error
+	for attempt := 0; attempt < total; attempt++ {
+		attemptCtx := ctx
+		var cancel context.CancelFunc
+		if perAttemptTimeout > 0 && total > 1 {
+			attemptCtx, cancel = context.WithTimeout(ctx, perAttemptTimeout)
+		}
+		req, err := buildReq(attemptCtx, a.currentBase())
+		if err != nil {
+			if cancel != nil {
+				cancel()
+			}
+			return nil, 0, err
+		}
+		lastHdr, lastLat, lastErr = a.do(req, token, out)
+		if cancel != nil {
+			cancel()
+		}
+		if lastErr == nil || ctx.Err() != nil || !isGatewayDown(lastErr) || attempt+1 >= total {
+			return lastHdr, lastLat, lastErr
+		}
+		a.advanceBase()
+	}
+	return lastHdr, lastLat, lastErr
+}
+
+// do envía la petición con el token (si hay) y decodifica en out una
+// respuesta 2xx (out puede ser nil). Devuelve las cabeceras y lo que tardó el
+// intercambio HTTP; una respuesta que no es 2xx es un *HTTPError.
+func (a *API) do(req *http.Request, token string, out any) (http.Header, time.Duration, error) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	start := time.Now()
 	resp, err := a.HTTP.Do(req)
+	latency := time.Since(start)
 	if err != nil {
-		return nil, err
+		return nil, latency, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return resp.Header, err
+		return resp.Header, latency, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var e struct {
@@ -178,10 +316,37 @@ func (a *API) post(ctx context.Context, path, token string, body, out any) (http
 		if json.Unmarshal(data, &e) == nil && e.Error != "" {
 			msg = e.Error
 		}
-		return resp.Header, &HTTPError{Status: resp.StatusCode, Message: msg}
+		return resp.Header, latency, &HTTPError{Status: resp.StatusCode, Message: msg}
 	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return resp.Header, fmt.Errorf("decode response: %w", err)
+	if out != nil {
+		if err := json.Unmarshal(data, out); err != nil {
+			return resp.Header, latency, fmt.Errorf("decode response: %w", err)
+		}
 	}
-	return resp.Header, nil
+	return resp.Header, latency, nil
+}
+
+// GetRanking consulta GET /api/ranking?limit=N con el token de sesión y
+// devuelve la respuesta, la latencia de la petición HTTP y el posible error.
+func (a *API) GetRanking(ctx context.Context, token string, limit int) (RankingResponse, time.Duration, error) {
+	path := "/api/ranking"
+	if limit > 0 {
+		path = fmt.Sprintf("/api/ranking?limit=%d", limit)
+	}
+	var out RankingResponse
+	_, latency, err := a.get(ctx, path, token, &out)
+	if err != nil {
+		return RankingResponse{}, latency, fmt.Errorf("get ranking: %w", err)
+	}
+	return out, latency, nil
+}
+
+func (a *API) get(ctx context.Context, path, token string, out any) (http.Header, time.Duration, error) {
+	u, err := url.Parse(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	return a.doWithFailover(ctx, token, out, func(attemptCtx context.Context, base *url.URL) (*http.Request, error) {
+		return http.NewRequestWithContext(attemptCtx, http.MethodGet, base.ResolveReference(u).String(), nil)
+	}, 4*time.Second)
 }

@@ -7,7 +7,7 @@
 // por la persistencia en el tick 50.
 //
 // Variables:
-//   HV_BASE_URL          raíz de nginx (por defecto http://localhost:8080)
+//   HV_BASE_URL          raíz de nginx (por defecto https://localhost:8080)
 //   E2E_READY_TIMEOUT_S  espera máxima a que el stack esté listo (180)
 //   ADMIN_USERNAME, E2E_ADMIN_PASSWORD  cuenta de administrador sembrada para
 //                        la prueba (run.sh las genera; ver RF-31)
@@ -21,11 +21,12 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { PlaySession } from "./play-session.mjs";
 
 const run = promisify(execFile);
-const BASE_URL = (process.env.HV_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
+const BASE_URL = (process.env.HV_BASE_URL ?? "https://localhost:8080").replace(/\/$/, "");
 const WS_BASE = BASE_URL.replace(/^http/, "ws");
 const READY_TIMEOUT_MS = Number(process.env.E2E_READY_TIMEOUT_S ?? 180) * 1000;
 // Instantánea del mundo cada 50 ticks (`tick % 50 == 0`): regla 8 de
@@ -135,7 +136,7 @@ describe("walking skeleton (CP-01-lite)", () => {
 
   after(() => session?.close());
 
-  it("serves the static page, the Swagger page and a 503 for /chat", async () => {
+  it("serves the static page, the Swagger page and routes /chat to the chat service", async () => {
     const page = await fetch(`${BASE_URL}/`);
     assert.equal(page.status, 200);
     assert.match(await page.text(), /Soltar gota/);
@@ -145,7 +146,17 @@ describe("walking skeleton (CP-01-lite)", () => {
     assert.match(docs.headers.get("content-type") ?? "", /text\/html/);
 
     const chat = await fetch(`${BASE_URL}/chat`);
-    assert.equal(chat.status, 503);
+    assert.notEqual(chat.status, 503);
+
+    const unauthenticated = new PlaySession(`${WS_BASE}/chat`);
+    const closed = await Promise.race([
+      unauthenticated.closed,
+      sleep(5000).then(() => {
+        unauthenticated.close();
+        return { code: "timeout" };
+      }),
+    ]);
+    assert.equal(closed.code, 4401);
   });
 
   it("closes /play with 4401 when the token is missing or not valid", async () => {
@@ -176,7 +187,12 @@ describe("walking skeleton (CP-01-lite)", () => {
     // o sea, el simulador cargó su instantánea desde la persistencia.
     session = await openReadySession(account.token, { map: false });
 
-    // Tres gotas seguidas: cada una cuesta 1 L de los 20 iniciales (D-01).
+    // Tres gotas seguidas: cada una cuesta 1 L del depósito inicial, cuya
+    // capacidad se lee de catalog/catalog.json.
+    const capacity = BigInt(
+      JSON.parse(readFileSync(new URL("../../catalog/catalog.json", import.meta.url), "utf8")).rules.tank
+        .capacity_liters,
+    );
     const actionIds = [randomUUID(), randomUUID(), randomUUID()];
     for (const actionId of actionIds) {
       session.send({ type: "drop", action_id: actionId, x: 3, y: 4 });
@@ -194,14 +210,17 @@ describe("walking skeleton (CP-01-lite)", () => {
     // Solo cuenta un estado que llegue después de los resultados. El depósito
     // se recarga 1 L cada 2 s (catálogo) y el estado se difunde cada segundo,
     // así que entre las gotas y ese estado cabe como mucho una recarga:
-    // quedan 17 L, o 18 si cayó un tick de recarga.
+    // quedan capacidad - 3 L, o capacidad - 2 si cayó un tick de recarga.
     const state = await session.waitFor(
       "a state with the player",
       (f) => f.type === "state" && f.player !== undefined,
       5000,
     );
-    assert.ok(["17", "18"].includes(state.player.water), `water ${state.player.water}`);
-    assert.equal(state.player.tank_capacity, "20");
+    assert.ok(
+      [String(capacity - 3n), String(capacity - 2n)].includes(state.player.water),
+      `water ${state.player.water}`,
+    );
+    assert.equal(state.player.tank_capacity, String(capacity));
     assert.ok(account.player_id, "the API returns the player_id of the token");
   });
 
@@ -318,6 +337,45 @@ let grownAccount;
 // Tick del estado más reciente visto tras las gotas del crecimiento.
 let dropsTick = 0n;
 
+// Catálogo (A11): la API lo pide a la persistencia, que lo cargó de
+// catalog/catalog.json al arrancar. Las cifras se leen del archivo, nunca se
+// repiten aquí; los enteros de 64 bits llegan como texto (regla 7).
+describe("catalog (A11)", () => {
+  before(waitForHealthyStack);
+
+  it("serves the figures of catalog/catalog.json through nginx with no token", async () => {
+    const file = JSON.parse(
+      readFileSync(new URL("../../catalog/catalog.json", import.meta.url), "utf8"),
+    );
+    const res = await fetch(`${BASE_URL}/api/catalog`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("cache-control") ?? "", /^public, max-age=\d+$/);
+    const body = await res.json();
+
+    assert.match(body.catalog_version, /\S/);
+    assert.equal(body.drop.water_cost, String(file.rules.drop.water_cost_liters));
+    assert.equal(body.growth.leaves_tree, String(file.rules.growth.leaves_tree));
+    assert.equal(body.sprinkler.price, String(file.installations.sprinkler.price_leaves));
+    assert.equal(body.drip.area_side, file.installations.drip.area_side_tiles);
+    assert.equal(body.treatment_plant.price, String(file.installations.treatment_plant.price_leaves));
+    assert.equal(body.bigger_tank.extra_capacity, String(file.upgrades.bigger_tank.extra_capacity_liters));
+    assert.equal(
+      body.installation_price_increase_percent,
+      file.rules.installation_price_increase_percent,
+    );
+    assert.equal(
+      body.offline_installation_seconds,
+      String(file.rules.offline_installation_seconds),
+    );
+
+    const again = await fetch(`${BASE_URL}/api/catalog`, {
+      headers: { "if-none-match": res.headers.get("etag") ?? "" },
+    });
+    assert.equal(again.status, 304);
+  });
+});
+
+
 describe("growth end to end (RF-04, RF-05)", () => {
   let player;
 
@@ -328,7 +386,9 @@ describe("growth end to end (RF-04, RF-05)", () => {
     const account = await registerPlayer();
     grownAccount = account;
     player = await openReadySession(account.token, { map: true });
-    const x = 25;
+    // La mitad izquierda del valle nunca tiene río ni rocas (el terreno natural
+    // de la expansión de jugabilidad cae en las columnas 17 en adelante).
+    const x = 5;
     const y = 6;
 
     const before = await player.first(
@@ -466,14 +526,21 @@ describe("administration (RF-31)", () => {
       (f) =>
         f.type === "state" &&
         f.stages?.length === 32 * 32 &&
-        f.stages.every((stage) => stage === 1) &&
+        // Sin crecimiento: solo tierra seca (1) y el terreno natural que el
+        // reinicio vuelve a sortear (6 agua, 7 roca).
+        f.stages.every((stage) => stage === 1 || stage === 6 || stage === 7) &&
         (f.humidity ?? []).every((h) => h === "0") &&
+        (f.trash ?? []).every((level) => level === 0) &&
+        !(f.buildings ?? []).some(Boolean) &&
         // protojson omite las listas vacías.
         (f.fires ?? []).length === 0 &&
         (f.installations ?? []).length === 0,
       10_000,
     );
     assert.equal(reset.width, 32);
+    // La expansión de jugabilidad: el reinicio genera río y rocas con el azar del simulador.
+    assert.ok(reset.stages.includes(6), "el reinicio debe dejar agua en el valle");
+    assert.ok(reset.stages.includes(7), "el reinicio debe dejar rocas en el valle");
   });
 
   it("wipes a grown tile on reset_valley", async () => {

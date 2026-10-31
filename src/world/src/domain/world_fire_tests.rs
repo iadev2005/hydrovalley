@@ -25,6 +25,13 @@ fn catalog_with_ppm(ppm: u32) -> Catalog {
     catalog
 }
 
+fn catalog_with_propagation_ppm(ppm: u32) -> Catalog {
+    let mut catalog = Catalog::d01();
+    catalog.fire.ignition_chance_ppm = 0;
+    catalog.fire.propagation_chance_ppm = ppm;
+    catalog
+}
+
 /// Mundo con las casillas dadas ya en su estado y jugadores sin hojas.
 fn world_with(catalog: Catalog, seed: u64, setup: impl FnOnce(&mut WorldParts)) -> World {
     let mut parts = World::with_seed(catalog.clone(), seed).parts();
@@ -157,6 +164,156 @@ fn a_tile_that_withers_to_dry_soil_in_the_tick_is_not_eligible() {
     w.step(&[]); // el marchitamiento la deja en tierra seca antes del sorteo
     assert_eq!(w.tile(4, 4).unwrap().stage, TileStage::DrySoil);
     assert_eq!(fire_at(&w, 4, 4), None);
+}
+
+// ---- Propagación a vecinas (nivel 2, Tarea B3) -------------------------
+
+#[test]
+fn fire_spreads_to_orthogonal_eligible_neighbor_when_chance_is_certain() {
+    let mut w = world_with(catalog_with_propagation_ppm(1_000_000), 1, |p| {
+        p.tiles[index(5, 5)] = burning_grass(0);
+        p.tiles[index(5, 6)] = dry_grass();
+    });
+    w.step(&[]);
+    assert_eq!(fire_at(&w, 5, 6), burning(0, 0));
+}
+
+#[test]
+fn fire_does_not_spread_without_chance() {
+    let mut w = world_with(catalog_with_propagation_ppm(0), 1, |p| {
+        p.tiles[index(5, 5)] = burning_grass(0);
+        p.tiles[index(5, 6)] = dry_grass();
+    });
+    idle(&mut w, 20);
+    assert_eq!(fire_at(&w, 5, 6), None);
+}
+
+#[test]
+fn fire_does_not_spread_to_ineligible_neighbors() {
+    let mut w = world_with(catalog_with_propagation_ppm(1_000_000), 1, |p| {
+        p.tiles[index(5, 5)] = burning_grass(0);
+        p.tiles[index(5, 4)] = Tile {
+            humidity: 10,
+            ..dry_grass()
+        }; // con humedad
+        p.tiles[index(4, 5)] = Tile::default(); // tierra seca (sin planta)
+        p.tiles[index(6, 5)] = dry_grass(); // elegible
+    });
+    w.step(&[]);
+    assert_eq!(
+        fire_at(&w, 5, 4),
+        None,
+        "con humedad no prende por propagación"
+    );
+    assert_eq!(
+        fire_at(&w, 4, 5),
+        None,
+        "tierra seca no prende por propagación"
+    );
+    assert_eq!(
+        fire_at(&w, 6, 5),
+        burning(0, 0),
+        "la vecina elegible sí prende"
+    );
+}
+
+#[test]
+fn fire_does_not_spread_diagonally() {
+    let mut w = world_with(catalog_with_propagation_ppm(1_000_000), 1, |p| {
+        p.tiles[index(5, 5)] = burning_grass(0);
+        p.tiles[index(6, 6)] = dry_grass(); // diagonal
+    });
+    w.step(&[]);
+    assert_eq!(
+        fire_at(&w, 6, 6),
+        None,
+        "la 4-vecindad ortogonal no incluye diagonales"
+    );
+}
+
+#[test]
+fn propagation_is_synchronous_one_step_per_tick() {
+    // Casillas (5, 5), (6, 5) y (7, 5) en línea.
+    // Solo (5, 5) arde al inicio; (6, 5) y (7, 5) son pasto seco.
+    // En el tick 1 debe prender (6, 5), pero (7, 5) NO debe prender en el mismo tick.
+    // En el tick 2, (7, 5) prende desde (6, 5).
+    let mut w = world_with(catalog_with_propagation_ppm(1_000_000), 1, |p| {
+        p.tiles[index(5, 5)] = burning_grass(0);
+        p.tiles[index(6, 5)] = dry_grass();
+        p.tiles[index(7, 5)] = dry_grass();
+    });
+    w.step(&[]);
+    assert!(
+        fire_at(&w, 6, 5).is_some(),
+        "tick 1: el fuego salta a (6, 5)"
+    );
+    assert_eq!(
+        fire_at(&w, 7, 5),
+        None,
+        "tick 1: (7, 5) no prende en cascada"
+    );
+
+    w.step(&[]);
+    assert!(
+        fire_at(&w, 7, 5).is_some(),
+        "tick 2: el fuego salta a (7, 5)"
+    );
+}
+
+#[test]
+fn fire_does_not_propagate_in_demo_mode() {
+    let mut w = world_with(catalog_with_propagation_ppm(1_000_000), 1, |p| {
+        p.demo_mode = true;
+        p.tiles[index(5, 5)] = burning_grass(0);
+        p.tiles[index(5, 6)] = dry_grass();
+    });
+    idle(&mut w, 20);
+    assert_eq!(fire_at(&w, 5, 6), None);
+}
+
+#[test]
+fn fire_spreads_across_a_valley_of_another_size() {
+    // La comparativa usa valles de otros tamaños (`with_size`): la
+    // propagación debe usar las dimensiones del mundo, no las del juego.
+    let mut w = World::with_size(catalog_with_propagation_ppm(1_000_000), 1, 64, 8);
+    let at = |x: u32, y: u32| (y * 64 + x) as usize;
+    w.tiles[at(40, 2)] = burning_grass(0);
+    w.tiles[at(41, 2)] = dry_grass();
+    w.tiles[at(40, 3)] = dry_grass();
+    w.tiles[at(63, 7)] = burning_grass(0);
+    w.tiles[at(0, 0)] = dry_grass(); // no es vecina de ningún fuego
+    w.step(&[]);
+    assert_eq!(w.tile(41, 2).unwrap().fire, burning(0, 0));
+    assert_eq!(w.tile(40, 3).unwrap().fire, burning(0, 0));
+    assert_eq!(w.tile(0, 0).unwrap().fire, None);
+}
+
+#[test]
+fn propagation_draws_in_row_major_order() {
+    // Dos casillas elegibles adyacentes a incendios:
+    // (5, 0) adyacente a fuego en (4, 0) -> fila 0
+    // (2, 4) adyacente a fuego en (2, 3) -> fila 4
+    let mut w = world_with(catalog_with_propagation_ppm(500_000), 42, |p| {
+        p.tiles[index(4, 0)] = burning_grass(0);
+        p.tiles[index(5, 0)] = dry_grass();
+        p.tiles[index(2, 3)] = burning_grass(0);
+        p.tiles[index(2, 4)] = dry_grass();
+    });
+    let mut rng = SplitMix64::new(42);
+    let first = rng.chance_ppm(500_000);
+    let second = rng.chance_ppm(500_000);
+    w.step(&[]);
+    assert_eq!(fire_at(&w, 5, 0).is_some(), first);
+    assert_eq!(fire_at(&w, 2, 4).is_some(), second);
+    // Las casillas que no hayan prendido en propagación siguen siendo
+    // elegibles para la ignición espontánea que ocurre a continuación.
+    if !first {
+        let _ = rng.chance_ppm(0);
+    }
+    if !second {
+        let _ = rng.chance_ppm(0);
+    }
+    assert_eq!(w.parts().rng_state, rng.to_bytes());
 }
 
 // ---- Apagar con gotas --------------------------------------------------
@@ -304,6 +461,7 @@ fn sprinkler_world(owner: &str) -> World {
             installation: Some(crate::domain::Installation {
                 kind: InstallationKind::Sprinkler,
                 owner_id: owner.to_string(),
+                remaining_durability: 30,
             }),
             ..Tile::default()
         };
@@ -359,7 +517,9 @@ fn an_unattended_fire_burns_out_after_the_catalog_ticks_into_dry_soil() {
             installation: Some(crate::domain::Installation {
                 kind: InstallationKind::Drip,
                 owner_id: ANA.to_string(),
+                remaining_durability: 30,
             }),
+            ..Tile::default()
         };
     });
     idle(&mut w, 299);

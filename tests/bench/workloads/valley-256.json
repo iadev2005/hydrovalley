@@ -1,0 +1,26 @@
+{
+  "description": "Carga de la comparativa Go vs. Rust (D-03) en un valle de 256x256. Semilla fija, 64 jugadores, depósito sin límite práctico para que las gotas no se rechacen por falta de agua, y el resto del catálogo real. Por tick: 20 gotas por cada 1.000 casillas (75 % sobre el cuarto central del valle, el resto repartidas por todo él) y, en la segunda mitad del calentamiento, 2 instalaciones por cada 1.000 casillas (aspersor, goteo y planta por turno). Los incendios usan la probabilidad del catálogo. El generador de comandos está definido en tests/bench/README.md y lo implementan igual Rust y Go.",
+  "name": "valley-256",
+  "seed": 2026,
+  "width": 256,
+  "height": 256,
+  "players": 64,
+  "warmup_ticks": 400,
+  "measured_ticks": 1000,
+  "drops_per_1000_tiles": 20,
+  "hot_percent": 75,
+  "installations_per_1000_tiles": 2,
+  "catalog_file": "catalog/catalog.json",
+  "catalog_set": {
+    "rules.tank.capacity_liters": 1000000000000,
+    "rules.drop.humidity_points": 25,
+    "installations.treatment_plant.refill_liters": 1,
+    "rules.terrain.river_width_tiles": 0,
+    "rules.terrain.rock_count": 0,
+    "rules.urban.max_buildings": 0,
+    "installations.sprinkler.durability": 4294967295,
+    "installations.drip.durability": 4294967295,
+    "installations.treatment_plant.durability": 4294967295,
+    "installations.trash_bin.durability": 4294967295
+  }
+}

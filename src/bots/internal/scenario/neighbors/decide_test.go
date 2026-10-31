@@ -161,3 +161,17 @@ func TestDecideCanBuildEvenWithEmptyTank(t *testing.T) {
 		t.Fatalf("buying needs leaves, not water: %+v", a)
 	}
 }
+
+func TestPickTileSkipsTilesThatRejectDrops(t *testing.T) {
+	st := valley(4, 1, 1, 0)
+	st.Stages[0] = 6 // agua
+	st.Stages[1] = 7 // roca
+	st.Buildings = []bool{false, false, true, false}
+	r := rng(5)
+	for range 50 {
+		x, y, ok := PickTile(r, st, false)
+		if !ok || x != 3 || y != 0 {
+			t.Fatalf("got (%d,%d,%v), want (3,0,true)", x, y, ok)
+		}
+	}
+}

@@ -1,0 +1,78 @@
+# Nodo standby (plan A / B8): 6.ª máquina física del laboratorio (LAB_STANDBY_HOST).
+#
+#   docker compose -p hv-standby -f deploy/nodes/standby.yml \
+#     --env-file lab-addresses.local --env-file secrets.local up -d
+#
+# Aloja los tres componentes de respaldo en la misma máquina física:
+#   - proxy-standby: nginx (:8080) + api (TypeScript)
+#   - hub-standby: hub (Go, :8081) con HUB_GENERATION=2 y HUB_PRIMARY_HEALTH_URL
+#   - world-standby: simulador con imagen Go (hydrovalley-world-go, :50051) en WORLD_MODE=standby
+#
+# En esta máquina los tres servicios usan puertos distintos (8080, 8081 y 50051),
+# todos ya permitidos por la regla del cortafuegos del laboratorio.
+
+name: hv-standby
+
+x-service: &service
+  restart: unless-stopped
+  networks: [backend]
+
+services:
+  # 1. API del nodo proxy en espera
+  api:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-api:${HV_TAG:-dev}
+    environment:
+      API_LISTEN: 0.0.0.0:3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PERSISTENCE_ADDR: ${LAB_PERSISTENCE_HOST:?definir LAB_PERSISTENCE_HOST en lab-addresses.local}:${HV_PERSISTENCE_PORT:-50051}
+      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051},world:50051
+      HUB_STATS_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081},hub:8081
+      TOKEN_PRIVATE_KEY: ${TOKEN_PRIVATE_KEY:?definir TOKEN_PRIVATE_KEY en secrets.local}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-43200}
+      TRUST_PROXY: "true"
+
+  # 2. nginx del nodo proxy en espera (publica 8080)
+  nginx:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-proxy:${HV_TAG:-dev}
+    environment:
+      API_ADDR: api:3000
+      HUB_ADDR: ${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081}
+      HUB_BACKUP_ADDR: hub:8081
+      CHAT_ADDR: ${LAB_CHAT_HOST:-${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}}:${HV_CHAT_PORT:-8082}
+      CHAT_BACKUP_ADDR: ${LAB_CHAT_HOST:-${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}}:${HV_CHAT_PORT:-8082}
+      PROXY_BACKUP_URLS: ${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}:${HV_PROXY_PORT:-8080}
+      NGINX_RESOLVER: 127.0.0.11
+      TLS_EXTRA_SANS: ${LAB_STANDBY_HOST:?definir LAB_STANDBY_HOST en lab-addresses.local},${LAB_PROXY_HOST:?definir LAB_PROXY_HOST en lab-addresses.local}${TLS_EXTRA_SANS:+,${TLS_EXTRA_SANS}}
+    ports:
+      - "${HV_STANDBY_PROXY_PORT:-${HV_PROXY_PORT:-8080}}:8080"
+
+  # 3. Hub en espera (publica 8081, HUB_GENERATION=2)
+  hub:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-hub:${HV_TAG:-dev}
+    environment:
+      WORLD_ADDR: ${LAB_WORLD_HOST:?definir LAB_WORLD_HOST en lab-addresses.local}:${HV_WORLD_PORT:-50051},world:50051
+      HUB_LISTEN: :8081
+      HUB_GENERATION: 2
+      HUB_PRIMARY_HEALTH_URL: http://${LAB_HUB_HOST:?definir LAB_HUB_HOST en lab-addresses.local}:${HV_HUB_PORT:-8081}/healthz
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TOKEN_PUBLIC_KEY: ${TOKEN_PUBLIC_KEY:?definir TOKEN_PUBLIC_KEY en secrets.local}
+    ports:
+      - "${HV_STANDBY_HUB_PORT:-${HV_HUB_PORT:-8081}}:8081"
+
+  # 4. Simulador world-go en espera (publica 50051, WORLD_MODE=standby)
+  world:
+    <<: *service
+    image: ${HV_REGISTRY:-ghcr.io/iadev2005}/hydrovalley-world-go:${HV_TAG:-dev}
+    environment:
+      PERSISTENCE_ADDR: ${LAB_PERSISTENCE_HOST:?definir LAB_PERSISTENCE_HOST en lab-addresses.local}:${HV_PERSISTENCE_PORT:-50051}
+      WORLD_LISTEN: 0.0.0.0:50051
+      WORLD_MODE: standby
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${HV_STANDBY_WORLD_PORT:-${HV_WORLD_PORT:-50051}}:50051"
+
+networks:
+  backend: {}

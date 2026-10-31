@@ -44,6 +44,8 @@ export function shouldReconnect(code: number): boolean {
 
 export type CloseAction = "ignore" | "show_access" | "expired" | "reconnect";
 
+export type ConnectionStatus = "disconnected" | "connecting" | "connected";
+
 /**
  * Qué hacer cuando se cierra el WebSocket de la sesión:
  * - `ignore`: el cierre es de un socket que ya no es el actual (salida o
@@ -106,7 +108,7 @@ export function buildDropFrame({ x, y, actionId }: { x: number; y: number; actio
 }
 
 /** Instalaciones y mejoras que acepta el hub (play.proto). */
-export const INSTALLATIONS = ["sprinkler", "drip", "treatment_plant"] as const;
+export const INSTALLATIONS = ["sprinkler", "drip", "treatment_plant", "trash_bin"] as const;
 export type InstallationType = (typeof INSTALLATIONS)[number];
 
 export const UPGRADES = ["bigger_drop", "bigger_tank"] as const;
@@ -131,6 +133,22 @@ export function buildPlaceInstallationFrame({
   }
   assertCoordinates(x, y);
   return JSON.stringify({ type: "place_installation", action_id: actionId, installation, x, y });
+}
+
+/**
+ * `CleanTrashMessage` en JSON (Fase 4).
+ */
+export function buildCleanTrashFrame({
+  x,
+  y,
+  actionId,
+}: {
+  x: number;
+  y: number;
+  actionId: string;
+}): string {
+  assertCoordinates(x, y);
+  return JSON.stringify({ type: "clean_trash", action_id: actionId, x, y });
 }
 
 /**
@@ -184,6 +202,17 @@ function toBigInt(value: unknown): bigint {
 
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
+function parseOfflineSummary(value: unknown): OfflineSummary | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const rec = value as Record<string, unknown>;
+  return {
+    leaves_earned: toBigInt(rec["leaves_earned"]),
+    water_reused: toBigInt(rec["water_reused"]),
+    fires_extinguished: toBigInt(rec["fires_extinguished"]),
+    tiles_grown: toBigInt(rec["tiles_grown"]),
+  };
+}
+
 export interface FireState {
   x: number;
   y: number;
@@ -195,6 +224,19 @@ export interface PlacedInstallation {
   y: number;
   installation: string;
   owner_id: string;
+  remaining_durability: number;
+}
+
+/**
+ * Lo que hicieron los aspersores del jugador mientras no estaba (RF-25;
+ * `OfflineSummaryView` de play.proto). Solo llega en el primer `state` de la
+ * conexión y solo si no está vacío.
+ */
+export interface OfflineSummary {
+  leaves_earned: bigint;
+  water_reused: bigint;
+  fires_extinguished: bigint;
+  tiles_grown: bigint;
 }
 
 export interface PlayerState {
@@ -205,6 +247,8 @@ export interface PlayerState {
   next_sprinkler_price: bigint;
   next_drip_price: bigint;
   next_treatment_plant_price: bigint;
+  next_trash_bin_price: bigint;
+  offline_summary: OfflineSummary | null;
 }
 
 export interface ResultFrame {
@@ -231,6 +275,8 @@ export interface StateFrame {
   humidity: bigint[];
   fires: FireState[];
   installations: PlacedInstallation[];
+  buildings: boolean[];
+  trash: number[];
   player: PlayerState | null;
 }
 
@@ -293,8 +339,11 @@ export function parseFrame(text: string): PlayFrame {
             y: Number(ri["y"]) || 0,
             installation: str(ri["installation"]),
             owner_id: str(ri["owner_id"]),
+            remaining_durability: Number(ri["remaining_durability"]) || 0,
           };
         }),
+        buildings: list(rec["buildings"]).map((v) => v === true),
+        trash: list(rec["trash"]).map((v) => Number(v) || 0),
         player:
           p && typeof p === "object"
             ? {
@@ -305,6 +354,8 @@ export function parseFrame(text: string): PlayFrame {
                 next_sprinkler_price: toBigInt(p["next_sprinkler_price"]),
                 next_drip_price: toBigInt(p["next_drip_price"]),
                 next_treatment_plant_price: toBigInt(p["next_treatment_plant_price"]),
+                next_trash_bin_price: toBigInt(p["next_trash_bin_price"]),
+                offline_summary: parseOfflineSummary(p["offline_summary"]),
               }
             : null,
       };
@@ -338,6 +389,175 @@ export const RECONNECT_BASE_MS = 500;
 export const RECONNECT_CAP_MS = 10_000;
 /** Una conexión que dura al menos esto reinicia la secuencia de esperas. */
 export const RECONNECT_STABLE_MS = 5_000;
+/**
+ * Silencio máximo sin recibir un mensaje en `/play` antes de dar la conexión
+ * por muerta y forzar la reconexión (el hub difunde `state` cada 1 s; cuando
+ * se apaga una máquina o se pausa un contenedor, TCP no envía `FIN` ni `RST`).
+ */
+export const STATE_SILENCE_MS = 3_500;
+/**
+ * Plazo máximo de cada intento HTTP individual hacia un proxy antes de
+ * abortar y conmutar al siguiente host del rotador (evita quedarse bloqueado
+ * 21–75 s en el timeout de SYN del sistema operativo cuando un nodo entra en
+ * `docker pause` o pierde alimentación).
+ */
+export const FETCH_ATTEMPT_TIMEOUT_MS = 3_000;
+/**
+ * Plazo máximo para completar el handshake `open` de un WebSocket antes de
+ * cerrar el intento y rotar al siguiente proxy de respaldo.
+ */
+export const WS_HANDSHAKE_TIMEOUT_MS = 4_000;
+
+/**
+ * Normaliza una entrada de dirección de respaldo (`https://10.68.17.99:8080/`,
+ * `10.68.17.99:8080`, etc.) a `host[:puerto]`.
+ */
+function normalizeHostEntry(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    if (trimmed.includes("://")) {
+      return new URL(trimmed).host;
+    }
+    return new URL(`http://${trimmed}`).host;
+  } catch {
+    return trimmed.replace(/^\/+|\/+$/g, "");
+  }
+}
+
+/**
+ * Construye una lista ordenada y sin duplicados de `host[:puerto]` a partir
+ * del host primario y de una o varias listas de respaldos (separadas por comas
+ * o en arreglo).
+ */
+export function parseBackupHosts(
+  primaryHost: string,
+  ...sources: (string | readonly string[] | null | undefined)[]
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const push = (entry: string) => {
+    const host = normalizeHostEntry(entry);
+    if (host && !seen.has(host)) {
+      seen.add(host);
+      result.push(host);
+    }
+  };
+  push(primaryHost);
+  for (const src of sources) {
+    if (!src) continue;
+    const items = typeof src === "string" ? src.split(",") : src;
+    for (const item of items) {
+      push(item);
+    }
+  }
+  return result;
+}
+
+export interface EndpointRotator {
+  currentHost(): string;
+  hosts(): readonly string[];
+  advance(): string;
+  addBackups(...sources: (string | readonly string[] | null | undefined)[]): void;
+}
+
+/**
+ * Rotador con afinidad al nodo activo (*sticky*) para conmutar entre el proxy
+ * primario y los de respaldo sin cambiar la URL de la barra del navegador.
+ */
+export function createEndpointRotator(
+  primaryHost: string,
+  ...initialBackups: (string | readonly string[] | null | undefined)[]
+): EndpointRotator {
+  let hostList = parseBackupHosts(primaryHost, ...initialBackups);
+  if (hostList.length === 0 && primaryHost) {
+    hostList = [primaryHost];
+  }
+  let index = 0;
+
+  return {
+    currentHost(): string {
+      return hostList[index] ?? primaryHost;
+    },
+    hosts(): readonly string[] {
+      return [...hostList];
+    },
+    advance(): string {
+      if (hostList.length > 1) {
+        index = (index + 1) % hostList.length;
+      }
+      return hostList[index] ?? primaryHost;
+    },
+    addBackups(...sources: (string | readonly string[] | null | undefined)[]): void {
+      const current = hostList[index] ?? primaryHost;
+      hostList = parseBackupHosts(hostList[0] ?? primaryHost, hostList, ...sources);
+      const found = hostList.indexOf(current);
+      index = found >= 0 ? found : 0;
+    },
+  };
+}
+
+/**
+ * Envuelve `fetch` para reintentar automáticamente contra el siguiente proxy
+ * del rotador cuando la petición falla por red o recibe `502`/`503`/`504`
+ * de una pasarela caída, y aprende respaldos anunciados en `X-Proxy-Backups`.
+ */
+export function createFailoverFetch({
+  baseFetch,
+  rotator,
+  protocol,
+  onBackupsDiscovered,
+  attemptTimeoutMs = FETCH_ATTEMPT_TIMEOUT_MS,
+}: {
+  baseFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  rotator: EndpointRotator;
+  protocol: string;
+  onBackupsDiscovered?: (headerValue: string) => void;
+  attemptTimeoutMs?: number;
+}): (input: string | URL | Request, init?: RequestInit) => Promise<Response> {
+  return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const isRelative = rawUrl.startsWith("/");
+    const totalHosts = Math.max(1, rotator.hosts().length);
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < totalHosts; attempt++) {
+      const host = rotator.currentHost();
+      const targetUrl = isRelative && host ? `${protocol}//${host}${rawUrl}` : rawUrl;
+      const controller =
+        !init?.signal && attemptTimeoutMs > 0 && typeof AbortController !== "undefined"
+          ? new AbortController()
+          : null;
+      const timer =
+        controller !== null ? setTimeout(() => controller.abort(), attemptTimeoutMs) : null;
+      const effectiveInit: RequestInit | undefined =
+        controller !== null ? { ...init, signal: controller.signal } : init;
+      try {
+        const res = await baseFetch(targetUrl, effectiveInit);
+        if (timer !== null) clearTimeout(timer);
+        const backupsHeader = res.headers?.get?.("X-Proxy-Backups");
+        if (backupsHeader) {
+          rotator.addBackups(backupsHeader);
+          onBackupsDiscovered?.(backupsHeader);
+        }
+        if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt + 1 < Math.max(totalHosts, rotator.hosts().length)) {
+          rotator.advance();
+          continue;
+        }
+        return res;
+      } catch (err) {
+        if (timer !== null) clearTimeout(timer);
+        lastError = err;
+        if (attempt + 1 < Math.max(totalHosts, rotator.hosts().length)) {
+          rotator.advance();
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new TypeError("Failed to fetch");
+  };
+}
 
 /**
  * Espera antes del reintento número `attempt` (desde 0): espera exponencial

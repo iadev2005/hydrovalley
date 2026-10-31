@@ -37,6 +37,8 @@ entity "snapshot_players" as snapshot_players {
   * water_reduced : NUMERIC(20,0) <<u64>>
   * water_reused : NUMERIC(20,0) <<u64>>
   * water_recycled : NUMERIC(20,0) <<u64>>
+  * fires_extinguished : NUMERIC(20,0) <<u64>>
+  * tiles_grown : NUMERIC(20,0) <<u64>>
 }
 
 entity "catalog_entries" as catalog_entries {
@@ -47,10 +49,17 @@ entity "catalog_entries" as catalog_entries {
   * updated_at : TIMESTAMPTZ
 }
 
+entity "schema_migrations" as schema_migrations {
+  * version : TEXT <<PK>>
+  --
+  * applied_at : TIMESTAMPTZ
+}
+
 snapshots ||--o{ snapshot_players : una fila por jugador\npresente en el mundo
 accounts ||--o{ snapshot_players : player_id
 
 catalog_entries -[hidden]down- accounts
+schema_migrations -[hidden]right- catalog_entries
 
 note right of snapshots
   <b>Capa 5</b>: una fila cada 50 ticks (tick % 50 == 0).
@@ -85,6 +94,8 @@ note right of snapshot_players
   <b>3R</b> (acumulados): water_reduced (goteo, Reducir),
   water_reused (aspersores, Reutilizar),
   water_recycled (planta de tratamiento, Reciclar).
+  fires_extinguished y tiles_grown: lo que hicieron los aspersores
+  del jugador en la época (resumen al volver, RF-25).
   <b>ReportService.GetReport</b> (RF-12) no tiene tabla propia:
   por jugador, su fila en la última instantánea; global, la
   suma de esas filas; por periodo, la diferencia entre dos
@@ -102,6 +113,14 @@ note left of catalog_entries
   columna JSONB evita migrar el esquema al añadir una cifra.
   Persistencia carga el archivo de catalog/ al arrancar
   y lo guarda aquí para consultarlo.
+end note
+
+note bottom of schema_migrations
+  Control de migraciones: Persistencia aplica al arrancar,
+  en orden y bajo un candado, los archivos de migrations/
+  que falten y anota aquí su versión.
+  snapshot_players tiene además el índice
+  (player_id, tick) para consultar por jugador.
 end note
 
 note left of accounts

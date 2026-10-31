@@ -60,12 +60,36 @@ func run() error {
 	defer stop()
 
 	hubCfg := hub.DefaultConfig()
+	hubCfg.HubGeneration = cfg.HubGeneration
 	h := hub.New(world, hub.SystemClock{}, hubCfg, log)
-	ticker := time.NewTicker(hubCfg.TickInterval)
-	defer ticker.Stop()
+	if cfg.PrimaryHealthURL != "" {
+		h.SetStandby(true)
+	}
 	loopDone := make(chan struct{})
 	go func() {
 		defer close(loopDone)
+		if cfg.PrimaryHealthURL != "" {
+			log.Info("hub starting in standby mode: watching primary", "primary_health_url", cfg.PrimaryHealthURL, "hub_generation", cfg.HubGeneration)
+			client := &http.Client{Timeout: 500 * time.Millisecond}
+			promoted := hub.WatchPrimary(ctx, cfg.PrimaryHealthURL, 500*time.Millisecond, 500*time.Millisecond, func(reqCtx context.Context, url string) (int, error) {
+				req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+				if err != nil {
+					return 0, err
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					return 0, err
+				}
+				defer resp.Body.Close()
+				return resp.StatusCode, nil
+			}, log)
+			if !promoted {
+				return
+			}
+			h.SetStandby(false)
+		}
+		ticker := time.NewTicker(hubCfg.TickInterval)
+		defer ticker.Stop()
 		h.Run(ctx, ticker.C)
 	}()
 
@@ -79,7 +103,7 @@ func run() error {
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.ListenAndServe() }()
-	log.Info("hub listening", "addr", cfg.Listen, "world_addr", cfg.WorldAddr)
+	log.Info("hub listening", "addr", cfg.Listen, "world_addr", cfg.WorldAddr, "hub_generation", cfg.HubGeneration, "standby", cfg.PrimaryHealthURL != "")
 
 	select {
 	case err := <-serveErr:

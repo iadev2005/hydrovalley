@@ -26,6 +26,8 @@ rectangle "hydrovalley" {
   usecase "Activar o desactivar modo demo" as UC_Demo
   usecase "Reiniciar valle" as UC_Reiniciar
   usecase "Lanzar prueba de carga" as UC_Carga
+  usecase "Crear cuentas de bots" as UC_CuentasBots
+  usecase "Ver panel del sistema" as UC_Sistema
 
   usecase "Evaporar y hacer crecer" as UC_Evolucion
 }
@@ -39,12 +41,16 @@ Jugador --> UC_Ranking
 Jugador --> UC_Reporte
 Jugador --> UC_Mensaje
 Jugador --> UC_Obra
+Jugador --> UC_Sistema
 
 UC_Incendio .> UC_Gota : <<extend>>\n(la casilla está ardiendo)
 
 Admin --> UC_Demo
 Admin --> UC_Reiniciar
 Admin --> UC_Carga
+Admin --> UC_CuentasBots
+
+UC_Carga .> UC_CuentasBots : <<include>>
 
 Tick --> UC_Evolucion
 
@@ -92,8 +98,26 @@ end note
 note right of UC_Carga
   RNF-01, RNF-02, CP-11.
   Se lanza desde el contenedor de
-  los bots (docker compose run bots
-  load-test), no desde la interfaz.
+  los bots (docker compose --profile
+  bots run bots load-test), no desde
+  la interfaz. Con las credenciales de
+  administrador que recibe el bot.
+end note
+note right of UC_CuentasBots
+  POST /api/admin/bot-accounts, solo con
+  token de administrador. Crea jugadores
+  normales (rol player) para los bots; el
+  bot entra luego por /play como cualquier
+  jugador. Escenarios de los bots: vecinos
+  (neighbors), carga (load), tramposo
+  (cheater, CP-03) y bombero (firefighter,
+  CP-04).
+end note
+note right of UC_Sistema
+  RNF-08. Página sistema.html, que consulta
+  GET /api/system (estado de nginx, API, hub,
+  world y persistence, y cifras del hub).
+  Solo lectura, sin token.
 end note
 
 @enduml

@@ -2,11 +2,11 @@
   "rules": {
     "drop": {
       "water_cost_liters": 1,
-      "humidity_points": 25,
+      "humidity_points": 100,
       "demo_humidity_points": 1
     },
     "tank": {
-      "capacity_liters": 20,
+      "capacity_liters": 10,
       "refill_liters": 1,
       "refill_interval_seconds": 2
     },
@@ -14,21 +14,34 @@
       "humidity_per_stage_points": 100,
       "leaves_grass": 1,
       "leaves_shrub": 2,
-      "leaves_flowers": 4,
-      "leaves_tree": 8,
+      "leaves_flowers": 3,
+      "leaves_tree": 5,
       "tree_max_humidity_points": 100
     },
     "evaporation": {
       "humidity_per_second_points": 2,
-      "wither_after_ticks": 100
+      "wither_after_ticks": 140
     },
     "fire": {
       "drops_to_extinguish": 3,
-      "extinguish_bonus_leaves": 5,
+      "extinguish_bonus_leaves": 3,
       "burn_out_ticks": 300,
-      "ignition_chance_ppm": 50
+      "ignition_chance_ppm": 400,
+      "propagation_chance_ppm": 3000
     },
-    "installation_price_increase_percent": 15,
+    "terrain": {
+      "river_width_tiles": 2,
+      "rock_count": 12
+    },
+    "urban": {
+      "building_tree_threshold": 2,
+      "building_humidity_points_threshold": 500,
+      "max_buildings": 2,
+      "trash_interval_seconds": 15,
+      "trash_spread_interval_seconds": 20,
+      "clean_reward_leaves": 1
+    },
+    "installation_price_increase_percent": 5,
     "offline_installation_seconds": 7200
   },
   "installations": {
@@ -36,17 +49,27 @@
       "price_leaves": 10,
       "area_side_tiles": 3,
       "humidity_points": 25,
-      "interval_seconds": 2
+      "interval_seconds": 2,
+      "durability": 30
     },
     "drip": {
       "price_leaves": 25,
       "area_side_tiles": 5,
-      "evaporation_divisor": 2
+      "evaporation_divisor": 2,
+      "durability": 30,
+      "wear_interval_seconds": 2
     },
     "treatment_plant": {
       "price_leaves": 40,
-      "refill_liters": 1,
-      "interval_seconds": 2
+      "refill_liters": 3,
+      "interval_seconds": 2,
+      "durability": 30
+    },
+    "trash_bin": {
+      "price_leaves": 15,
+      "area_side_tiles": 3,
+      "interval_seconds": 2,
+      "durability": 30
     }
   },
   "upgrades": {

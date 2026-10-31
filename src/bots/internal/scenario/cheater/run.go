@@ -101,8 +101,7 @@ func Run(ctx context.Context, cfg Config, s Session) (Report, error) {
 	if st.Width == 0 || st.Height == 0 {
 		return Report{}, errors.New("the state carries no valley size (width/height)")
 	}
-	r := rand.New(rand.NewPCG(cfg.Seed, 1))
-	pick := func() (uint32, uint32) { return r.Uint32N(st.Width), r.Uint32N(st.Height) }
+	pick := tilePicker(rand.New(rand.NewPCG(cfg.Seed, 1)), st)
 
 	var rep Report
 	var err error
@@ -122,6 +121,28 @@ func Run(ctx context.Context, cfg Config, s Session) (Report, error) {
 		rep.Notes = append(rep.Notes, "Fuera del modo demo las gotas cuestan agua: las rechazadas por `insufficient_water` cuentan como admitidas por el hub, porque el límite las dejó pasar (CP-03 prueba el límite, no la economía).")
 	}
 	return rep, nil
+}
+
+// tilePicker elige casillas al azar entre las que aceptan una gota según el
+// primer estado: con el terreno natural, los edificios y la basura, una
+// casilla cualquiera podría rechazarla con `tile_occupied` y la fase de la
+// acción repetida no vería su `applied`. Sin mapa, cualquier casilla.
+func tilePicker(r *rand.Rand, st client.State) func() (uint32, uint32) {
+	var free []int
+	if n := int(st.Width) * int(st.Height); len(st.Stages) >= n {
+		for i := range n {
+			if st.AcceptsDrop(i) {
+				free = append(free, i)
+			}
+		}
+	}
+	if len(free) == 0 {
+		return func() (uint32, uint32) { return r.Uint32N(st.Width), r.Uint32N(st.Height) }
+	}
+	return func() (uint32, uint32) {
+		i := free[r.IntN(len(free))]
+		return uint32(i) % st.Width, uint32(i) / st.Width
+	}
 }
 
 func duplicatesPhase(ctx context.Context, cfg Config, s Session, pick func() (uint32, uint32)) (Duplicates, error) {

@@ -28,6 +28,8 @@ const mockSystemView: SystemView = {
     humidityContributed: "1500",
     acceptedDrops: "300",
     activeFires: "2",
+    bootId: "boot-1",
+    restoredTick: "50",
   },
 };
 

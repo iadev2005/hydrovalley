@@ -1,0 +1,422 @@
+{
+  "total_audited": 23,
+  "passed": 23,
+  "failed": 0,
+  "compliance_rate": "100.0%",
+  "sprites": [
+    {
+      "file": "clean_sparkle.png",
+      "dimensions": [
+        16,
+        16
+      ],
+      "bbox": [
+        3,
+        3,
+        14,
+        13
+      ],
+      "visible_pixels": 46,
+      "unique_colors": 6,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "droplet.png",
+      "dimensions": [
+        16,
+        16
+      ],
+      "bbox": [
+        3,
+        1,
+        14,
+        16
+      ],
+      "visible_pixels": 111,
+      "unique_colors": 4,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "fire.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        0,
+        0,
+        32,
+        32
+      ],
+      "visible_pixels": 556,
+      "unique_colors": 17,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "fire_sheet.png",
+      "dimensions": [
+        128,
+        32
+      ],
+      "bbox": [
+        0,
+        0,
+        128,
+        32
+      ],
+      "visible_pixels": 2224,
+      "unique_colors": 37,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "splash.png",
+      "dimensions": [
+        32,
+        16
+      ],
+      "bbox": [
+        4,
+        1,
+        28,
+        14
+      ],
+      "visible_pixels": 85,
+      "unique_colors": 6,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_selector.png",
+      "dimensions": [
+        32,
+        16
+      ],
+      "bbox": [
+        0,
+        0,
+        32,
+        16
+      ],
+      "visible_pixels": 288,
+      "unique_colors": 4,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "drip.png",
+      "dimensions": [
+        32,
+        16
+      ],
+      "bbox": [
+        4,
+        0,
+        26,
+        14
+      ],
+      "visible_pixels": 88,
+      "unique_colors": 9,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "sprinkler.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        2,
+        1,
+        29,
+        27
+      ],
+      "visible_pixels": 186,
+      "unique_colors": 19,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "trash_bin.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        10,
+        7,
+        23,
+        28
+      ],
+      "visible_pixels": 223,
+      "unique_colors": 12,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "treatment_plant.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        0,
+        6,
+        32,
+        32
+      ],
+      "visible_pixels": 432,
+      "unique_colors": 36,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "building_house.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        4,
+        1,
+        29,
+        29
+      ],
+      "visible_pixels": 407,
+      "unique_colors": 16,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_1_dry.png",
+      "dimensions": [
+        32,
+        16
+      ],
+      "bbox": [
+        0,
+        0,
+        32,
+        16
+      ],
+      "visible_pixels": 288,
+      "unique_colors": 4,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_2_grass.png",
+      "dimensions": [
+        32,
+        16
+      ],
+      "bbox": [
+        0,
+        0,
+        32,
+        16
+      ],
+      "visible_pixels": 288,
+      "unique_colors": 4,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_3_bush.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        2,
+        2,
+        30,
+        28
+      ],
+      "visible_pixels": 566,
+      "unique_colors": 5,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_4_flowers.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        4,
+        13,
+        27,
+        29
+      ],
+      "visible_pixels": 171,
+      "unique_colors": 8,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_5_tree.png",
+      "dimensions": [
+        64,
+        80
+      ],
+      "bbox": [
+        2,
+        4,
+        62,
+        77
+      ],
+      "visible_pixels": 2550,
+      "unique_colors": 9,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_polluted_soil.png",
+      "dimensions": [
+        32,
+        16
+      ],
+      "bbox": [
+        0,
+        0,
+        32,
+        16
+      ],
+      "visible_pixels": 288,
+      "unique_colors": 14,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_rock.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        2,
+        12,
+        30,
+        31
+      ],
+      "visible_pixels": 326,
+      "unique_colors": 11,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "tile_water.png",
+      "dimensions": [
+        32,
+        16
+      ],
+      "bbox": [
+        0,
+        0,
+        32,
+        16
+      ],
+      "visible_pixels": 288,
+      "unique_colors": 7,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "trash_1_small.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        10,
+        21,
+        24,
+        28
+      ],
+      "visible_pixels": 43,
+      "unique_colors": 12,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "trash_2_medium.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        7,
+        14,
+        25,
+        27
+      ],
+      "visible_pixels": 129,
+      "unique_colors": 8,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "trash_3_large.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        5,
+        5,
+        28,
+        29
+      ],
+      "visible_pixels": 276,
+      "unique_colors": 10,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "trash_water.png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "bbox": [
+        7,
+        18,
+        25,
+        28
+      ],
+      "visible_pixels": 115,
+      "unique_colors": 12,
+      "status": "PASS",
+      "errors": [],
+      "warnings": []
+    }
+  ]
+}

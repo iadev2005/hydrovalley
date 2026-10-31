@@ -38,6 +38,8 @@ type Stats struct {
 	// el hub y aplicadas (APPLIED, incluido el DUPLICATE tratado como
 	// APPLIED tras un Step fallido).
 	AdmittedPerSecond, AppliedPerSecond float64
+	// Acciones totales acumuladas desde que arrancó el hub.
+	AdmittedTotal, AppliedTotal uint64
 	// Latencia desde la admisión hasta el resultado final (applied,
 	// duplicate, rejected o expired) en la misma ventana.
 	Latency metrics.Summary
@@ -64,6 +66,8 @@ func (h *Hub) Stats() Stats {
 		Tick: h.tick, Paused: h.paused, Breaker: h.breaker.State().String(), QueueLen: len(h.queue),
 		AcceptedDrops: h.acceptedDrops, BootID: h.bootID, RestoredTick: h.restoredTick, At: now,
 		HumidityContributed: h.latestWorld.GetHumidityContributed(),
+		AdmittedTotal:       h.admittedTotal.Load(),
+		AppliedTotal:        h.appliedTotal.Load(),
 	}
 	for _, p := range h.players {
 		st.Sessions += len(p.sessions)

@@ -3,9 +3,12 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,8 +16,17 @@ import (
 
 // Config es la configuración común de todos los escenarios.
 type Config struct {
-	// BaseURL es la dirección del proxy, p. ej. http://nginx:8080.
-	BaseURL       string
+	// BaseURL es la dirección del proxy primario, p. ej. http://nginx:8080.
+	BaseURL string
+	// BaseURLs contiene la lista ordenada y sin duplicados de todas las URLs de
+	// entrada configuradas en HV_BASE_URL (separadas por comas).
+	BaseURLs []string
+	// TLSInsecure (HV_TLS_INSECURE) omite la verificación del certificado del
+	// proxy: solo para el certificado autofirmado del laboratorio.
+	TLSInsecure bool
+	// CACertPath (HV_CA_CERT) es un certificado PEM que se confía además de
+	// los del sistema; es la opción preferible a TLSInsecure.
+	CACertPath    string
 	AdminUsername string
 	AdminPassword string
 	// Count es el número de bots (por defecto 3, el rango de «vecinos»).
@@ -38,12 +50,26 @@ type Config struct {
 	// 0 = el valor del catálogo de arranque (5).
 	SeedPlants bool
 	FireBonus  uint64
+	// LoadRanking (BOTS_LOAD_RANKING) activa la consulta en bucle de
+	// GET /api/ranking durante la prueba de carga para medir RNF-03.
+	// LoadRankingInterval (BOTS_LOAD_RANKING_INTERVAL) es la espera entre
+	// consultas; 2 s por defecto, para quedar por debajo del límite de la API
+	// (60 lecturas por minuto y por IP).
+	LoadRanking         bool
+	LoadRankingInterval time.Duration
+	// LoadBaselineReport (BOTS_LOAD_BASELINE_REPORT) es la ruta del informe
+	// JSON de una ejecución sin ranking; su p95 es la línea base de RNF-03.
+	LoadBaselineReport string
 	// LogLevel es el nivel de slog.
 	LogLevel slog.Level
 }
 
 // Valores de arranque de la prueba de carga (CP-11).
 const (
+	// DefaultLoadRankingInterval es la única fuente del intervalo por defecto
+	// entre consultas de ranking; la prueba de carga la toma de aquí.
+	DefaultLoadRankingInterval = 2 * time.Second
+
 	loadCount    = 30
 	loadDuration = 60 * time.Second
 )
@@ -72,9 +98,25 @@ func Load(getenv func(string) string) (Config, error) {
 		ReportPath:    strings.TrimSpace(getenv("BOTS_REPORT_PATH")),
 		LogLevel:      slog.LevelInfo,
 	}
-	if c.BaseURL == "" {
-		return c, errors.New("HV_BASE_URL is required (e.g. http://nginx:8080)")
+	rawBase := strings.TrimSpace(getenv("HV_BASE_URL"))
+	if rawBase == "" {
+		return c, errors.New("HV_BASE_URL is required (e.g. https://nginx:8080)")
 	}
+	seenURLs := make(map[string]struct{})
+	for _, part := range strings.Split(rawBase, ",") {
+		u := strings.TrimSpace(part)
+		if u == "" {
+			continue
+		}
+		if _, ok := seenURLs[u]; !ok {
+			seenURLs[u] = struct{}{}
+			c.BaseURLs = append(c.BaseURLs, u)
+		}
+	}
+	if len(c.BaseURLs) == 0 {
+		return c, errors.New("HV_BASE_URL is required (e.g. https://nginx:8080)")
+	}
+	c.BaseURL = c.BaseURLs[0]
 	if v := getenv("BOTS_COUNT"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
@@ -88,6 +130,17 @@ func Load(getenv func(string) string) (Config, error) {
 			return c, fmt.Errorf("BOTS_RESET must be true or false, got %q", v)
 		}
 		c.Reset = b
+	}
+	if v := getenv("HV_TLS_INSECURE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("HV_TLS_INSECURE must be true or false, got %q", v)
+		}
+		c.TLSInsecure = b
+	}
+	c.CACertPath = strings.TrimSpace(getenv("HV_CA_CERT"))
+	if c.TLSInsecure && c.CACertPath != "" {
+		return c, errors.New("HV_TLS_INSECURE and HV_CA_CERT are mutually exclusive: use only one")
 	}
 	if v := getenv("BOTS_DURATION"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -117,6 +170,22 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		c.Seed, c.SeedSet = n, true
 	}
+	c.LoadRankingInterval = DefaultLoadRankingInterval
+	if v := getenv("BOTS_LOAD_RANKING"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("BOTS_LOAD_RANKING must be true or false, got %q", v)
+		}
+		c.LoadRanking = b
+	}
+	if v := getenv("BOTS_LOAD_RANKING_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return c, fmt.Errorf("BOTS_LOAD_RANKING_INTERVAL must be a positive duration such as 1s or 500ms, got %q", v)
+		}
+		c.LoadRankingInterval = d
+	}
+	c.LoadBaselineReport = strings.TrimSpace(getenv("BOTS_LOAD_BASELINE_REPORT"))
 	if v := getenv("LOG_LEVEL"); v != "" {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {
 			return c, fmt.Errorf("LOG_LEVEL must be debug, info, warn or error, got %q", v)
@@ -135,4 +204,38 @@ func (c Config) RequireAdmin() error {
 		return errors.New("HV_ADMIN_PASSWORD is required to provision bot accounts")
 	}
 	return nil
+}
+
+// WarnIfInsecure avisa una sola vez, a nivel WARN, de que la verificación del
+// certificado del proxy está desactivada (HV_TLS_INSECURE=true). Cada
+// escenario la llama una vez al crear su registro.
+func (c Config) WarnIfInsecure(log *slog.Logger) {
+	if c.TLSInsecure {
+		log.Warn("HV_TLS_INSECURE=true: the proxy certificate is NOT verified; use HV_CA_CERT outside the Compose network")
+	}
+}
+
+// TLSConfig arma la configuración TLS de los clientes: nil si no se pidió
+// nada (se usan los certificados del sistema), una que omite la verificación
+// con HV_TLS_INSECURE, o una que confía en el certificado de HV_CA_CERT además
+// de los del sistema.
+func (c Config) TLSConfig() (*tls.Config, error) {
+	switch {
+	case c.TLSInsecure:
+		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil //nolint:gosec // opt-in para el certificado autofirmado del laboratorio
+	case c.CACertPath != "":
+		pemBytes, err := os.ReadFile(c.CACertPath)
+		if err != nil {
+			return nil, fmt.Errorf("HV_CA_CERT: cannot read %q: %w", c.CACertPath, err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pemBytes) {
+			return nil, fmt.Errorf("HV_CA_CERT: %q has no PEM certificate", c.CACertPath)
+		}
+		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+	}
+	return nil, nil
 }

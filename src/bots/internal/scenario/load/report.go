@@ -2,6 +2,7 @@ package load
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -19,12 +20,35 @@ const (
 	// envío.
 	RNF02MaxLatency = 200 * time.Millisecond
 	RNF02Percent    = 95
+	// RNF03Margin es cuánto puede subir el p95 de las acciones con el ranking
+	// en bucle respecto a la misma carga sin ranking (la línea base). El
+	// documento inicial solo pide que el ranking no haga pasar a las acciones
+	// de los 200 ms de RNF-02, sin cifrar «cuánto» empeorar es aceptable: el
+	// 20 % es un umbral elegido por el equipo (decisión pendiente de
+	// confirmar), pensado para absorber el ruido entre dos ejecuciones sin
+	// dejar pasar un deterioro claro. RNF-03 exige además p95 <= RNF02MaxLatency.
+	RNF03Margin = 0.20
+	// RNF03MinRankingQueries es el mínimo de consultas de ranking exitosas
+	// para que RNF-03 se pueda evaluar. Con 2 s de intervalo y 60 s de carga
+	// salen unas 30; con menos de 10 el ranking apenas ejerció presión, y con
+	// cualquier error (salvo la consulta que la propia prueba cancela al
+	// cerrar la ventana, que no se cuenta) lo medido no es el ranking en
+	// funcionamiento. Un valor elegido por el equipo, como RNF03Margin.
+	RNF03MinRankingQueries = 10
 )
 
 // Counters son los contadores del modo demo que el hub difunde en `state`.
 type Counters struct {
 	Humidity uint64
 	Accepted uint64
+}
+
+// RankingMeasurement reúne lo medido de las consultas periódicas de ranking.
+type RankingMeasurement struct {
+	Sent      int
+	Success   int
+	Errors    int
+	Latencies []time.Duration
 }
 
 // Measurement es lo medido, sin interpretar: la entrada de BuildReport.
@@ -41,6 +65,9 @@ type Measurement struct {
 	// Latencies son las de las acciones con resultado del hub.
 	Latencies       []time.Duration
 	Baseline, Final Counters
+	// Ranking contiene las consultas de GET /api/ranking si se ejecutó con ranking.
+	Ranking     *RankingMeasurement
+	BaselineP95 time.Duration
 }
 
 // LatencyMS resume la latencia, en milisegundos.
@@ -48,6 +75,17 @@ type LatencyMS struct {
 	P50 float64 `json:"p50"`
 	P95 float64 `json:"p95"`
 	Max float64 `json:"max"`
+}
+
+// RankingStats resume las métricas de las consultas de ranking en el informe.
+type RankingStats struct {
+	QueriesSent    int       `json:"queries_sent"`
+	QueriesOK      int       `json:"queries_ok"`
+	Errors         int       `json:"errors"`
+	LatencyMS      LatencyMS `json:"latency_ms"`
+	RNF03OK        bool      `json:"rnf03_ok"`
+	RNF03Evaluated bool      `json:"rnf03_evaluated"`
+	BaselineP95MS  float64   `json:"baseline_p95_ms"`
 }
 
 // Report es el informe de la prueba, tal como se escribe en JSON.
@@ -69,16 +107,23 @@ type Report struct {
 	LatencyWithinLimit float64 `json:"latency_within_limit_ratio"`
 	// HumidityContributed y AcceptedDrops son las diferencias entre el final
 	// y el inicio de la prueba.
-	HumidityContributed uint64   `json:"humidity_contributed"`
-	AcceptedDrops       uint64   `json:"accepted_drops"`
-	InvariantOK         bool     `json:"invariant_ok"`
-	RNF01OK             bool     `json:"rnf01_ok"`
-	RNF02OK             bool     `json:"rnf02_ok"`
-	Notes               []string `json:"notes,omitempty"`
+	HumidityContributed uint64        `json:"humidity_contributed"`
+	AcceptedDrops       uint64        `json:"accepted_drops"`
+	InvariantOK         bool          `json:"invariant_ok"`
+	RNF01OK             bool          `json:"rnf01_ok"`
+	RNF02OK             bool          `json:"rnf02_ok"`
+	Ranking             *RankingStats `json:"ranking,omitempty"`
+	Notes               []string      `json:"notes,omitempty"`
 }
 
-// Passed dice si se cumplen las tres comprobaciones de CP-11.
-func (r Report) Passed() bool { return r.InvariantOK && r.RNF01OK && r.RNF02OK }
+// Passed dice si se cumplen las tres comprobaciones de CP-11 (y RNF-03 si hubo ranking).
+func (r Report) Passed() bool {
+	base := r.InvariantOK && r.RNF01OK && r.RNF02OK
+	if r.Ranking != nil {
+		return base && r.Ranking.RNF03OK
+	}
+	return base
+}
 
 // Percentile devuelve el percentil p (0 a 1) por el método del rango más
 // cercano; sorted debe venir ordenado. Una muestra vacía da 0.
@@ -149,7 +194,58 @@ func BuildReport(m Measurement) Report {
 	if m.SendErrors > 0 {
 		r.Notes = append(r.Notes, fmt.Sprintf("%d turnos sin conexión para enviar.", m.SendErrors))
 	}
+	if m.Ranking != nil {
+		rlat := append([]time.Duration(nil), m.Ranking.Latencies...)
+		sort.Slice(rlat, func(i, j int) bool { return rlat[i] < rlat[j] })
+		rlatMS := LatencyMS{P50: toMS(Percentile(rlat, 0.50)), P95: toMS(Percentile(rlat, 0.95))}
+		if len(rlat) > 0 {
+			rlatMS.Max = toMS(rlat[len(rlat)-1])
+		}
+		r.Ranking = &RankingStats{
+			QueriesSent: m.Ranking.Sent,
+			QueriesOK:   m.Ranking.Success,
+			Errors:      m.Ranking.Errors,
+			LatencyMS:   rlatMS,
+		}
+		switch {
+		case m.Ranking.Success < RNF03MinRankingQueries || m.Ranking.Errors > 0:
+			// Sin consultas suficientes y sin errores, lo medido no es el
+			// ranking en funcionamiento: no se evalúa ni se da por cumplido.
+			r.Notes = append(r.Notes, fmt.Sprintf(
+				"RNF-03 no se pudo evaluar: se exigen al menos %d consultas de ranking exitosas y ninguna con error (hubo %d exitosas y %d con error).",
+				RNF03MinRankingQueries, m.Ranking.Success, m.Ranking.Errors))
+		case m.BaselineP95 > 0:
+			// RNF-03: con el ranking en bucle, el p95 de las acciones no pasa
+			// de los 200 ms ni se aleja de la línea base más que el margen.
+			p95 := Percentile(lat, 0.95)
+			r.Ranking.BaselineP95MS = toMS(m.BaselineP95)
+			r.Ranking.RNF03Evaluated = true
+			r.Ranking.RNF03OK = p95 <= RNF02MaxLatency && float64(p95) <= float64(m.BaselineP95)*(1+RNF03Margin)
+		default:
+			r.Notes = append(r.Notes, "RNF-03 no se pudo evaluar: falta la línea base (p95 de la misma carga sin ranking).")
+		}
+	}
 	return r
+}
+
+// BaselineP95FromReport lee el p95 de las acciones de un informe de una
+// ejecución sin ranking (la línea base de RNF-03). Rechaza un informe con
+// ranking, porque no sería una línea base, y uno sin latencias.
+func BaselineP95FromReport(data []byte) (time.Duration, error) {
+	var r struct {
+		LatencyMS LatencyMS     `json:"latency_ms"`
+		Ranking   *RankingStats `json:"ranking"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return 0, fmt.Errorf("baseline report: %w", err)
+	}
+	if r.Ranking != nil {
+		return 0, errors.New("baseline report: it was run with the ranking loop, so it is not a baseline")
+	}
+	if r.LatencyMS.P95 <= 0 {
+		return 0, errors.New("baseline report: it has no p95 latency")
+	}
+	return time.Duration(r.LatencyMS.P95 * float64(time.Millisecond)), nil
 }
 
 // MarshalReport codifica el informe en JSON con sangría.
@@ -220,6 +316,21 @@ func FormatSummary(r Report) string {
 	fmt.Fprintf(&b, "RNF-01 (al menos %.0f gotas aceptadas por segundo): %s\n", RNF01MinDropsPerSecond, verdict(r.RNF01OK))
 	fmt.Fprintf(&b, "RNF-02 (el %d %% de las acciones en menos de %d ms): %s (%s %%)\n",
 		RNF02Percent, RNF02MaxLatency.Milliseconds(), verdict(r.RNF02OK), decimal(r.LatencyWithinLimit*100))
+	if r.Ranking != nil {
+		fmt.Fprintf(&b, "Ranking en bucle: %s consultas (%s exitosas, %s errores)\n",
+			thousands(r.Ranking.QueriesSent), thousands(r.Ranking.QueriesOK), thousands(r.Ranking.Errors))
+		fmt.Fprintf(&b, "Latencia del ranking: mediana %s ms · p95 %s ms · máxima %s ms\n",
+			decimal(r.Ranking.LatencyMS.P50), decimal(r.Ranking.LatencyMS.P95), decimal(r.Ranking.LatencyMS.Max))
+		if r.Ranking.RNF03Evaluated {
+			fmt.Fprintf(&b, "RNF-03 (p95 de las acciones con ranking <= %.0f ms y <= línea base + %.0f %%): %s (p95 %s ms con ranking · %s ms línea base)\n",
+				float64(RNF02MaxLatency.Milliseconds()), RNF03Margin*100, verdict(r.Ranking.RNF03OK),
+				decimal(r.LatencyMS.P95), decimal(r.Ranking.BaselineP95MS))
+		} else if r.Ranking.QueriesOK < RNF03MinRankingQueries || r.Ranking.Errors > 0 {
+			fmt.Fprintf(&b, "RNF-03: NO se pudo evaluar, las consultas de ranking no bastan (se exigen al menos %d exitosas y ninguna con error)\n", RNF03MinRankingQueries)
+		} else {
+			b.WriteString("RNF-03: NO se pudo evaluar, sin línea base (ejecuta antes la misma carga sin ranking y pásala con BOTS_LOAD_BASELINE_REPORT)\n")
+		}
+	}
 	for _, n := range r.Notes {
 		fmt.Fprintf(&b, "Nota: %s\n", n)
 	}

@@ -102,6 +102,25 @@ SECTIONS: dict[str, Section] = {
             _u64("extinguish_bonus_leaves", "extinguish_bonus_leaves"),
             _u32("burn_out_ticks", "burn_out_ticks", minimum=1),
             Field("ignition_chance_ppm", "ignition_chance_ppm", PPM_MAX),
+            Field("propagation_chance_ppm", "propagation_chance_ppm", PPM_MAX),
+        ),
+    ),
+    "terrain": Section(
+        "rule",
+        (
+            _u32("river_width_tiles", "river_width", maximum=8),
+            _u32("rock_count", "rock_count", maximum=1024),
+        ),
+    ),
+    "urban": Section(
+        "rule",
+        (
+            _u32("building_tree_threshold", "building_tree_threshold"),
+            _u64("building_humidity_points_threshold", "building_humidity_threshold"),
+            _u32("max_buildings", "max_buildings", maximum=1024),
+            _u32("trash_interval_seconds", "trash_interval_seconds", minimum=1),
+            _u32("trash_spread_interval_seconds", "trash_spread_interval_seconds", minimum=1),
+            _u64("clean_reward_leaves", "clean_reward_leaves"),
         ),
     ),
     "installation_price_increase_percent": Section(
@@ -117,6 +136,7 @@ SECTIONS: dict[str, Section] = {
             _u32("area_side_tiles", "area_side", minimum=1),
             _u64("humidity_points", "humidity"),
             _u32("interval_seconds", "interval_seconds", minimum=1),
+            _u32("durability", "durability", minimum=1),
         ),
     ),
     "drip": Section(
@@ -125,6 +145,8 @@ SECTIONS: dict[str, Section] = {
             _u64("price_leaves", "price"),
             _u32("area_side_tiles", "area_side", minimum=1),
             _u32("evaporation_divisor", "evaporation_divisor", minimum=1),
+            _u32("durability", "durability", minimum=1),
+            _u32("wear_interval_seconds", "wear_interval_seconds", minimum=1),
         ),
     ),
     "treatment_plant": Section(
@@ -133,6 +155,16 @@ SECTIONS: dict[str, Section] = {
             _u64("price_leaves", "price"),
             _u64("refill_liters", "refill_amount"),
             _u32("interval_seconds", "interval_seconds", minimum=1),
+            _u32("durability", "durability", minimum=1),
+        ),
+    ),
+    "trash_bin": Section(
+        "installation",
+        (
+            _u64("price_leaves", "price"),
+            _u32("area_side_tiles", "area_side", minimum=1),
+            _u32("interval_seconds", "interval_seconds", minimum=1),
+            _u32("durability", "durability", minimum=1),
         ),
     ),
     "bigger_drop": Section(

@@ -1,0 +1,5 @@
+# Intermedios de LaTeX
+*.aux
+*.log
+*.out
+*.xdv

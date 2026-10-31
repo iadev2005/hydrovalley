@@ -126,7 +126,7 @@ Y de la portabilidad (plan A ↔ plan B):
 
 **Bots:** `docker compose -f deploy/compose.yml --profile bots run --rm bots neighbors` (también `load-test`, `cheater`, `firefighter`), con `HV_ADMIN_USERNAME` y `HV_ADMIN_PASSWORD`.
 
-**Punta a punta:** `tests/e2e/run.sh` levanta el sistema con claves efímeras en el proyecto `hydrovalley-e2e` y corre el smoke, los casos de fallos (CP-05, 06, 07, 12) y CP-08. Tarda unos 7 minutos en el CI. `E2E_SKIP_FAULTS=1` omite los fallos; `HV_HTTP_PORT=18091` si el 8080 está ocupado.
+**Punta a punta:** `tests/e2e/run.sh` levanta el sistema con claves efímeras en el proyecto `hydrovalley-e2e` y corre el smoke, CP-01 (100 gotas simultáneas), los casos de fallos (CP-05, 06, 07, 12), CP-08 y, al final con un stack nuevo y el catálogo de prueba, CP-04 (`E2E_SKIP_CP04=1` lo omite). Tarda unos 7 minutos en el CI. `E2E_SKIP_FAULTS=1` omite los fallos; `HV_HTTP_PORT=18091` si el 8080 está ocupado.
 
 ---
 
@@ -144,6 +144,8 @@ Y de la portabilidad (plan A ↔ plan B):
 Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o más (conviene partirla). El "perfil" sugiere quién encaja mejor según el reparto del documento (sección «El reparto»).
 
 ### Resumen
+
+Tareas tomadas (actualízalo en tu PR cuando tomes o cierres una): A1, A2, A3 y A4 hechas (Fer2703, PR #46–#50); A8, A9 y A10 hechas (Cristian Baczek, integradas y corregidas por Claude, PR #56); A5, A6 y A7 hechas (Claude, por encargo de Ignacio; PR #51–#53, detalle en `odd/tasks/a5-a7-tls-tracing-diagrams.md`); A11 hecha (Claude, PR #55); A12 hecha (Alfonso, `docs/patrones.md`); B1 hecha (Claude, PR #59) y ensayada en el laboratorio el 23 de octubre (Fer y el equipo; registro en `docs/registro-despliegue-laboratorio.md`); B2 hecha (PR #62); B3 hecha (Cristian Baczek, integrada por Claude); B5 hecha (Claude, PR #60–#65; `world-go` sustituye a Rust por configuración; comparativa medida bajo D-03); B6 hecha (Alfonso José Palma Alvarado, completada e integrada por Claude, PR #73; Rust, `world-go`, persistencia, hub y frontend); B7 hecha (Cristian Baczek, integrada por Claude); B8 completada (Fer2703: Fases 0–5 cerradas; documento de decisión con mediciones en `docs/decisiones/b8-orquestacion.md`, tareas T1–T6 completadas y mediciones de aceptación registradas en `odd/tasks/b8-failover.md`).
 
 | ID | Tarea | Nivel | Tamaño | Depende de | Perfil |
 | --- | --- | --- | --- | --- | --- |
@@ -168,6 +170,7 @@ Tamaños: **S** ≈ 1 día · **M** ≈ 2–3 días · **L** ≈ una semana o m�
 | B6 | Resumen al volver | 2 | M | A2 | Rust + TypeScript |
 | B7 | Prometheus y Grafana | 2 | M | — | Contenedores |
 | B8 | Mantener el juego con una máquina apagada (orquestación) | 2 | L | B1, B5 | Contenedores + Go |
+| B9 | Expansión de jugabilidad (terreno, durabilidad, basura y cesto) | 2 | L | B5 | Rust + Go + TypeScript |
 | C1 | Informe | — | L | — | Todos |
 | C2 | Ensayo de la defensa y video de respaldo | — | M | B1 | Todos |
 | D1–D3 | Decisiones del equipo | — | — | — | Todos |
@@ -265,9 +268,9 @@ Prioridad para la semana 5 (12–16 oct, se cierra el nivel 1): **A1 primero** (
 #### A9 · CP-04 contra un valle real con incendios
 
 - **Por qué:** el bombero existe, pero en las ejecuciones reales no apareció ningún incendio (`odd/tasks/bots.md`, T4). CP-04 solo está probado con un mundo simulado.
-- **Archivos:** `tests/e2e/`; un catálogo de prueba (las cifras viven en `catalog/`; la persistencia lo lee de `CATALOG_PATH`).
+- **Archivos:** `tests/e2e/cp04-firefighter.test.mjs`, `tests/e2e/fixtures/catalog.test-fire.json`, `tests/e2e/compose.cp04.yml`, `tests/e2e/run.sh`.
 - **Qué hacer:** levantar el e2e con un catálogo de prueba con `fire.ignition_chance_ppm` alto (sin tocar `catalog/catalog.json`), sembrar plantas, esperar a que se sequen y ardan, y correr `bots firefighter`. Comprobar: el fuego se apaga una vez, hay un solo bono, y nada se pierde.
-- **Aceptación:** caso e2e en verde y el resultado anotado en `odd/tasks/bots.md` y en el documento si cambia un `[DATO]`.
+- **Aceptación y resultado:** CUMPLE (`tests/e2e/cp04-firefighter.test.mjs` en verde; `run.sh` lo corre al final, con un stack nuevo y el catálogo de prueba). Valores de **una ejecución** del autor del caso (14 oct 2026, `[DATO: máquina de esa ejecución]`), no una cifra fija: con `ignition_chance_ppm = 500.000` en `catalog.test-fire.json`, la casilla sembrada en (10, 10) ardió en el tick 933 (el tick de ignición varía de una ejecución a otra: depende del azar y del momento en que arranca el valle). 3 bots en 20 s vieron 1 incendio y lo apagaron en 1 ronda (3 gotas enviadas, 3 aplicadas, 75 de humedad aportada); el bono (5 hojas en esa ejecución) lo recibió un único bot, 0 consumidos y 0 sin apagar. El caso exige un incendio visto y apagado y exactamente un bot con el bono; no exige el tick ni la cantidad de gotas.
 
 #### A10 · Prueba de carga en el CI y RNF-03
 
@@ -297,8 +300,9 @@ Cada uno es un PR pequeño:
 - **CP-08:** en `tests/e2e/faults-startup.test.mjs` el comentario dice que el acceso se pide una vez, pero se reintenta cada 3 s (puede tocar el límite de 10 por minuto). Corregir comentario o espera; ajustar la ventana de `RestartCount`.
 - **RNF-10:** `run.sh` mide el arranque pero no lo exige (< 5 min). Medirlo desde cero (sin caché) y exigirlo.
 - **Frontend:** al reconectar, mostrar las acciones reenviadas como «resultado desconocido» hasta su resultado final; el botón **Actualizar** del ranking debe respetar `Retry-After` tras un 429.
+- **`/api/catalog` (aviso de la revisión de A11):** con la persistencia caída y la copia vencida, cada refresco espera hasta unos 3 s antes de servir la copia vieja (`src/api/src/catalog-cache.ts`). Mejor servir la copia al instante y refrescar en segundo plano, o recordar el fallo unos segundos.
 - **README raíz:** dice React + Phaser; aclarar el estado hasta que A2/A3 estén.
-- **Reglas del valle:** `odd/tasks/valley-rules.md` (T5) quedó a medias por falta de comprobación en navegador; hacerla tras A2.
+- **Reglas del valle:** `odd/tasks/valley-rules.md` (T5) comprobada en navegador con el frontend React + Phaser (A2/A3/A4) y cerrada con [x].
 
 ---
 
@@ -308,7 +312,7 @@ Cada uno es un PR pequeño:
 
 - **Por qué:** primero del nivel 2 y objetivo real del proyecto (RES-07). El profesor apagará una máquina en la defensa.
 - **Depende de:** A1 (imágenes en ghcr.io) y de que el encargado del laboratorio cree la regla del cortafuegos (entrada TCP 8080, 8081, 8082, 50051 y 5433 desde `10.68.17.0/24`).
-- **Archivos:** `deploy/nodes/<nodo>.yml` (`db.yml`, `persistence.yml`, `world.yml`, `hub.yml`, `proxy.yml`), `scripts/` (diagnóstico y despliegue), `deploy/nodes/README.md`.
+- **Archivos:** `deploy/nodes/<nodo>.yml` (`db.yml`, `persistence.yml`, `world.yml`, `hub.yml`, `proxy.yml`), `deploy/nodes/lab-addresses.example` y `secrets.example`, `deploy/nodes/simulate.sh` (simulación del plan A en una máquina), `scripts/lab/` (PowerShell: diagnóstico, despliegue y salud), `deploy/nodes/README.md` (guía del día del laboratorio).
 - **Qué hacer:**
   1. Un Compose por máquina con las **mismas imágenes**; solo cambian direcciones y puertos (`10.68.17.x:puerto`). Incluir `HUB_STATS_ADDR` para la API.
   2. Script de diagnóstico: comprueba que cada máquina ve los puertos de las demás antes de levantar nada.
@@ -329,6 +333,7 @@ Cada uno es un PR pequeño:
 - **Archivos:** `src/world/src/domain/` (reglas y pruebas), `catalog/catalog.json` (cifras nuevas), documento (D-01, con las cifras propuestas por el equipo).
 - **Qué hacer:** el fuego salta a vecinas con una probabilidad por tick definida en el catálogo; solo con el generador con semilla (regla 6), así la misma semilla da el mismo valle (CP-10).
 - **Aceptación:** pruebas de dominio deterministas; CP-10 sigue pasando; las cifras nuevas en D-01.
+- **Estado:** hecha (Cristian Baczek; integrada y corregida por Claude). Cifra de catálogo `fire.propagation_chance_ppm = 2000` (0,2 % por tick, unos 2 % por segundo; valor inicial elegido por el equipo). Un sorteo del generador con semilla por casilla elegible con vecina ardiendo, por filas y antes de la ignición, con la 4-vecindad ortogonal y solo desde los fuegos que ardían al empezar el paso (sin cascadas dentro de un tick). Está también en `world-go` (misma regla, conformidad byte a byte con el guion `08-propagacion`). La elegibilidad es la de siempre (planta, humedad 0, sin fuego); no se dejaron ganchos para biomas u obras (RF-26): cuando B4 los necesite, se añaden con su regla y sus pruebas.
 
 #### B4 · Obras comunitarias (RF-26)
 
@@ -348,6 +353,7 @@ Cada uno es un PR pequeño:
 
 - **Por qué:** nivel 2 (escena del documento «Al día siguiente»).
 - **Qué hacer:** al volver, el jugador ve qué pasó desde su última conexión (instalaciones que trabajaron, incendios, hojas ganadas). Proponer el diseño (qué calcula Rust, qué guarda la persistencia, qué muestra el frontend) antes de programar.
+- **Estado:** hecha (Alfonso José Palma Alvarado, integrada por Claude). Rust y `world-go` acumulan, por jugador, lo que hicieron sus aspersores desde su última acción aplicada (casillas crecidas, hojas, agua reutilizada, fuegos apagados) y lo borra su siguiente acción; va en `PlayerRecord` (campo 16, solo si no está vacío) y en `PlayerState`. El hub lo manda en el primer `state` de cada conexión (`OfflineSummaryView`) y el frontend lo muestra en un panel descartable. La persistencia guarda además los acumulados de la época (`fires_extinguished`, `tiles_grown`, u64) para los reportes. El goteo y la planta no cuentan (D-01). Pruebas: guion de conformidad `09-resumen-offline` y `tests/e2e/offline-summary.test.mjs`.
 
 #### B7 · Prometheus y Grafana
 
@@ -355,16 +361,26 @@ Cada uno es un PR pequeño:
 - **Archivos:** `deploy/` (servicios bajo un perfil, como `bots`), métricas en el hub (ya existen en `/stats`), API y persistencia.
 - **Qué hacer:** exponer `/metrics` (el hub ya calcula las cifras en `internal/metrics`), Prometheus que las recoge y un tablero de Grafana versionado como archivo.
 - **Aceptación:** el tablero muestra lo mismo que `/sistema.html` y más historia.
+- **Estado:** hecha (Cristian Baczek, integrada por Claude). Hub y API exponen `GET /metrics`; `compose.yml` añade `prometheus` y `grafana` bajo el perfil `monitoring` (puertos solo en `127.0.0.1`, Grafana anónimo de solo lectura); los destinos de scrape se configuran con `HUB_METRICS_ADDR` y `API_METRICS_ADDR` (plan A). El simulador y la persistencia no tienen `/metrics` propio: se vigilan por las sondas de la API (`hydrovalley_service_status`). Ficha: `odd/tasks/b7-prometheus-grafana.md`.
 
 #### B8 · Mantener el juego con una máquina apagada (orquestación)
 
 - **Por qué:** el profesor sugirió la orquestación de contenedores. Hoy, si se apaga la máquina del hub, de nginx o de Rust, el juego se detiene hasta que vuelve (ver «Resultados medidos» en el documento).
-- **Depende de:** B1 (plan A funcionando) y, para Rust, B5.
-- **Qué hacer:** **investigar primero** y presentar opciones con pros y contras antes de construir nada:
-  - Un hub y un nginx en espera en otra máquina y una forma de pasar el tráfico.
-  - Para el simulador: el escritor único impide dos copias activas, así que el relevo sería una copia en espera (`world-go` o Rust) que arranca desde la última instantánea.
-  - Orquestadores: Kubernetes (k3s) o Swarm. `CLAUDE.md` descarta Swarm (puertos y Docker Desktop sobre WSL) y D-05 deja Kubernetes para cuando todo funcione.
-- **Aceptación:** un documento de decisión con la opción elegida y su prueba; luego, una tarea de implementación.
+- **Depende de:** B1 (plan A funcionando) y, para Rust, B5 (ambas listas).
+- **Decisión aprobada (`docs/decisiones/b8-orquestacion.md`):**
+  - **Topología (6 máquinas):** las 5 PCs del Plan A (`10.68.17.3` `db`, `10.68.17.9` `persistence`, `10.68.17.10` `world`, `10.68.17.12` `hub`, `10.68.17.11` `proxy`) más una **6.ª máquina física (`standby.yml`)** que aloja `proxy-standby` (`:8080`), `hub-standby` (`:8081`) y `world-standby` con `world-go` (`:50051`).
+  - **Entrada (`E2`):** segundo nodo `proxy` con el mismo certificado TLS multi-SAN y la misma `TOKEN_PRIVATE_KEY`, conmutación automática en el frontend y los bots y `upstream` de nginx con `backup` hacia `hub-standby`.
+  - **Simulador (`W2`):** `world-standby` corre `world-go` en modo `WORLD_MODE=standby` (carga la instantánea solo al recibir su primer `Step`, nunca al arrancar). Si la máquina de Rust (`10.68.17.10`) se despausa o vuelve, el campo `min_expected_tick` de `StepRequest` obliga a Rust a descartar su memoria vieja y recargar la instantánea escrita por `world-go`, permitiendo regresar de Go a Rust (*failback*) sin que el tick retroceda jamás.
+  - **Hub (`H2`):** `hub-standby` vigila `/healthz` del primario y se promueve con `hub_generation = 2` en `StepRequest`. Si el hub primario se despausa (`docker unpause`), recibe `FAILED_PRECONDITION`, detiene su bucle, responde `503` en `/healthz` y cierra sus WebSockets con `1001`.
+- **Desglose de implementación (`odd/tasks/b8-failover.md`):** `T1` (entrada doble y cliente con rotación automática), `T2` (simulador `standby` y regreso `world-go → Rust`), `T3` (hub `standby` y *fencing* con retirada al despausar), `T4` (`standby.yml`, `simulate.sh` y scripts del laboratorio), `T5` (casos e2e de failover y `unpause`), `T6` (documentación y diagramas 04 y 08). `T7` (`kind` multinodo) queda descartada por calendario.
+- **Aceptación:** apagar o pausar la máquina de `world`, `hub` o `proxy` mantiene el juego en marcha ($\le 50\text{ ticks}$ perdidos), sin que el jugador tenga que cambiar de IP y sin que despausar la máquina original genere dos escritores ni retroceda el tick.
+
+#### B9 · Expansión de jugabilidad (terreno, durabilidad, basura y cesto)
+
+- **Estado:** expansión de jugabilidad en evaluación (Cristian, FonsoP; integrada por Claude). Está en la rama `feature/gameplay-expansion`, que reúne `pulido` (durabilidad, basura, cesto y las cifras 100 / 3) y `feature/new-assets` (sprites y rediseño de la escena), y se fusiona en `dev` solo si el equipo la prueba jugando y le gusta.
+- **Qué hace:** ver `docs/plan-expansion-mecanicas.md` y la fila «Expansión de jugabilidad» de D-01. Rust y `world-go` dan los mismos bytes (guion `10-expansion-jugabilidad` de la conformidad); las cifras nuevas viven en `catalog/` y D-01 las recoge como «Valores elegidos por el equipo para la jugabilidad».
+- **Cambios respecto a las ramas originales (para revisar):** el terreno natural usa el generador con semilla del mundo (regla 6) en lugar de uno derivado de una semilla que la instantánea no guarda; las cifras que estaban escritas en el código (intervalos urbanos, recompensa, número de rocas, desgaste del goteo) pasaron al catálogo; `clean_trash` comparte con la gota el límite de 15 por segundo; una gota sobre basura se rechaza; los aspersores y la planta no hacen crecer casillas con basura o edificio; el cesto aparece en `next_prices`; las instantáneas anteriores se restauran con las instalaciones nuevas. Los guiones de conformidad 01 a 09 fijan las cifras originales de D-01.
+- **Pendiente:** `[DATO: decidir si los valores del equipo se congelan]`, y confirmar la autoría y la licencia de los sprites nuevos (`src/frontend/assets/README.md`).
 
 ---
 

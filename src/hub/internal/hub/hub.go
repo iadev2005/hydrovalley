@@ -72,6 +72,9 @@ type Config struct {
 	// los registros inactivos. Las bajas por eventos (desconexión, resultado
 	// final, poda de confirmed) no esperan a este barrido.
 	SweepInterval time.Duration
+	// HubGeneration es la generación monótona enviada en StepRequest para el
+	// fencing de hubs (D-B8-1); por defecto 1.
+	HubGeneration uint64
 }
 
 // DefaultConfig devuelve las cifras de CLAUDE.md y del documento (Capa 3).
@@ -91,6 +94,7 @@ func DefaultConfig() Config {
 		BroadcastEvery:   time.Second,
 		OutboxSize:       256,
 		SweepInterval:    time.Second,
+		HubGeneration:    1,
 	}
 }
 
@@ -169,8 +173,15 @@ type Status struct {
 	Paused   bool
 	Breaker  string
 	QueueLen int
-	// Ready: el hub puede servir partidas (circuito cerrado y el último Step
-	// respondió).
+	// Fenced: el hub fue desplazado por otro con mayor hub_generation (recibió
+	// FAILED_PRECONDITION de Step). Cuando es verdadero, /healthz y /readyz
+	// responden 503 y las sesiones WebSocket se cierran con StatusGoingAway.
+	Fenced bool
+	// Standby: el hub está en espera vigilando al primario y todavía no ha
+	// sido promovido.
+	Standby bool
+	// Ready: el hub puede servir partidas (activo, no desplazado, circuito
+	// cerrado y el último Step respondió).
 	Ready bool
 }
 
@@ -183,9 +194,16 @@ type queued struct {
 	inFailedStep bool
 }
 
-// isDrop dice si el comando es una gota: solo las gotas consumen el límite
-// de 15/s y cuentan como gotas aceptadas (las compras y los comandos de
-// administración no).
+// isRateLimited dice si el comando consume el límite de gotas por segundo: la
+// gota y la limpieza de basura, las dos acciones repetibles sobre una casilla
+// que un clic sostenido puede disparar. Las compras ya las frena el gasto de
+// hojas y las de administración no se limitan.
+func (q queued) isRateLimited() bool {
+	return q.cmd.GetDrop() != nil || q.cmd.GetCleanTrash() != nil
+}
+
+// isDrop dice si el comando es una gota: solo las gotas cuentan como gotas
+// aceptadas (las compras, la limpieza y los comandos de administración no).
 func (q queued) isDrop() bool { return q.cmd.GetDrop() != nil }
 
 type confirmEntry struct {
@@ -217,6 +235,10 @@ type Hub struct {
 	clock Clock
 	cfg   Config
 	log   *slog.Logger
+	// debug es verdadero si el registro admite nivel debug: se consulta una
+	// vez al crear el hub para que el camino caliente no arme argumentos que
+	// no se van a escribir.
+	debug bool
 
 	mu      sync.Mutex
 	players map[string]*player
@@ -226,6 +248,10 @@ type Hub struct {
 	breaker    *breaker.Breaker
 	paused     bool
 	succeeded  bool
+	fenced     bool
+	standby    bool
+	fencedCh   chan struct{}
+	fenceOnce  sync.Once
 	tick       uint64
 	bootID     string
 	// restoredTick es el tick del que Rust se recuperó en su arranque, tal como
@@ -243,23 +269,30 @@ type Hub struct {
 	lastBroadcast time.Time
 	lastSweep     time.Time
 	// Métricas de /stats: tienen su propio candado corto y no dependen de mu.
-	admittedRate *metrics.Rate
-	appliedRate  *metrics.Rate
-	latency      *metrics.Samples
-	stepTimes    *metrics.Samples
-	stepFailures atomic.Uint64
+	admittedRate  *metrics.Rate
+	appliedRate   *metrics.Rate
+	admittedTotal atomic.Uint64
+	appliedTotal  atomic.Uint64
+	latency       *metrics.Samples
+	stepTimes     *metrics.Samples
+	stepFailures  atomic.Uint64
 }
 
 // New crea el hub. El bucle del tick arranca con Run.
 func New(world WorldClient, clock Clock, cfg Config, log *slog.Logger) *Hub {
+	if cfg.HubGeneration == 0 {
+		cfg.HubGeneration = 1
+	}
 	return &Hub{
-		world:   world,
-		clock:   clock,
-		cfg:     cfg,
-		log:     log,
-		players: make(map[string]*player),
-		breaker: breaker.New(cfg.BreakerThreshold, cfg.ProbeInterval),
-		ledger:  make(map[uint64]uint64),
+		world:    world,
+		clock:    clock,
+		cfg:      cfg,
+		log:      log,
+		debug:    log.Enabled(context.Background(), slog.LevelDebug),
+		players:  make(map[string]*player),
+		breaker:  breaker.New(cfg.BreakerThreshold, cfg.ProbeInterval),
+		ledger:   make(map[uint64]uint64),
+		fencedCh: make(chan struct{}),
 
 		admittedRate: metrics.NewRate(StatsWindowSeconds),
 		appliedRate:  metrics.NewRate(StatsWindowSeconds),
@@ -268,14 +301,29 @@ func New(world WorldClient, clock Clock, cfg Config, log *slog.Logger) *Hub {
 	}
 }
 
+// Fenced devuelve un canal que se cierra cuando el hub recibe
+// FAILED_PRECONDITION de Step (fue desplazado por una generación superior).
+func (h *Hub) Fenced() <-chan struct{} { return h.fencedCh }
+
+// SetStandby marca o desmarca el hub como en espera (hub-standby antes de ser
+// promovido).
+func (h *Hub) SetStandby(standby bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.standby = standby
+}
+
 // Session es una conexión WebSocket registrada en el hub.
 type Session struct {
 	playerID string
 	role     auth.Role
 	withMap  bool
-	out      chan proto.Message
-	kicked   chan struct{}
-	kickOnce sync.Once
+	// summaryPending: el resumen al volver (RF-25) todavía no se ha enviado
+	// por esta conexión. Lo usa broadcastLocked bajo el candado del hub.
+	summaryPending bool
+	out            chan proto.Message
+	kicked         chan struct{}
+	kickOnce       sync.Once
 }
 
 // PlayerID devuelve el jugador de la conexión.
@@ -305,11 +353,12 @@ func (s *Session) Send(m proto.Message) {
 // (map=false) omite el mapa en la difusión.
 func (h *Hub) Connect(playerID string, role auth.Role, withMap bool) *Session {
 	s := &Session{
-		playerID: playerID,
-		role:     role,
-		withMap:  withMap,
-		out:      make(chan proto.Message, h.cfg.OutboxSize),
-		kicked:   make(chan struct{}),
+		playerID:       playerID,
+		role:           role,
+		withMap:        withMap,
+		summaryPending: true,
+		out:            make(chan proto.Message, h.cfg.OutboxSize),
+		kicked:         make(chan struct{}),
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -380,6 +429,15 @@ func (h *Hub) SubmitBuy(s *Session, b frames.Buy) Outcome {
 	})
 }
 
+// SubmitCleanTrash filtra la limpieza de una casilla de basura (Fase 4).
+func (h *Hub) SubmitCleanTrash(s *Session, c frames.CleanTrash) Outcome {
+	return h.submit(s, c.ActionID, func() (*worldv1.Command, Outcome) {
+		return &worldv1.Command{Kind: &worldv1.Command_CleanTrash{
+			CleanTrash: &worldv1.CleanTrashCommand{X: c.X, Y: c.Y},
+		}}, Admitted
+	})
+}
+
 // SubmitAdmin filtra un comando de administración (RF-31). Sin role = admin
 // responde "forbidden" al instante y no deja rastro (ni pending, ni cola).
 // Con ese rol pasa por la misma admisión que la gota (pending, confirmed y
@@ -418,6 +476,7 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	}
 	cmd, outcome := build()
 	if outcome != Admitted {
+		h.logOutcome(s.playerID, actionID, outcome)
 		s.replyLocked(actionID, outcome)
 		return outcome
 	}
@@ -425,28 +484,32 @@ func (h *Hub) submit(s *Session, actionID string, build func() (*worldv1.Command
 	cmd.ActionId = actionID
 	cmd.PlayerId = s.playerID
 	if _, ok := p.pending[actionID]; ok {
+		h.logOutcome(s.playerID, actionID, IgnoredPending)
 		return IgnoredPending
 	}
 	now := h.clock.Now()
 	switch {
 	case hasKey(p.confirmed, actionID):
 		outcome = RejectedDuplicate
-	case q.isDrop() && !p.limiter.Permits(now):
+	case q.isRateLimited() && !p.limiter.Permits(now):
 		outcome = RejectedRateLimited
 	case len(h.queue) >= h.cfg.QueueCap:
 		outcome = RejectedPaused
 	}
 	if outcome != Admitted {
+		h.logOutcome(s.playerID, actionID, outcome)
 		s.replyLocked(actionID, outcome)
 		return outcome
 	}
-	if q.isDrop() {
+	if q.isRateLimited() {
 		p.limiter.Record(now)
 	}
 	p.pending[actionID] = struct{}{}
 	q.admittedAt = now
 	h.queue = append(h.queue, q)
 	h.admittedRate.Add(now)
+	h.admittedTotal.Add(1)
+	h.logOutcome(s.playerID, actionID, Admitted)
 	return Admitted
 }
 
@@ -466,6 +529,51 @@ func hasKey[V any](m map[string]V, k string) bool {
 	return ok
 }
 
+const (
+	// PrimaryFailThreshold son los fallos seguidos de /healthz del hub primario
+	// tras los cuales el hub-standby se promueve y arranca su bucle de tick.
+	PrimaryFailThreshold = 3
+)
+
+// WatchPrimary vigila la URL de salud del hub primario (con sondas HTTP GET
+// cada interval y plazo timeout) y devuelve true cuando acumula
+// PrimaryFailThreshold fallos consecutivos, o false si ctx termina antes.
+func WatchPrimary(ctx context.Context, healthURL string, interval, timeout time.Duration, doGet func(context.Context, string) (int, error), log *slog.Logger) bool {
+	if interval <= 0 {
+		interval = 500 * time.Millisecond
+	}
+	if timeout <= 0 {
+		timeout = 500 * time.Millisecond
+	}
+	failures := 0
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		probeCtx, cancel := context.WithTimeout(ctx, timeout)
+		code, err := doGet(probeCtx, healthURL)
+		cancel()
+		if err != nil || code != 200 {
+			failures++
+			if log != nil {
+				log.Warn("primary hub health check failed", "url", healthURL, "consecutive_failures", failures, "status", code, "err", err)
+			}
+			if failures >= PrimaryFailThreshold {
+				if log != nil {
+					log.Info("promoting standby hub after primary health failures", "url", healthURL, "consecutive_failures", failures)
+				}
+				return true
+			}
+		} else {
+			failures = 0
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
 // Run ejecuta el bucle del tick: una vuelta por cada valor de ticks (en
 // producción, un time.Ticker de 100 ms). Como es un solo bucle y Step es
 // síncrono, nunca hay dos llamadas a Step a la vez; si una tarda más de
@@ -474,6 +582,8 @@ func (h *Hub) Run(ctx context.Context, ticks <-chan time.Time) {
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-h.fencedCh:
 			return
 		case <-ticks:
 			h.Tick(ctx)
@@ -496,7 +606,9 @@ func (h *Hub) Status() Status {
 	state := h.breaker.State()
 	return Status{
 		Tick: h.tick, Paused: h.paused, Breaker: state.String(), QueueLen: len(h.queue),
-		Ready: h.succeeded && !h.paused && state == breaker.Closed,
+		Fenced:  h.fenced,
+		Standby: h.standby,
+		Ready:   !h.fenced && !h.standby && h.succeeded && !h.paused && state == breaker.Closed,
 	}
 }
 
